@@ -9,15 +9,28 @@ export interface Turn {
 
 const HISTORY_CHARS = 8000;
 const TURN_CHARS = 1500;
+// Claude Code and Codex wrap context, slash commands, shell escapes and notifications they add to
+// the user role in these tags; none of them is a request the user typed.
 const INJECTED_PREFIXES = [
   '# AGENTS.md',
+  '<bash-input>',
+  '<bash-stderr>',
+  '<bash-stdout>',
+  '<command-args>',
+  '<command-message>',
   '<command-name>',
   '<environment_context>',
   '<local-command-caveat>',
-  '<local-command-stdout>',
   '<local-command-stderr>',
+  '<local-command-stdout>',
   '<permissions instructions>',
+  '<subagent_notification>',
   '<system-reminder>',
+  '<task-notification>',
+  '<turn_aborted>',
+  '<user-prompt-submit-hook>',
+  '<user_instructions>',
+  '<user_shell_command>',
 ] as const;
 
 /** Known harness-injected blocks are not conversation; preserve arbitrary user markup. */
