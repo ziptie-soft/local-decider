@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.1.1](https://github.com/ziptie-soft/local-decider/compare/local-decider-v2.1.0...local-decider-v2.1.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **plugin:** harden Codex decision hooks ([7ace527](https://github.com/ziptie-soft/local-decider/commit/7ace5275193afaef967e20ae30fc0989d9de8248))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @ziptie-soft/local-decider-core bumped to 2.1.1
+
 ## [2.1.0](https://github.com/ziptie-soft/local-decider/compare/local-decider-v2.0.0...local-decider-v2.1.0) (2026-11-14)
 
 
