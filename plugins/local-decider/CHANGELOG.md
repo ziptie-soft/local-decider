@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/ziptie-soft/local-decider/compare/agent-plugin-v2.0.0...agent-plugin-v2.0.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **plugin:** harden Codex decision hooks ([7ace527](https://github.com/ziptie-soft/local-decider/commit/7ace5275193afaef967e20ae30fc0989d9de8248))
+
 ## [2.0.0](https://github.com/ziptie-soft/local-decider/compare/agent-plugin-v1.0.2...agent-plugin-v2.0.0) (2026-11-12)
 
 

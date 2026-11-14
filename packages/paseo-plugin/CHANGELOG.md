@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.1](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v2.1.0...paseo-plugin-v2.1.1) (2026-11-14)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @ziptie-soft/local-decider-core bumped to 2.1.1
+
 ## [2.1.0](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v2.0.0...paseo-plugin-v2.1.0) (2026-11-14)
 
 
