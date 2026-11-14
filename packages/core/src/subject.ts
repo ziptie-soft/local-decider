@@ -37,10 +37,10 @@ function shellQuote(word: string): string {
   return SHELL_SAFE.test(word) ? word : `'${word.replaceAll("'", String.raw`'\''`)}'`;
 }
 
-/** Tools whose `command` is file content, not a shell command. */
+/** Only known shell tools have a `command` that the deterministic guard can interpret. */
 export function isShellTool(hook: HookInput): boolean {
   const tool = str(hook['tool_name']) ?? '';
-  return tool !== 'apply_patch' && !/^(?:Edit|Write|MultiEdit|NotebookEdit)$/.test(tool);
+  return ['Bash', 'shell', 'exec_command'].includes(tool);
 }
 
 /** Build the shared, cross-harness subject from native tool metadata. */

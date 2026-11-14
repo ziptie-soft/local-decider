@@ -8,6 +8,17 @@ import type { GuardHit } from './guard.ts';
 import type { HookEvent, HookHarness } from './mapping.ts';
 
 const PREFIX = 'local-decider';
+const REASON_DETAIL_CHARS = 160;
+
+function safeReasonDetail(value: string): string {
+  const printable = Array.from(value, (character) => {
+    const code = character.codePointAt(0) ?? 0;
+    const control =
+      code <= 0x1f || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029;
+    return control ? ' ' : character;
+  }).join('');
+  return printable.replace(/\s+/g, ' ').trim().slice(0, REASON_DETAIL_CHARS);
+}
 
 function json(value: unknown): string {
   return `${JSON.stringify(value)}\n`;
@@ -96,7 +107,7 @@ function reasonOf(res: DecideResponse): string {
   const detail =
     answer === undefined
       ? ''
-      : ` (${answer[0]}=${answer[1].answer}, confidence ${answer[1].confidence.toFixed(2)})`;
+      : ` (${safeReasonDetail(answer[0])}=${safeReasonDetail(answer[1].answer)}, confidence ${answer[1].confidence.toFixed(2)})`;
   return `${PREFIX} ${res.policy} policy: ${res.action}${detail}. Decision ${res.decisionId}.`;
 }
 
@@ -122,7 +133,8 @@ export function translate(
   res: DecideResponse | null,
   autoMode = false,
 ): string {
-  if (res === null || !res.enforced) {
+  const enforced: unknown = res?.enforced;
+  if (res === null || enforced !== true || res.mode !== 'act' || res.error !== undefined) {
     return '';
   }
   if (event === 'PreToolUse') {

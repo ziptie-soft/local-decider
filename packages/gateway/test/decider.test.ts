@@ -3,6 +3,7 @@ import {
   parsePolicy,
   type LogRecord,
   type Mode,
+  type SystemOneResponse,
 } from '@ziptie-soft/local-decider-core';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -336,6 +337,46 @@ describe('Decider', () => {
     assert.equal(res.action, 'ask');
     assert.equal(res.enforced, false);
     assert.equal(res.error, 'boom');
+  });
+
+  it('never enforces or caches a default when the engine gives no usable answers', async () => {
+    const invalid: SystemOneResponse[] = [
+      { model: 'fake-model', answers: {} },
+      {
+        model: 'fake-model',
+        answers: {
+          verdict: {
+            type: 'choice',
+            choice: 'allow',
+            probabilities: { allow: 1.2, ask: -0.2, deny: 0 },
+          },
+        },
+      },
+    ];
+    const loaded = policies('act', 60).get('permission');
+    assert.ok(loaded);
+    for (const response of invalid) {
+      const engine = new FakeEngine();
+      engine.respond = () => response;
+      const decider = new Decider({
+        engine,
+        policies: new Map([
+          ['permission', { ...loaded, policy: { ...loaded.policy, default: 'deny' } }],
+        ]),
+        log: tempLog(),
+        decisionTimeoutMs: 2000,
+      });
+      const request = { ...req, call: { id: 'no-answer' } };
+      for (let i = 0; i < 2; i += 1) {
+        const result = await decider.decide('permission', request, signal());
+        assert.equal(result.action, 'deny');
+        assert.equal(result.enforced, false);
+        assert.equal(result.error, 'engine returned no usable answers');
+        assert.equal(result.cached, false);
+      }
+      assert.equal(engine.requests.length, 2);
+      assert.equal(decider.calls.get('no-answer')?.decisions['permission']?.answered, false);
+    }
   });
 
   it('skips the engine when it is not ready', async () => {

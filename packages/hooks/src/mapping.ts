@@ -14,7 +14,7 @@ import {
 
 import { permissionInput, projectLabel } from './permission-input.ts';
 import { parseTurns, type TranscriptSlice } from './transcript.ts';
-import { firstUserText, historyText, lastAssistantText, type Turn } from './turns.ts';
+import { firstUserText, historyText, lastAssistantText, lastUserText, type Turn } from './turns.ts';
 
 const HOOK_HARNESSES = ['claude', 'codex'] as const;
 export type HookHarness = (typeof HOOK_HARNESSES)[number];
@@ -33,6 +33,7 @@ export const EVENT_POLICY: Readonly<Record<HookEvent, string>> = {
 export interface PolicyCall {
   readonly policy: string;
   readonly input: Readonly<Record<string, unknown>>;
+  readonly hasRecentUserContext?: boolean;
   readonly workspace?: { readonly cwd: string };
 }
 
@@ -80,6 +81,10 @@ class Transcript {
 
   head(): Turn[] {
     return parseTurns(this.#get()?.head ?? '');
+  }
+
+  hasRecentUser(): boolean {
+    return lastUserText(this.tail()) !== undefined;
   }
 }
 
@@ -155,11 +160,13 @@ export function callOf(
 
 /** Build the gateway call for an event. Transcript reads happen only for policies that use them. */
 export function mapEvent(event: HookEvent, hook: HookInput, read: ReadTranscript): PolicyCall {
-  const input = BUILDERS[event](hook, new Transcript(str(hook['transcript_path']), read));
+  const transcript = new Transcript(str(hook['transcript_path']), read);
+  const input = BUILDERS[event](hook, transcript);
   const workspace = event === 'PermissionRequest' ? workspaceOf(hook) : undefined;
   return {
     policy: EVENT_POLICY[event],
     input: compact(input),
+    ...(event === 'PermissionRequest' ? { hasRecentUserContext: transcript.hasRecentUser() } : {}),
     ...(workspace === undefined ? {} : { workspace }),
   };
 }

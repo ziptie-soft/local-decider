@@ -9,6 +9,21 @@ export interface Turn {
 
 const HISTORY_CHARS = 8000;
 const TURN_CHARS = 1500;
+const INJECTED_PREFIXES = [
+  '# AGENTS.md',
+  '<command-name>',
+  '<environment_context>',
+  '<local-command-caveat>',
+  '<local-command-stdout>',
+  '<local-command-stderr>',
+  '<permissions instructions>',
+  '<system-reminder>',
+] as const;
+
+/** Known harness-injected blocks are not conversation; preserve arbitrary user markup. */
+export function isInjectedText(text: string): boolean {
+  return INJECTED_PREFIXES.some((prefix) => text.startsWith(prefix));
+}
 
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}…`;

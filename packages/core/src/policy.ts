@@ -46,7 +46,13 @@ const choiceSchema = z.strictObject({
 const scoreSchema = z.strictObject({
   type: z.literal('score'),
   instructions: sentence,
-  criteria: z.array(sentence).min(2).max(10),
+  criteria: z
+    .array(sentence)
+    .min(2)
+    .max(10)
+    .refine((levels) => new Set(levels).size === levels.length, {
+      message: 'score levels must be unique',
+    }),
 });
 
 const questionSchema = z

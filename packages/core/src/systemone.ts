@@ -135,6 +135,12 @@ function normaliseNoul(wire: WireNoulAnswer): Answer {
   };
 }
 
+function engineConfidence(value: number | undefined): { readonly engineConfidence?: number } {
+  return value !== undefined && Number.isFinite(value) && value >= 0 && value <= 1
+    ? { engineConfidence: value }
+    : {};
+}
+
 function normaliseChoice(wire: WireChoiceAnswer): Answer {
   const [best] = argmax(wire.probabilities);
   const answer: Answer = {
@@ -145,7 +151,7 @@ function normaliseChoice(wire: WireChoiceAnswer): Answer {
     // Recomputed for every engine: d3/FastFlowLM report 1 − normalised entropy, a different scale.
     confidence: choiceConfidence(wire.probabilities),
   };
-  return wire.confidence === undefined ? answer : { ...answer, engineConfidence: wire.confidence };
+  return { ...answer, ...engineConfidence(wire.confidence) };
 }
 
 function normaliseScore(wire: WireScoreAnswer, levels: readonly string[]): Answer {
@@ -157,7 +163,7 @@ function normaliseScore(wire: WireScoreAnswer, levels: readonly string[]): Answe
     answer: best,
     probabilities,
     confidence: scoreConfidence(byIndex),
-    ...(wire.confidence === undefined ? {} : { engineConfidence: wire.confidence }),
+    ...engineConfidence(wire.confidence),
     score: wire.score,
   };
 }
@@ -210,6 +216,9 @@ function usable(wire: WireAnswer, question: Question): boolean {
   }
   if (wire.type === 'noul') {
     return Number.isFinite(wire.noul) && wire.noul >= 0 && wire.noul <= 1;
+  }
+  if (question.type === 'score' && new Set(question.criteria).size !== question.criteria.length) {
+    return false;
   }
   const ids = optionIds(question);
   if (!validProbabilities(wire.probabilities, ids)) {

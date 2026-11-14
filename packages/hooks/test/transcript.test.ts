@@ -113,6 +113,32 @@ describe('parseTurns', () => {
     ]);
   });
 
+  it('preserves user markup while skipping recognized injected wrappers', () => {
+    const turns = parseTurns(
+      jsonl([
+        {
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: '<instruction>Only run tests</instruction>' }],
+          },
+        },
+        {
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [
+              { type: 'input_text', text: '<system-reminder>Injected text</system-reminder>' },
+            ],
+          },
+        },
+      ]),
+    );
+    assert.deepEqual(turns, [{ role: 'user', text: '<instruction>Only run tests</instruction>' }]);
+  });
+
   it('ignores garbage lines', () => {
     assert.deepEqual(parseTurns('not json\n{"type":"user"}\n[1]\n\n'), []);
   });
@@ -152,6 +178,102 @@ describe('readSlice', () => {
     assert.equal(firstUserText(parseTurns(slice.head)), 'Fix the failing test');
     assert.equal(lastAssistantText(parseTurns(slice.tail)), 'Done.');
     assert.ok(slice.tail.split('\n').every((l) => l === '' || l.startsWith('{')));
+  });
+
+  it('finds Codex conversation beyond large instruction and tool-output records', () => {
+    const path = join(dir, 'codex-large-records.jsonl');
+    writeFileSync(
+      path,
+      jsonl([
+        {
+          type: 'response_item',
+          payload: { type: 'message', role: 'developer', content: 'instructions '.repeat(2000) },
+        },
+        ...codexLines,
+        {
+          type: 'response_item',
+          payload: { type: 'function_call_output', output: 'x'.repeat(20000) },
+        },
+      ]),
+    );
+    const slice = readSlice(path);
+    assert.equal(firstUserText(parseTurns(slice?.head ?? '')), 'Add a flag');
+    assert.equal(lastUserText(parseTurns(slice?.tail ?? '')), 'Add a flag');
+    assert.equal(lastAssistantText(parseTurns(slice?.tail ?? '')), 'Added --flag.');
+    assert.ok(Buffer.byteLength(slice?.head ?? '') <= 16384);
+    assert.ok(Buffer.byteLength(slice?.tail ?? '') <= 16384);
+  });
+
+  it('finds Claude conversation beyond large tool records', () => {
+    const path = join(dir, 'claude-large-records.jsonl');
+    const tool = {
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', content: 'x'.repeat(20000) }] },
+    };
+    writeFileSync(path, jsonl([tool, ...claudeLines, tool]));
+    const slice = readSlice(path);
+    assert.equal(firstUserText(parseTurns(slice?.head ?? '')), 'Fix the failing test');
+    assert.equal(lastAssistantText(parseTurns(slice?.tail ?? '')), 'Done.');
+  });
+
+  it('retains the first and latest requests when assistant history fills the output budget', () => {
+    const path = join(dir, 'many-turns.jsonl');
+    const replies = Array.from({ length: 100 }, (_, index) => ({
+      type: 'assistant',
+      message: { role: 'assistant', content: `${String(index)} ${'x'.repeat(200)}` },
+    }));
+    writeFileSync(
+      path,
+      jsonl([
+        claudeLines[1],
+        ...replies,
+        { type: 'user', message: { role: 'user', content: 'Only update the test fixture' } },
+        ...replies,
+      ]),
+    );
+    const slice = readSlice(path, 4096);
+    assert.equal(firstUserText(parseTurns(slice?.head ?? '')), 'Fix the failing test');
+    assert.equal(lastUserText(parseTurns(slice?.tail ?? '')), 'Only update the test fixture');
+    assert.equal(lastAssistantText(parseTurns(slice?.tail ?? '')), `99 ${'x'.repeat(200)}`);
+    assert.ok(Buffer.byteLength(slice?.tail ?? '') <= 4096);
+  });
+
+  it('clips oversized conversation records into valid, byte-bounded JSONL', () => {
+    const path = join(dir, 'long-user.jsonl');
+    writeFileSync(
+      path,
+      jsonl([
+        { type: 'user', message: { role: 'user', content: `Please review ${'🙂'.repeat(20000)}` } },
+      ]),
+    );
+    const slice = readSlice(path, 256);
+    assert.ok(firstUserText(parseTurns(slice?.head ?? ''))?.startsWith('Please review '));
+    assert.ok(lastUserText(parseTurns(slice?.tail ?? ''))?.startsWith('Please review '));
+    assert.ok(Buffer.byteLength(slice?.head ?? '') <= 256);
+    assert.ok(Buffer.byteLength(slice?.tail ?? '') <= 256);
+  });
+
+  it('keeps a complete tail record whose start is exactly on the read boundary', () => {
+    const path = join(dir, 'boundary.jsonl');
+    const last = jsonl([{ type: 'user', message: { role: 'user', content: 'Latest request' } }]);
+    writeFileSync(path, `${jsonl([{ type: 'tool', output: 'x'.repeat(20000) }])}${last}`);
+    const slice = readSlice(path, Buffer.byteLength(last));
+    assert.equal(lastUserText(parseTurns(slice?.tail ?? '')), 'Latest request');
+  });
+
+  it('returns empty context when useful records are beyond the fixed scan ceiling', () => {
+    const path = join(dir, 'scan-ceiling.jsonl');
+    const tool = { type: 'tool', output: 'x'.repeat(1024 * 1024 + 1) };
+    writeFileSync(path, jsonl([tool, ...claudeLines, tool]));
+    const slice = readSlice(path);
+    assert.deepEqual(slice, { head: '', tail: '' });
+  });
+
+  it('rejects invalid output budgets', () => {
+    const path = join(dir, 'small.jsonl');
+    for (const bytes of [0, -1, 1.5, Number.POSITIVE_INFINITY]) {
+      assert.equal(readSlice(path, bytes), null);
+    }
   });
 
   it('returns null for a missing file', () => {

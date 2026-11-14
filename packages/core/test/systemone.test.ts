@@ -42,6 +42,36 @@ describe('confidence formulas', () => {
 });
 
 describe('normaliseAnswers', () => {
+  it('drops duplicate score labels and omits invalid optional engine confidence', () => {
+    const duplicate: Questions = {
+      q: { type: 'score', instructions: 'Rate', criteria: ['same', 'same'] },
+    };
+    assert.deepEqual(
+      normaliseAnswers(duplicate, {
+        answers: { q: { type: 'score', score: 0.5, probabilities: { '0': 0.5, '1': 0.5 } } },
+      }),
+      {},
+    );
+    for (const confidence of [-1, 2, Number.NaN]) {
+      const choice = runWire('dept', {
+        type: 'choice',
+        choice: 'billing',
+        probabilities: { billing: 0.8, technical: 0.2 },
+        confidence,
+      });
+      const score = runWire('level', {
+        type: 'score',
+        score: 1,
+        probabilities: { '0': 0.2, '1': 0.6, '2': 0.2 },
+        confidence,
+      });
+      assert.equal(choice['dept']?.engineConfidence, undefined);
+      assert.equal(score['level']?.engineConfidence, undefined);
+      assert.ok(choice['dept']);
+      assert.ok(score['level']);
+    }
+  });
+
   it('maps the three wire types', () => {
     const answers = normaliseAnswers(QUESTIONS, {
       answers: {
