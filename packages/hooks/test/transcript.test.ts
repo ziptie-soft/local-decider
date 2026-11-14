@@ -137,6 +137,18 @@ describe('parseTurns', () => {
       ]),
     );
     assert.deepEqual(turns, [{ role: 'user', text: '<instruction>Only run tests</instruction>' }]);
+    const wrappers = [
+      '<user_instructions>Repo rules</user_instructions>',
+      '<turn_aborted>interrupted</turn_aborted>',
+      '<user_shell_command>ls</user_shell_command>',
+      '<command-message>review</command-message>\n<command-name>/review</command-name>',
+      '<task-notification>agent finished</task-notification>',
+      '<bash-input>pwd</bash-input>',
+    ];
+    assert.deepEqual(
+      parseTurns(jsonl(wrappers.map((content) => ({ message: { role: 'user', content } })))),
+      [],
+    );
   });
 
   it('ignores garbage lines', () => {
