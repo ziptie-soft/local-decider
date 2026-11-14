@@ -103,6 +103,13 @@ interface Context {
 
 async function decideAndTranslate(ctx: Context): Promise<string> {
   const call = mapEvent(ctx.event, ctx.hook, ctx.deps.readTranscript ?? readSlice);
+  if (
+    ctx.event === 'PermissionRequest' &&
+    (!call.hasRecentUserContext || typeof call.input['task'] !== 'string')
+  ) {
+    ctx.log('permission: recent user context unavailable; abstaining');
+    return '';
+  }
   const sessionId = str(ctx.hook['session_id']);
   const toolCall = callOf(ctx.harness, ctx.event, ctx.hook);
   const request: DecideRequest = {

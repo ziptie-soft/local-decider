@@ -527,6 +527,9 @@ export class Decider {
       const answers = normaliseAnswers(request.questions, response);
       const latencyMs = performance.now() - started;
       this.#latency.add(latencyMs);
+      if (Object.keys(answers).length === 0) {
+        return { answers, latencyMs, cached: false, error: 'engine returned no usable answers' };
+      }
       this.#remember(hash, answers, ttlSeconds);
       this.#successHandler?.(engine);
       return { answers, latencyMs, cached: false };

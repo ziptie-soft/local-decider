@@ -90,6 +90,10 @@ describe('parsePolicy', () => {
       '{ type: score, instructions: Rate., criteria: [Low] }',
     );
     assert.throws(() => parsePolicy(score), PolicyError);
+    assert.throws(
+      () => parsePolicy(score.replace('[Low]', '[Low, Low]')),
+      /score levels must be unique/,
+    );
   });
 
   it('requires a high threshold for allow rules and forbids allow defaults', () => {

@@ -6,7 +6,7 @@
 import { canonicalSubject } from '@ziptie-soft/local-decider-core';
 
 import { permissionInput } from '../permission-input.ts';
-import type { Turn } from '../turns.ts';
+import { isInjectedText, type Turn } from '../turns.ts';
 import type { SessionMessage, ToolCheckEvent } from './types.ts';
 
 const HEAD_TURNS = 20;
@@ -18,7 +18,7 @@ function turnsOf(messages: readonly SessionMessage[]): Turn[] {
   for (const message of messages) {
     const text = typeof message.text === 'string' ? message.text.trim() : '';
     if ((message.role === 'user' || message.role === 'assistant') && text !== '') {
-      if (!text.startsWith('<')) {
+      if (!isInjectedText(text)) {
         turns.push({ role: message.role, text });
       }
     }

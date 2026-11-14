@@ -1,19 +1,21 @@
 /**
- * Cheap, bounded transcript reading. Claude Code and Codex both write JSONL transcripts; the hook
- * reads only a fixed-size head (for the task) and tail (for recent history), never the whole file.
+ * Bounded transcript reading. Scan past large metadata/tool records for the first request and
+ * recent conversation, with fixed I/O and output ceilings rather than reading the whole file.
  */
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 
-import type { Turn } from './turns.ts';
+import { isInjectedText, type Turn } from './turns.ts';
 
 export interface TranscriptSlice {
-  /** First bytes of the file; lines past the cut are dropped. */
+  /** Bounded conversation records from the start, including the first user request when found. */
   readonly head: string;
-  /** Last bytes of the file; the first, partial line is dropped. */
+  /** Bounded recent conversation records, including the latest user request when found. */
   readonly tail: string;
 }
 
 const SLICE_BYTES = 16 * 1024;
+const MAX_SCAN_BYTES = 1024 * 1024;
+const TURN_CHARS = 1500;
 
 function readAt(fd: number, position: number, length: number): string {
   const buf = Buffer.alloc(length);
@@ -21,20 +23,87 @@ function readAt(fd: number, position: number, length: number): string {
   return buf.subarray(0, n).toString('utf8');
 }
 
-/** Read the head and tail of a file, `bytes` each. `null` when it can't be read. */
+function windowTurns(fd: number, size: number, bytes: number, tail: boolean): Turn[] {
+  const start = tail ? size - bytes : 0;
+  const offset = Math.max(0, start - 1);
+  const text = readAt(fd, offset, bytes + (start > 0 ? 1 : 0));
+  const boundary = text.indexOf('\n');
+  const first = start > 0 ? (boundary === -1 ? text.length : boundary + 1) : 0;
+  const last = !tail && bytes < size ? text.lastIndexOf('\n') + 1 : text.length;
+  return parseTurns(last < first ? '' : text.slice(first, last));
+}
+
+function scanTurns(fd: number, size: number, bytes: number, tail: boolean): Turn[] {
+  const limit = Math.min(size, MAX_SCAN_BYTES);
+  let length = Math.min(bytes, limit);
+  for (;;) {
+    const turns = windowTurns(fd, size, length, tail);
+    if (length === limit || turns.some((turn) => turn.role === 'user')) {
+      return turns;
+    }
+    length = Math.min(length * 2, limit);
+  }
+}
+
+function turnLine(turn: Turn, bytes: number): string {
+  let line = '';
+  let low = 1;
+  let high = Math.min(turn.text.length, TURN_CHARS);
+  while (low <= high) {
+    const length = Math.floor((low + high) / 2);
+    const content = `${turn.text.slice(0, length)}${length < turn.text.length ? '…' : ''}`;
+    const candidate = `${JSON.stringify({ message: { role: turn.role, content } })}\n`;
+    if (Buffer.byteLength(candidate) <= bytes) {
+      line = candidate;
+      low = length + 1;
+    } else {
+      high = length - 1;
+    }
+  }
+  return line;
+}
+
+function boundedTurns(turns: readonly Turn[], bytes: number, tail: boolean): string {
+  const user = tail
+    ? turns.findLastIndex((turn) => turn.role === 'user')
+    : turns.findIndex((turn) => turn.role === 'user');
+  const indices = Array.from({ length: turns.length }, (_, index) => index);
+  if (tail) {
+    indices.reverse();
+  }
+  const selected: { index: number; line: string }[] = [];
+  let remaining = bytes;
+  for (const index of [user, ...indices.filter((candidate) => candidate !== user)]) {
+    const turn = turns[index];
+    if (turn !== undefined) {
+      const line = turnLine(turn, remaining);
+      selected.push({ index, line });
+      remaining -= Buffer.byteLength(line);
+    }
+  }
+  return selected
+    .toSorted((left, right) => left.index - right.index)
+    .map(({ line }) => line)
+    .join('');
+}
+
+/** Read bounded first/recent conversation; scan windows grow only up to 1 MiB per end. */
 export function readSlice(path: string, bytes: number = SLICE_BYTES): TranscriptSlice | null {
   let fd: number | undefined;
   try {
+    if (!Number.isSafeInteger(bytes) || bytes <= 0) {
+      return null;
+    }
     fd = openSync(path, 'r');
     const size = fstatSync(fd).size;
-    const head = readAt(fd, 0, Math.min(bytes, size));
-    if (size <= bytes) {
+    const budget = Math.min(bytes, MAX_SCAN_BYTES);
+    if (size <= budget) {
+      const head = readAt(fd, 0, size);
       return { head, tail: head };
     }
-    const tail = readAt(fd, size - bytes, bytes);
     return {
-      head: head.slice(0, head.lastIndexOf('\n') + 1),
-      tail: tail.slice(tail.indexOf('\n') + 1),
+      head: boundedTurns(scanTurns(fd, size, budget, false), budget, false),
+      tail: boundedTurns(scanTurns(fd, size, budget, true), budget, true),
     };
   } catch {
     return null;
@@ -75,11 +144,6 @@ function messageOf(entry: Record<string, unknown>): Record<string, unknown> | nu
   return isRecord(payload) ? payload : null;
 }
 
-/** Injected context (system reminders, environment blocks, AGENTS.md) is not conversation. */
-function isInjected(text: string): boolean {
-  return text.startsWith('<') || text.startsWith('# AGENTS.md');
-}
-
 function parseLine(line: string): Turn | null {
   let entry: unknown;
   try {
@@ -93,7 +157,7 @@ function parseLine(line: string): Turn | null {
     return null;
   }
   const text = contentText(msg?.['content']).trim();
-  return text === '' || isInjected(text) ? null : { role, text };
+  return text === '' || isInjectedText(text) ? null : { role, text };
 }
 
 export function parseTurns(jsonl: string): Turn[] {

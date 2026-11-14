@@ -140,6 +140,7 @@ For Codex, point a personal `~/.agents/plugins/marketplace.json` at the checkout
 `{ "source": "local", "path": "<checkout>/plugins/local-decider" }`. Without a build the hooks
 exit 0 silently.
 
-release-please bumps this package only for commits that touch `plugins/local-decider/`. A change
-under `packages/hooks` alone does not release the plugin, so touch a file here (for example with
-a `fix(plugin):` commit) whenever the hook bundle changes.
+release-please bumps this package only for commits that touch `plugins/local-decider/`. Pull
+request CI checks that changes to shared hook/core source or the dependency lockfile include a
+change here and a PR title that triggers a release, so the plugin release includes its rebuilt
+bundle.

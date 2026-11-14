@@ -3,6 +3,7 @@
  * instead of throwing, so callers fail open to the harness's default behaviour.
  */
 import type { DecideRequest, DecideResponse } from './decision.ts';
+import { asRecord } from './subject.ts';
 
 export const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:8765';
 export const CONTROL_HEADER = 'x-local-decider-control';
@@ -49,6 +50,165 @@ export interface GatewayRequestResult {
 
 const LOOPBACK = new Set(['localhost', '[::1]', '::1']);
 const LOOPBACK_V4 = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+// Keep in step with the action grammar in policy.ts without pulling the policy parser into hooks.
+const ACTION = /^(?:allow|ask|deny|log|abstain|notify|route:[a-z0-9][a-z0-9_.-]*)$/;
+const DECISION_ID = /^[\w-]{1,128}$/;
+// Match the tolerance used when normalising engine answers in systemone.ts.
+const PROBABILITY_SUM_TOLERANCE = 0.05;
+
+function optionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string';
+}
+
+function unitNumber(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function validAnswerProbabilities(values: Record<string, unknown>): boolean {
+  const entries = Object.entries(values);
+  if (entries.length < 2) return false;
+  let sum = 0;
+  for (const [key, value] of entries) {
+    if (
+      key.trim() === '' ||
+      typeof value !== 'number' ||
+      !Number.isFinite(value) ||
+      value < 0 ||
+      value > 1
+    ) {
+      return false;
+    }
+    sum += value;
+  }
+  return Math.abs(sum - 1) <= PROBABILITY_SUM_TOLERANCE;
+}
+
+function validAnswerSemantics(
+  answer: Record<string, unknown>,
+  probabilities: Record<string, unknown>,
+): boolean {
+  const type = answer['type'];
+  const selected = answer['answer'];
+  if (typeof selected !== 'string' || !Object.hasOwn(probabilities, selected)) return false;
+  const selectedProbability = probabilities[selected] as number;
+  if (Object.values(probabilities).some((p) => (p as number) > selectedProbability)) return false;
+  if (type === 'noul') {
+    const pTrue = probabilities['true'];
+    return (
+      Object.keys(probabilities).length === 2 &&
+      typeof pTrue === 'number' &&
+      Object.hasOwn(probabilities, 'false') &&
+      selected === (pTrue > 0.5 ? 'true' : 'false') &&
+      answer['score'] === undefined
+    );
+  }
+  if (type === 'score') {
+    const score = answer['score'];
+    return (
+      typeof score === 'number' &&
+      Number.isFinite(score) &&
+      score >= 0 &&
+      score <= Object.keys(probabilities).length - 1
+    );
+  }
+  return type === 'choice' && answer['score'] === undefined;
+}
+
+function validAnswer(value: unknown): boolean {
+  const answer = asRecord(value);
+  const probabilities = asRecord(answer?.['probabilities']);
+  if (answer === undefined || probabilities === undefined) return false;
+  return (
+    (answer['type'] === 'noul' || answer['type'] === 'choice' || answer['type'] === 'score') &&
+    unitNumber(answer['confidence']) &&
+    validAnswerProbabilities(probabilities) &&
+    validAnswerSemantics(answer, probabilities) &&
+    (answer['engineConfidence'] === undefined || unitNumber(answer['engineConfidence']))
+  );
+}
+
+function validRoute(value: unknown, action: unknown): boolean {
+  if (value === undefined) return true;
+  const route = asRecord(value);
+  if (route === undefined) return false;
+  return (
+    typeof route['preset'] === 'string' &&
+    route['preset'] !== '' &&
+    action === `route:${route['preset']}` &&
+    optionalString(route['model']) &&
+    optionalString(route['mode']) &&
+    optionalString(route['thinking']) &&
+    optionalString(route['profile'])
+  );
+}
+
+function validPrecedent(value: unknown): boolean {
+  if (value === undefined) return true;
+  const tally = asRecord(value);
+  if (tally === undefined) return false;
+  return (
+    Number.isSafeInteger(tally['allows']) &&
+    Number.isSafeInteger(tally['denies']) &&
+    (tally['allows'] as number) >= 0 &&
+    (tally['denies'] as number) >= 0
+  );
+}
+
+function validDecisionCore(value: Record<string, unknown>, policy: string): boolean {
+  const enforced: unknown = value['enforced'];
+  return (
+    typeof value['decisionId'] === 'string' &&
+    DECISION_ID.test(value['decisionId']) &&
+    value['policy'] === policy &&
+    typeof value['action'] === 'string' &&
+    ACTION.test(value['action']) &&
+    typeof enforced === 'boolean' &&
+    (value['mode'] === 'off' || value['mode'] === 'shadow' || value['mode'] === 'act') &&
+    (!enforced || (value['mode'] === 'act' && value['error'] === undefined))
+  );
+}
+
+function validDecisionDetails(value: Record<string, unknown>): boolean {
+  const answers = asRecord(value['answers']);
+  const enforced: unknown = value['enforced'];
+  return (
+    answers !== undefined &&
+    (enforced !== true || Object.keys(answers).length > 0) &&
+    Object.values(answers).every(validAnswer) &&
+    Number.isSafeInteger(value['rule']) &&
+    (value['rule'] as number) >= -1 &&
+    typeof value['engine'] === 'string' &&
+    typeof value['model'] === 'string' &&
+    typeof value['latencyMs'] === 'number' &&
+    Number.isFinite(value['latencyMs']) &&
+    value['latencyMs'] >= 0 &&
+    typeof value['cached'] === 'boolean'
+  );
+}
+
+/** Reject malformed or inconsistent gateway decisions before an adapter can enforce them. */
+function isDecideResponse(
+  value: unknown,
+  policy: string,
+  scope: DecideRequest['scope'],
+): value is DecideResponse {
+  const response = asRecord(value);
+  if (
+    response === undefined ||
+    !validDecisionCore(response, policy) ||
+    !validDecisionDetails(response)
+  ) {
+    return false;
+  }
+  return (
+    optionalString(response['variant']) &&
+    response['scope'] === scope &&
+    validRoute(response['route'], response['action']) &&
+    validPrecedent(response['precedent']) &&
+    optionalString(response['precedentKey']) &&
+    optionalString(response['error'])
+  );
+}
 
 /** True when a URL's host is this machine. */
 export function loopbackUrl(baseUrl: string): boolean {
@@ -88,11 +248,12 @@ export class GatewayClient {
 
   /** Run a policy. `null` when the gateway is unreachable, slow, or answers with an error. */
   async decide(policy: string, request: DecideRequest): Promise<DecideResponse | null> {
-    return this.#request<DecideResponse>(
+    const response: unknown = await this.#request<unknown>(
       'POST',
       `/v1/decide/${encodeURIComponent(policy)}`,
       request,
     );
+    return isDecideResponse(response, policy, request.scope) ? response : null;
   }
 
   async reportOutcome(decisionId: string, outcome: string, source = 'user'): Promise<boolean> {

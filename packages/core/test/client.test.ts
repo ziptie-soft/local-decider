@@ -5,6 +5,151 @@ import { after, before, describe, it } from 'node:test';
 
 import { GatewayClient, loopbackUrl, trimTrailingSlashes } from '../src/index.ts';
 
+async function decideBody(body: unknown, scope?: 'claude-auto'): Promise<unknown> {
+  const client = new GatewayClient({ fetch: async () => Response.json(body) });
+  return client.decide('permission', {
+    harness: 'codex',
+    input: {},
+    ...(scope === undefined ? {} : { scope }),
+  });
+}
+
+describe('decision response validation', () => {
+  const valid = {
+    decisionId: 'd-1',
+    policy: 'permission',
+    mode: 'act',
+    action: 'allow',
+    enforced: true,
+    answers: {
+      q: { type: 'choice', answer: 'allow', probabilities: { allow: 1, deny: 0 }, confidence: 1 },
+    },
+    rule: 0,
+    engine: 'test',
+    model: 'test',
+    latencyMs: 1,
+    cached: false,
+  };
+  it('accepts valid decisions and non-enforced errors', async () => {
+    assert.deepEqual(await decideBody(valid), valid);
+    const failed = {
+      ...valid,
+      enforced: false,
+      action: 'abstain',
+      answers: {},
+      error: 'engine unavailable',
+    };
+    assert.deepEqual(await decideBody(failed), failed);
+    const scoped = { ...valid, scope: 'claude-auto' };
+    assert.deepEqual(await decideBody(scoped, 'claude-auto'), scoped);
+    const routed = { ...valid, action: 'route:fast', route: { preset: 'fast', model: 'model' } };
+    assert.deepEqual(await decideBody(routed), routed);
+  });
+
+  it('validates answer confidence and probability distributions before enforcement', async () => {
+    for (const probabilities of [
+      { allow: 0.96, deny: 0 },
+      { allow: 0.52, deny: 0.52 },
+    ]) {
+      const body = { ...valid, answers: { q: { ...valid.answers.q, probabilities } } };
+      assert.deepEqual(await decideBody(body), body);
+    }
+    const malformedAnswers = [
+      { confidence: -0.01 },
+      { confidence: 1.01 },
+      { probabilities: {} },
+      { probabilities: { allow: 1 } },
+      { probabilities: { '': 1 } },
+      { probabilities: { ' ': 1 } },
+      { probabilities: { allow: -0.01, deny: 1 } },
+      { probabilities: { allow: 1.01 } },
+      { probabilities: { allow: 0.94 } },
+      { probabilities: { allow: 0.53, deny: 0.53 } },
+      { answer: 'deny' },
+      { engineConfidence: -1 },
+      { engineConfidence: 2 },
+      { score: 1 },
+    ];
+    const bad = [
+      { ...valid, answers: {} },
+      ...malformedAnswers.map((overrides) => ({
+        ...valid,
+        answers: { q: { ...valid.answers.q, ...overrides } },
+      })),
+    ];
+    for (const body of bad) {
+      assert.equal(await decideBody(body), null, JSON.stringify(body));
+    }
+  });
+
+  it('checks noul and score answer semantics', async () => {
+    const noul = {
+      type: 'noul',
+      answer: 'false',
+      probabilities: { false: 0.5, true: 0.5 },
+      confidence: 0,
+    };
+    const score = {
+      type: 'score',
+      answer: 'high',
+      probabilities: { low: 0.2, high: 0.8 },
+      confidence: 0.6,
+      score: 0.8,
+    };
+    for (const answer of [noul, score]) {
+      const body = { ...valid, answers: { q: answer } };
+      assert.deepEqual(await decideBody(body), body);
+    }
+    for (const answer of [
+      { ...noul, answer: 'true' },
+      { ...noul, probabilities: { false: 0.5, other: 0.5 } },
+      { ...score, score: undefined },
+      { ...score, score: 2 },
+      { ...score, answer: 'low' },
+    ]) {
+      assert.equal(await decideBody({ ...valid, answers: { q: answer } }), null);
+    }
+  });
+
+  it('rejects non-finite numbers returned by the response parser', async () => {
+    for (const invalid of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      for (const overrides of [{ confidence: invalid }, { probabilities: { allow: invalid } }]) {
+        const body = { ...valid, answers: { q: { ...valid.answers.q, ...overrides } } };
+        const client = new GatewayClient({
+          fetch: async () => ({ status: 200, json: async () => body }) as unknown as Response,
+        });
+        assert.equal(await client.decide('permission', { harness: 'codex', input: {} }), null);
+      }
+    }
+  });
+
+  it('rejects malformed and inconsistent responses before enforcement', async () => {
+    const bad = [
+      null,
+      [],
+      { ...valid, enforced: 'false' },
+      { ...valid, decisionId: '' },
+      { ...valid, decisionId: 'bad id' },
+      { ...valid, policy: 'routing' },
+      { ...valid, action: 'allow now' },
+      { ...valid, mode: 'shadow' },
+      { ...valid, error: 'engine unavailable' },
+      { ...valid, answers: [] },
+      { ...valid, answers: { q: { type: 'choice', answer: 'a', confidence: '1' } } },
+      { ...valid, rule: -2 },
+      { ...valid, route: { preset: 42 } },
+      { ...valid, action: 'route:fast', route: { preset: 'other' } },
+      { ...valid, precedent: { allows: -1, denies: 0 } },
+      { ...valid, scope: 'other' },
+      { ...valid, scope: 'claude-auto' },
+    ];
+    for (const body of bad) {
+      assert.equal(await decideBody(body), null, JSON.stringify(body));
+    }
+    assert.equal(await decideBody(valid, 'claude-auto'), null, 'scope must be echoed');
+  });
+});
+
 describe('trimTrailingSlashes', () => {
   it('drops every trailing slash and nothing else', () => {
     assert.equal(trimTrailingSlashes('http://h:1/v1///'), 'http://h:1/v1');

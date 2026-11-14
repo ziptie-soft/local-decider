@@ -19,7 +19,8 @@ jobs:
     name: Conventional PR title
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      contents: read
     steps:
       # Same pattern as the "Conventional commits" ruleset on master.
       - name: Check the title
@@ -31,3 +32,14 @@ jobs:
             echo "::error::PR title is not a Conventional Commit: <type>(<scope>)!: <description>"
             exit 1
           fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check plugin release coupling
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TITLE: ${{ github.event.pull_request.title }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: scripts/check-plugin-release-coupling.sh "$BASE_SHA" HEAD "$TITLE" "$AUTHOR" "$HEAD_BRANCH"
