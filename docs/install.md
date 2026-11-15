@@ -226,6 +226,8 @@ local-decider engine use lmstudio qwen3-1.7b
 Use `openai-compatible` instead for a custom OpenAI-compatible server. Add `--token-env NAME` if
 it needs a bearer token; `NAME` is the environment variable name, never the token value. The URL
 and model are checked before saving, and a running gateway picks up the change without a restart.
+For `lmstudio` with no `--token-env`, the gateway reads LM Studio's own `LM_API_TOKEN` when it is
+set.
 
 For manual configuration, set the primary engine in `engine:`:
 
@@ -262,6 +264,7 @@ Caveats:
   `maxTokens`, add a `promptSuffix`, or try the other `api`.
 - `tokenEnv` names an environment variable holding an API key. It is sent only over `https` or to
   a loopback address. Store only the variable name, never the token itself, in config or Paseo.
+  Without it, `lmstudio` falls back to `LM_API_TOKEN`; other engines send no token.
   See [engines.md](engines.md#6-openai-compatible-prompt-mapping-and-caveats) for every option.
 
 ## 3. Start the gateway

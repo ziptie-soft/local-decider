@@ -1,7 +1,8 @@
-import { tokenAllowed, trimTrailingSlashes } from '@ziptie-soft/local-decider-core';
+import { trimTrailingSlashes } from '@ziptie-soft/local-decider-core';
 
 import type { GatewayConfig } from './config.ts';
 import { getJson } from './engines/http.ts';
+import { endpointToken } from './engines/openai/index.ts';
 
 /** Engines that serve an OpenAI-style `/models` list and take their model from it. */
 export const OPENAI_LIKE_ENGINES = ['openai-compatible', 'lmstudio'] as const;
@@ -199,15 +200,12 @@ export class ModelDiscovery {
       return;
     }
     const native = id === 'lmstudio' ? await this.#listNative(endpoint) : undefined;
-    const found = native ?? { models: await this.#list(endpoint), details: NONE };
+    const found = native ?? { models: await this.#list(id, endpoint), details: NONE };
     this.#found.set(id, { key: endpointKey(id, endpoint), at: this.#now(), ...found });
   }
 
-  #get(url: string, endpoint: DiscoveryEndpoint): Promise<unknown> {
-    const token =
-      endpoint.tokenEnv !== undefined && tokenAllowed(endpoint.url)
-        ? this.#env[endpoint.tokenEnv]
-        : undefined;
+  #get(url: string, id: OpenAILikeEngine, endpoint: DiscoveryEndpoint): Promise<unknown> {
+    const token = endpointToken(id, endpoint.url, endpoint.tokenEnv, this.#env);
     return getJson(url, {
       token,
       signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
@@ -222,7 +220,7 @@ export class ModelDiscovery {
   ): Promise<Pick<Discovered, 'models' | 'details'> | undefined> {
     let all: NativeModel[];
     try {
-      all = parseNativeModels(await this.#get(nativeModelsUrl(endpoint.url), endpoint));
+      all = parseNativeModels(await this.#get(nativeModelsUrl(endpoint.url), 'lmstudio', endpoint));
     } catch {
       return undefined;
     }
@@ -241,10 +239,13 @@ export class ModelDiscovery {
     return { models, details };
   }
 
-  async #list(endpoint: DiscoveryEndpoint): Promise<readonly string[]> {
+  async #list(id: OpenAILikeEngine, endpoint: DiscoveryEndpoint): Promise<readonly string[]> {
     try {
-      const response = await this.#get(`${trimTrailingSlashes(endpoint.url)}/models`, endpoint);
-      return [endpoint.model, ...parseModelIds(response).filter((id) => id !== endpoint.model)];
+      const response = await this.#get(`${trimTrailingSlashes(endpoint.url)}/models`, id, endpoint);
+      return [
+        endpoint.model,
+        ...parseModelIds(response).filter((model) => model !== endpoint.model),
+      ];
     } catch {
       return [endpoint.model];
     }

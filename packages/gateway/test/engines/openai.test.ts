@@ -331,6 +331,27 @@ describe('OpenAI-compatible engine', () => {
     assert.deepEqual(secureHeaders, ['Bearer secure-secret']);
   });
 
+  it('uses LM_API_TOKEN for lmstudio when no tokenEnv is set', async () => {
+    const env = { LM_API_TOKEN: 'lm-secret', OTHER: 'other-secret' };
+    const headers: (string | null)[] = [];
+    await new OpenAICompatibleEngine(
+      lmConfig('https://lm.example.test/v1'),
+      env,
+      fakeFetch(headers),
+    ).start();
+    await new OpenAICompatibleEngine(
+      lmConfig('https://lm.example.test/v1', { tokenEnv: 'OTHER' }),
+      env,
+      fakeFetch(headers),
+    ).start();
+    await new OpenAICompatibleEngine(
+      config('https://h.example.test/v1'),
+      env,
+      fakeFetch(headers),
+    ).start();
+    assert.deepEqual(headers, ['Bearer lm-secret', 'Bearer other-secret', null]);
+  });
+
   it('redacts a token echoed by an HTTP error before rethrowing', async () => {
     let calls = 0;
     const token = 'openai-test-secret';

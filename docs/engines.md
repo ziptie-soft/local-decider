@@ -69,7 +69,8 @@ local-decider engine use lmstudio qwen3-1.7b
 Use `openai-compatible` for other compatible servers. If a server needs authentication, pass
 `--token-env NAME` (or set the optional token environment variable in Paseo). Only the environment
 variable **name** is stored; never put the token itself in the form or config. Omitting
-`--token-env` clears a previously saved name.
+`--token-env` clears a previously saved name. With no name, `lmstudio` uses LM Studio's own
+`LM_API_TOKEN` variable when it is set; leave it unset if the server has authentication off.
 
 The effective default file is `~/.config/local-decider/config.yaml`; `LOCAL_DECIDER_CONFIG_DIR`
 can select another config directory. Connection edits are validated and applied by a running

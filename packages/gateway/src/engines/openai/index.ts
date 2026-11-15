@@ -185,6 +185,23 @@ export const openaiCompatibleEngine = defineEngine({
   create: (config, ctx) => new OpenAICompatibleEngine(config, ctx.env),
 });
 
+/** LM Studio's own token variable, read by its SDKs; the fallback when `tokenEnv` is unset. */
+const LM_STUDIO_TOKEN_ENV = 'LM_API_TOKEN';
+
+/**
+ * The bearer token for an endpoint, only over HTTPS or loopback: the `tokenEnv` variable, or for
+ * LM Studio `LM_API_TOKEN` when no variable is configured.
+ */
+export function endpointToken(
+  engine: string,
+  url: string,
+  tokenEnv: string | undefined,
+  env: NodeJS.ProcessEnv,
+): string | undefined {
+  const name = tokenEnv ?? (engine === 'lmstudio' ? LM_STUDIO_TOKEN_ENV : undefined);
+  return name === undefined || !tokenAllowed(url) ? undefined : env[name];
+}
+
 /** A chat-completions or completions endpoint scored by the probability of one option token. */
 export class OpenAICompatibleEngine implements Engine {
   readonly id: string;
@@ -206,8 +223,7 @@ export class OpenAICompatibleEngine implements Engine {
     this.#url = config.url;
     this.model = config.model;
     this.#fetch = doFetch;
-    this.#token =
-      config.tokenEnv === undefined || !tokenAllowed(config.url) ? undefined : env[config.tokenEnv];
+    this.#token = endpointToken(config.type, config.url, config.tokenEnv, env);
   }
 
   async start(): Promise<void> {
