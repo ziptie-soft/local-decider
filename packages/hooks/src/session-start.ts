@@ -2,9 +2,9 @@
  * Claude Code `SessionStart`: one gateway health check, so a session that starts without the
  * gateway says so once. Healthy → no output. Never prints the URL's userinfo, path or the token.
  */
-import { GatewayClient, str, type GatewayHealth } from '@ziptie-soft/local-decider-core';
+import { str, type GatewayHealth } from '@ziptie-soft/local-decider-core';
 
-import { gatewayConfig, type Env } from './gateway-config.ts';
+import { gatewayClient, gatewayConfig, type Env } from './gateway-config.ts';
 import type { HookHarness } from './mapping.ts';
 
 /** Gateway health; `null` when unreachable, slow or erroring. */
@@ -16,12 +16,7 @@ const MAX_DETAIL = 120;
 const MAX_STATUS = 20;
 
 export function healthFromEnv(env: Env, timeoutMs: number): Health {
-  const { url, token } = gatewayConfig(env);
-  const client = new GatewayClient({
-    baseUrl: url,
-    timeoutMs: Math.min(timeoutMs, HEALTH_TIMEOUT_MS),
-    ...(token === undefined ? {} : { token }),
-  });
+  const client = gatewayClient(env, Math.min(timeoutMs, HEALTH_TIMEOUT_MS));
   return async () => client.health();
 }
 

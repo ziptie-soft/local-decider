@@ -41,4 +41,10 @@ fi
 
 [ -f "$root/dist/local-decider-hook.mjs" ] || notice 'bundle dist/local-decider-hook.mjs missing'
 
+# The runner's SessionStart work (gateway health notice, pending purge) is Claude Code only, so
+# a healthy Codex install skips starting node.
+if [ "$harness" = codex ] && [ "$event" = SessionStart ]; then
+  exit 0
+fi
+
 exec "$node_bin" "$root/dist/local-decider-hook.mjs" "$@"
