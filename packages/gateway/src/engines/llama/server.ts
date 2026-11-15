@@ -55,6 +55,11 @@ export function llamaServerArgs(
     '1',
     '--no-webui',
     '--offline',
+    // Only the gateway calls this server, and it sends no Origin header. Since b12359
+    // (llama.cpp 1.0.0) this rejects cross-origin browser requests with 403; the default `*`
+    // echoes any Origin back.
+    '--cors-origins',
+    'localhost',
     ...(config.vulkanDevice === undefined ? [] : ['-dev', config.vulkanDevice]),
   ];
 }

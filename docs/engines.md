@@ -44,6 +44,13 @@ first shipped in `b11361` ([release notes](https://github.com/ggml-org/llama.cpp
 [PR #29818](https://github.com/ggml-org/llama.cpp/pull/29818)). This engine requires `b11572`
 or newer, compiled with Vulkan.
 
+The gateway starts `llama-server` with `--cors-origins localhost`. From `b12359`
+([llama.cpp 1.0.0](https://github.com/ggml-org/llama.cpp/releases/tag/v1.0.0)) that rejects
+cross-origin browser requests with 403; older builds only withhold the CORS headers, so the request
+still runs. Use `b12359` or newer. `/v1/systemone` answers from `b12110` and `b12359` match within
+0.005 on the same GGUF. The 1.0.0 FP8 KV cache (`-ctk/-ctv f8_e4m3`) aborts at startup on the
+Vulkan backend, so the engine keeps the default f16 cache.
+
 ### Configure an OpenAI-compatible server
 
 In Paseo, open the engine settings, enter the API base URL, choose **Find local servers** to
