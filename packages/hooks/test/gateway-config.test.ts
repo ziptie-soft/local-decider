@@ -29,6 +29,34 @@ describe('gatewayConfig', () => {
     assert.deepEqual(gatewayConfig(env), { url: 'http://127.0.0.1:9000', token: 'env-token' });
   });
 
+  it('pairs the token with the source of the URL', () => {
+    const both = { LOCAL_DECIDER_TOKEN: 'env-token', [TOKEN_OPT]: 'opt-token' };
+    assert.deepEqual(gatewayConfig({ ...both, LOCAL_DECIDER_URL: 'http://127.0.0.1:9000' }), {
+      url: 'http://127.0.0.1:9000',
+      token: 'env-token',
+    });
+    assert.deepEqual(gatewayConfig({ ...both, [URL_OPT]: 'https://gw.example.com' }), {
+      url: 'https://gw.example.com',
+      token: 'opt-token',
+    });
+    assert.deepEqual(gatewayConfig(both), { url: 'http://127.0.0.1:8765', token: 'env-token' });
+    assert.deepEqual(gatewayConfig({ [TOKEN_OPT]: 'opt-token' }), {
+      url: 'http://127.0.0.1:8765',
+      token: 'opt-token',
+    });
+  });
+
+  it('sends no token across sources', () => {
+    assert.deepEqual(
+      gatewayConfig({ LOCAL_DECIDER_URL: 'http://127.0.0.1:9000', [TOKEN_OPT]: 'opt-token' }),
+      { url: 'http://127.0.0.1:9000', token: undefined },
+    );
+    assert.deepEqual(
+      gatewayConfig({ [URL_OPT]: 'https://gw.example.com', LOCAL_DECIDER_TOKEN: 'env-token' }),
+      { url: 'https://gw.example.com', token: undefined },
+    );
+  });
+
   it('treats empty strings as unset', () => {
     const env = {
       LOCAL_DECIDER_URL: '',
@@ -68,31 +96,45 @@ describe('hook runner with plugin options', () => {
     globalThis.fetch = realFetch;
   });
 
-  const stdin = JSON.stringify({ session_id: 's', cwd: '/w', tool_name: 'Bash', tool_input: {} });
+  const stdin = JSON.stringify({
+    session_id: 's',
+    cwd: '/w',
+    tool_name: 'Bash',
+    tool_input: { command: 'ls' },
+  });
 
   it('reaches the option URL with the option token', async () => {
     seen = [];
     const env = { [URL_OPT]: base, [TOKEN_OPT]: 'opt-token' };
-    const res = await run('claude', 'PermissionRequest', stdin, env, {
+    const res = await run('claude', 'PreToolUse', stdin, env, {
       readTranscript: () => null,
     });
     assert.deepEqual(res, { stdout: '', exitCode: 0 });
-    assert.equal(seen[0]?.url, `${base}/v1/decide/permission`);
+    assert.equal(seen[0]?.url, `${base}/v1/decide/command-risk`);
     assert.equal(seen[0]?.headers['authorization'], 'Bearer opt-token');
   });
 
-  it('prefers LOCAL_DECIDER_TOKEN over the option token', async () => {
+  it('never sends LOCAL_DECIDER_TOKEN to the option URL', async () => {
     seen = [];
-    const env = { LOCAL_DECIDER_TOKEN: 'env-token', [URL_OPT]: base, [TOKEN_OPT]: 'opt-token' };
-    await run('claude', 'PermissionRequest', stdin, env, { readTranscript: () => null });
-    assert.equal(seen[0]?.headers['authorization'], 'Bearer env-token');
+    const env = { LOCAL_DECIDER_TOKEN: 'env-token', [URL_OPT]: base };
+    await run('claude', 'PreToolUse', stdin, env, { readTranscript: () => null });
+    assert.equal(seen[0]?.url, `${base}/v1/decide/command-risk`);
+    assert.equal(seen[0]?.headers['authorization'], undefined);
+  });
+
+  it('never sends the option token to LOCAL_DECIDER_URL', async () => {
+    seen = [];
+    const env = { LOCAL_DECIDER_URL: base, [TOKEN_OPT]: 'opt-token' };
+    await run('claude', 'PreToolUse', stdin, env, { readTranscript: () => null });
+    assert.equal(seen[0]?.url, `${base}/v1/decide/command-risk`);
+    assert.equal(seen[0]?.headers['authorization'], undefined);
   });
 
   it('never sends the option token to a plain-http remote gateway', async () => {
     seen = [];
     const env = { [URL_OPT]: 'http://10.0.0.5:8765', [TOKEN_OPT]: 'opt-token' };
-    await run('claude', 'PermissionRequest', stdin, env, { readTranscript: () => null });
-    assert.equal(seen[0]?.url, 'http://10.0.0.5:8765/v1/decide/permission');
+    await run('claude', 'PreToolUse', stdin, env, { readTranscript: () => null });
+    assert.equal(seen[0]?.url, 'http://10.0.0.5:8765/v1/decide/command-risk');
     assert.equal(seen[0]?.headers['authorization'], undefined);
   });
 
@@ -134,6 +176,7 @@ describe('mod readEnv with plugin options', () => {
     gateway_url: 'https://gw.example.com/',
     gateway_token: 'opt-token',
   };
+  const optionToken: PluginOptions = { gateway_token: 'opt-token' };
 
   it('uses the options when the environment does not set them', async () => {
     const env = await readEnv(modApi({}), options);
@@ -154,6 +197,27 @@ describe('mod readEnv with plugin options', () => {
     });
     assert.equal(empty.baseUrl, 'http://127.0.0.1:8765');
     assert.equal(empty.token, undefined);
+  });
+
+  it('pairs the token with the source of the URL', async () => {
+    const envUrl = await readEnv(
+      modApi({ LOCAL_DECIDER_URL: 'http://127.0.0.1:9000', LOCAL_DECIDER_TOKEN: 'env-token' }),
+      options,
+    );
+    assert.equal(envUrl.token, 'env-token');
+    const crossEnv = await readEnv(modApi({ LOCAL_DECIDER_URL: 'http://127.0.0.1:9000' }), options);
+    assert.equal(crossEnv.baseUrl, 'http://127.0.0.1:9000');
+    assert.equal(crossEnv.token, undefined);
+    const crossOption = await readEnv(modApi({ LOCAL_DECIDER_TOKEN: 'env-token' }), {
+      gateway_url: 'https://gw.example.com',
+    });
+    assert.equal(crossOption.baseUrl, 'https://gw.example.com');
+    assert.equal(crossOption.token, undefined);
+    const byDefault = await readEnv(modApi({ LOCAL_DECIDER_TOKEN: 'env-token' }), optionToken);
+    assert.equal(byDefault.baseUrl, 'http://127.0.0.1:8765');
+    assert.equal(byDefault.token, 'env-token');
+    const optionDefault = await readEnv(modApi({}), optionToken);
+    assert.equal(optionDefault.token, 'opt-token');
   });
 
   it('never sends the token to a plain-http remote gateway', async () => {

@@ -247,16 +247,10 @@ function dedupe(records) {
   return [...byKey.values()].toSorted((a, b) => a.ts.localeCompare(b.ts));
 }
 
-function sessionDecisions(spec, run, records) {
-  const decisions = records.filter((r) => r.kind === 'decision');
-  const exact = decisions.filter((r) => r.sessionId === run.sessionId);
-  if (exact.length > 0) {
-    return { decisions: exact, matched: 'session' };
-  }
-  // The harness may hand hooks a different id than it prints: fall back to this harness's
-  // decisions since the run started.
-  const window = decisions.filter((r) => r.harness === spec.harness);
-  return { decisions: window, matched: 'time window' };
+/** This run's decisions, by session id only: a looser match could credit another session. */
+function sessionDecisions(run, records) {
+  const decisions = records.filter((r) => r.kind === 'decision' && r.sessionId === run.sessionId);
+  return { decisions, matched: decisions.length > 0 ? 'session' : 'none' };
 }
 
 function finalText(events) {
@@ -344,10 +338,11 @@ const CHECKS = [
   ),
   { label: 'guard denies curl | sh', test: guardTest },
   { label: 'approver decided', only: 'claude', test: approverTest },
+  { ...countCheck('outcomes (PostToolUse)', permissionOutcomes, 1, 'outcome(s)'), only: 'claude' },
 ];
 
 /** Reported, not asserted (yet). */
-const INFO = [{ label: 'outcomes', count: permissionOutcomes }];
+const INFO = [];
 
 function check(ctx) {
   return CHECKS.map((c) =>
@@ -383,8 +378,13 @@ async function runOne(name) {
     );
   }
   const records = readRecords(startedAt);
-  const { decisions, matched } = sessionDecisions(spec, run, records);
+  const { decisions, matched } = sessionDecisions(run, records);
   console.log(`session ${run.sessionId} (${decisions.length} decisions, matched by ${matched})`);
+  if (matched === 'none') {
+    console.log(
+      'hint: no decision carries this session id: the harness gave hooks a different id, or the hooks never reached the gateway (check the plugin install and LOCAL_DECIDER_DEBUG=1)',
+    );
+  }
   console.log(`agent report:\n${finalText(run.events).trim() || '(none)'}\n`);
   decisions.forEach((d) => console.log(`  ${summarize(d)}`));
   const ctx = { name, run, records, decisions, approvals: readApprovals(cwd) };

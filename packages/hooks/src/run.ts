@@ -4,7 +4,6 @@
  */
 import {
   commandOf,
-  GatewayClient,
   isShellTool,
   str,
   type DecideRequest,
@@ -12,7 +11,7 @@ import {
   type HookInput,
 } from '@ziptie-soft/local-decider-core';
 
-import { gatewayConfig, type Env } from './gateway-config.ts';
+import { gatewayClient, type Env } from './gateway-config.ts';
 import { guardCommand } from './guard.ts';
 import {
   callOf,
@@ -23,8 +22,10 @@ import {
   parseHarness,
   type HookHarness,
   type PolicyEvent,
+  type LifecycleEvent,
   type ReadTranscript,
 } from './mapping.ts';
+import { postToolUse, purgePending, rememberPermission, type OutcomeDeps } from './outcomes.ts';
 import { guardDeny, translate } from './output.ts';
 import { healthFromEnv, sessionStart, type Health } from './session-start.ts';
 import { readSlice } from './transcript.ts';
@@ -38,6 +39,8 @@ export interface RunDeps {
   /** Gateway health for `SessionStart`; defaults to a `GatewayClient` configured from `env`. */
   readonly health?: Health;
   readonly readTranscript?: ReadTranscript;
+  /** Pending-prompt store and outcome reporting; defaults derive from `env`. */
+  readonly outcomes?: OutcomeDeps;
   /** Diagnostics sink, used only when `LOCAL_DECIDER_DEBUG=1`. */
   readonly stderr?: (line: string) => void;
 }
@@ -63,12 +66,7 @@ export function timeoutOf(env: Env): number {
 }
 
 function clientFromEnv(env: Env): Decide {
-  const { url, token } = gatewayConfig(env);
-  const client = new GatewayClient({
-    baseUrl: url,
-    timeoutMs: timeoutOf(env),
-    ...(token === undefined ? {} : { token }),
-  });
+  const client = gatewayClient(env, timeoutOf(env));
   return async (policy, request) => client.decide(policy, request);
 }
 
@@ -130,7 +128,11 @@ async function decideAndTranslate(ctx: Context): Promise<string> {
       ? `${call.policy}: no answer (gateway down, slow or erroring); abstaining`
       : `${call.policy}: action=${res.action} enforced=${String(res.enforced)} id=${res.decisionId}`,
   );
-  return translate(ctx.harness, ctx.event, res, ctx.hook['permission_mode'] === 'auto');
+  const stdout = translate(ctx.harness, ctx.event, res, ctx.hook['permission_mode'] === 'auto');
+  if (ctx.event === 'PermissionRequest' && res !== null) {
+    rememberPermission({ ...ctx, res, stdout, deps: ctx.deps.outcomes });
+  }
+  return stdout;
 }
 
 async function handle(ctx: Context): Promise<string> {
@@ -151,6 +153,20 @@ async function handle(ctx: Context): Promise<string> {
     return '';
   }
   return decideAndTranslate(ctx);
+}
+
+interface LifecycleContext extends Omit<Context, 'event'> {
+  readonly event: LifecycleEvent;
+}
+
+async function lifecycle(ctx: LifecycleContext): Promise<string> {
+  const { harness, hook, env, deps, log } = ctx;
+  if (ctx.event === 'PostToolUse') {
+    await postToolUse(harness, hook, env, deps.outcomes, log, timeoutOf(env));
+    return '';
+  }
+  purgePending(env, deps.outcomes, log);
+  return sessionStart(harness, env, deps.health ?? healthFromEnv(env, timeoutOf(env)));
 }
 
 function logger(env: Env, deps: RunDeps): (msg: string) => void {
@@ -181,8 +197,7 @@ export async function run(
       return NOTHING;
     }
     if (isLifecycleEvent(event)) {
-      const health = deps.health ?? healthFromEnv(env, timeoutOf(env));
-      return { stdout: await sessionStart(harness, env, health), exitCode: 0 };
+      return { stdout: await lifecycle({ harness, event, hook, env, deps, log }), exitCode: 0 };
     }
     const stdout = await handle({ harness, event, hook, env, deps, log });
     return { stdout, exitCode: 0 };

@@ -100,3 +100,9 @@ setup() {
   local expected="node:$tmp/plugin/dist/local-decider-hook.mjs claude SessionStart"
   [ "$output" = "$expected" ] || { printf 'expected %s, got %s\n' "$expected" "$output"; return 1; }
 }
+
+@test "Codex SessionStart with the bundle present exits without running node" {
+  run env HOME="$home" PATH="$fakebin:$sysbin" /bin/sh "$tmp/plugin/hooks/local-decider-hook.sh" codex SessionStart
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || { printf 'expected empty stdout (node not run), got %s\n' "$output"; return 1; }
+}

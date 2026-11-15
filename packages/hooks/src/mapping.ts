@@ -23,7 +23,7 @@ const POLICY_EVENTS = ['PreToolUse', 'PermissionRequest', 'Stop', 'UserPromptSub
 /** Hook events that run a gateway policy. */
 export type PolicyEvent = (typeof POLICY_EVENTS)[number];
 
-const LIFECYCLE_EVENTS = ['SessionStart'] as const;
+const LIFECYCLE_EVENTS = ['SessionStart', 'PostToolUse'] as const;
 /** Hook events handled by the runner itself, without a policy. */
 export type LifecycleEvent = (typeof LIFECYCLE_EVENTS)[number];
 

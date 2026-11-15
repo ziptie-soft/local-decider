@@ -24,7 +24,7 @@
     "gateway_token": {
       "type": "string",
       "title": "Gateway token",
-      "description": "Bearer token for a remote gateway. Sent only over https or to loopback; LOCAL_DECIDER_TOKEN overrides it",
+      "description": "Bearer token for the gateway at Gateway URL (or the default URL). Sent only over https or to loopback; never sent to LOCAL_DECIDER_URL, and LOCAL_DECIDER_TOKEN overrides it only for the default URL",
       "sensitive": true,
       "required": false
     }

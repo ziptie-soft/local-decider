@@ -61,6 +61,18 @@ without a matching token are still logged as `source: unverified` and `verified:
 count in agreement and reliability statistics; only verified outcomes can update precedent or
 calibration hints.
 
+The Claude Code hooks post such unverified reports for approvals only: a permission prompt the
+user answered (not in auto mode, not one the plugin allowed) whose tool call then ran. They count
+toward labelled and agreement stats only. Between the prompt and the tool call the hook keeps a
+pending file under `<data dir>/hooks/pending/` (directory 0700, file 0600). It holds only the
+decision id; its name holds truncated SHA-256 hashes of the session id and subject, never the tool
+input. A new prompt for the same session and subject replaces the older pending file, the tool
+call claims the newest one, and pending files expire unposted after 10 minutes, so an earlier
+denied prompt is not reported as approved.
+
+Claude Code does not tell a hook who answered a prompt. An approval by another `PermissionRequest`
+hook is recorded as a user approval; such outcomes are unverified.
+
 Labels can only add vetoes; no outcome or label path creates allow evidence on an auto-allowed
 decision. The Paseo daemon labels only rows it drew itself: the label RPC names a row, and the
 decision, agent and answer time come from daemon state, within 24 hours.

@@ -41,12 +41,21 @@ untrusted plugin hooks, and asks again whenever they change.
 | `PreToolUse` | guard, then `command-risk` | deny or ask | deny only |
 | `PermissionRequest` | `permission` | allow; otherwise the normal prompt | allow; otherwise the auto-reviewer or user |
 | `UserPromptSubmit` | `routing` | add a hint naming the mapped model | same |
-| `Stop` | `turn-outcome` | nothing: logged only | same |
+| `PostToolUse` | none (async) | report your approval of a prompt as an outcome | not installed |
+| `Stop` | `turn-outcome` (async) | nothing: logged only | same |
 
 Policies ship in `shadow` mode: the gateway records what it would have done and the hooks change
 nothing until you switch a policy to `act`. The hooks never allow a tool call from `PreToolUse`
-and never deny a permission request from the model. They also cannot see your answer to a
-prompt, so they report no outcomes: stats agreement and precedent need Paseo.
+and never deny a permission request from the model.
+
+In Claude Code, when you answer a permission prompt yourself (not in auto mode, and not one the
+plugin allowed), the hook keeps the decision id in a pending file under
+`~/.local/share/local-decider/hooks/pending/`. When the tool then runs, `PostToolUse` reports
+outcome `allow` for it. These reports are unverified: they count toward labelled and agreement
+stats but never update precedent, which still needs Paseo. Denials are not reported. A newer prompt
+for the same tool call replaces the pending file, and pending files expire after 10 minutes. An
+approval by another `PermissionRequest` hook is recorded as a user approval; such outcomes are
+unverified.
 
 The guard runs on shell commands before any gateway call, including Codex argv arrays,
 `bash -lc` scripts and commands behind `sudo`, `env` or `nice`. It denies recursive deletes of
@@ -111,7 +120,7 @@ Environment variables read by the hook process and the mod:
 | Variable | Default | Meaning |
 |---|---|---|
 | `LOCAL_DECIDER_URL` | `http://127.0.0.1:8765` | Gateway base URL |
-| `LOCAL_DECIDER_TOKEN` | unset | Bearer token for a remote gateway; sent only over https or to loopback, never logged |
+| `LOCAL_DECIDER_TOKEN` | unset | Bearer token for a remote gateway; sent only over https or to loopback, never logged. Paired with `LOCAL_DECIDER_URL` (or the default URL), never with the `gateway_url` option |
 | `LOCAL_DECIDER_TIMEOUT_MS` | `1500` | Gateway call budget |
 | `LOCAL_DECIDER_MOD` | on | Set to `off` to disable the Claude Code auto-mode mod |
 | `LOCAL_DECIDER_GUARD` | on | Set to `off` to disable the deterministic guard |
@@ -160,8 +169,8 @@ with `LD_E2E_PLUGIN_DIR`), so your own allow rules, sandbox auto-allow and hooks
 permission requests before the plugin sees them. Managed settings still apply; the run warns when
 they exist. `scripts/e2e-approve.mjs` is added through `--settings` as a second
 `PermissionRequest` hook standing in for you: it denies `chmod` and allows everything else. The
-run also checks that it decided at least 3 requests including a deny, and prints how many
-outcomes the gateway recorded for the session's permission verdicts. With
+run also checks that it decided at least 3 requests including a deny, and that `PostToolUse`
+reported at least one outcome for the session's permission verdicts. With
 `--permission-mode manual --permission-prompts none`, anything left undecided is denied instead
 of waiting for you. Codex runs with `--approve-for-me` and `--dangerously-bypass-hook-trust`, so
 the plugin hooks run without the `/hooks` trust step. `LD_E2E_KEEP=1` keeps the scratch repo, the
