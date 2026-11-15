@@ -588,7 +588,7 @@ describe('fail-open', () => {
     for (const [h, e, s] of [
       ['claude', 'PermissionRequest', 'not json'],
       ['claude', 'PermissionRequest', '[1,2]'],
-      ['claude', 'SessionStart', stdin],
+      ['claude', 'Notification', stdin],
       ['cursor', 'PermissionRequest', stdin],
     ] as const) {
       assert.deepEqual(await run(h, e, s, {}, { decide }), { stdout: '', exitCode: 0 });
