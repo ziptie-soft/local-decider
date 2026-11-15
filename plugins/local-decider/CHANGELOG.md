@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/ziptie-soft/local-decider/compare/agent-plugin-v2.1.0...agent-plugin-v2.1.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* **ci:** ignore lockfile changes confined to the Paseo plugin in the release-coupling check ([a534584](https://github.com/ziptie-soft/local-decider/commit/a5345849400e67a3114befa31956dc03d4ce89b5))
+
 ## [2.1.0](https://github.com/ziptie-soft/local-decider/compare/agent-plugin-v2.0.1...agent-plugin-v2.1.0) (2026-11-15)
 
 

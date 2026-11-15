@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.0](https://github.com/ziptie-soft/local-decider/compare/local-decider-v2.1.3...local-decider-v2.2.0) (2026-11-15)
+
+
+### Features
+
+* **engines:** explain how to get an LM Studio API token ([6bb4c88](https://github.com/ziptie-soft/local-decider/commit/6bb4c88d4684be96e20a68a2086c329eea8641e3))
+* **engines:** fall back to LM_API_TOKEN for lmstudio when tokenEnv is unset ([059fc47](https://github.com/ziptie-soft/local-decider/commit/059fc47c299a0069c6fbdcbbc29e6fb34129d6c2))
+
 ## [2.1.3](https://github.com/ziptie-soft/local-decider/compare/local-decider-v2.1.2...local-decider-v2.1.3) (2026-11-15)
 
 
