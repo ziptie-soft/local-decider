@@ -19,11 +19,23 @@ import { firstUserText, historyText, lastAssistantText, lastUserText, type Turn 
 const HOOK_HARNESSES = ['claude', 'codex'] as const;
 export type HookHarness = (typeof HOOK_HARNESSES)[number];
 
-const HOOK_EVENTS = ['PreToolUse', 'PermissionRequest', 'Stop', 'UserPromptSubmit'] as const;
-export type HookEvent = (typeof HOOK_EVENTS)[number];
+const POLICY_EVENTS = ['PreToolUse', 'PermissionRequest', 'Stop', 'UserPromptSubmit'] as const;
+/** Hook events that run a gateway policy. */
+export type PolicyEvent = (typeof POLICY_EVENTS)[number];
 
-/** The gateway policy each hook event runs. */
-export const EVENT_POLICY: Readonly<Record<HookEvent, string>> = {
+const LIFECYCLE_EVENTS = ['SessionStart'] as const;
+/** Hook events handled by the runner itself, without a policy. */
+export type LifecycleEvent = (typeof LIFECYCLE_EVENTS)[number];
+
+export type HookEvent = PolicyEvent | LifecycleEvent;
+const HOOK_EVENTS: readonly HookEvent[] = [...POLICY_EVENTS, ...LIFECYCLE_EVENTS];
+
+export function isLifecycleEvent(event: HookEvent): event is LifecycleEvent {
+  return (LIFECYCLE_EVENTS as readonly HookEvent[]).includes(event);
+}
+
+/** The gateway policy each policy event runs. */
+export const EVENT_POLICY: Readonly<Record<PolicyEvent, string>> = {
   PreToolUse: 'command-risk',
   PermissionRequest: 'permission',
   Stop: 'turn-outcome',
@@ -129,7 +141,7 @@ function routingInput(hook: HookInput): Record<string, unknown> {
 
 type InputBuilder = (hook: HookInput, t: Transcript) => Record<string, unknown>;
 
-const BUILDERS: Record<HookEvent, InputBuilder> = {
+const BUILDERS: Record<PolicyEvent, InputBuilder> = {
   PreToolUse: (hook) => commandRiskInput(hook),
   PermissionRequest: permissionHookInput,
   Stop: turnOutcomeInput,
@@ -159,7 +171,7 @@ export function callOf(
 }
 
 /** Build the gateway call for an event. Transcript reads happen only for policies that use them. */
-export function mapEvent(event: HookEvent, hook: HookInput, read: ReadTranscript): PolicyCall {
+export function mapEvent(event: PolicyEvent, hook: HookInput, read: ReadTranscript): PolicyCall {
   const transcript = new Transcript(str(hook['transcript_path']), read);
   const input = BUILDERS[event](hook, transcript);
   const workspace = event === 'PermissionRequest' ? workspaceOf(hook) : undefined;

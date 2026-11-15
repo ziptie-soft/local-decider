@@ -13,5 +13,20 @@
     "hooks",
     "decision-model",
     "local"
-  ]
+  ],
+  "userConfig": {
+    "gateway_url": {
+      "type": "string",
+      "title": "Gateway URL",
+      "description": "Where the local-decider gateway listens, for sessions started without LOCAL_DECIDER_URL in their environment (such as Desktop launches). Default http://127.0.0.1:8765",
+      "required": false
+    },
+    "gateway_token": {
+      "type": "string",
+      "title": "Gateway token",
+      "description": "Bearer token for a remote gateway. Sent only over https or to loopback; LOCAL_DECIDER_TOKEN overrides it",
+      "sensitive": true,
+      "required": false
+    }
+  }
 }

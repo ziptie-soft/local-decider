@@ -1,5 +1,7 @@
 # shellcheck shell=bats
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   local test_dir
   test_dir=$(cd -- "$(dirname -- "$BATS_TEST_FILENAME")" && pwd -P)
@@ -49,4 +51,52 @@ setup() {
   run env HOME="$home" PATH="$fakebin:$sysbin" /bin/sh "$tmp/plugin/hooks/local-decider-hook.sh" claude Stop
   [ "$status" -eq 0 ]
   [ -z "$output" ] || { printf 'expected empty stdout, got %s\n' "$output"; return 1; }
+}
+
+@test "SessionStart with the bundle missing prints a systemMessage notice" {
+  rm "$tmp/plugin/dist/local-decider-hook.mjs"
+  run --separate-stderr env HOME="$home" PATH="$fakebin:$sysbin" /bin/sh "$tmp/plugin/hooks/local-decider-hook.sh" claude SessionStart
+  [ "$status" -eq 0 ]
+  [[ "$output" == '{"systemMessage":"local-decider: hooks inactive (bundle dist/local-decider-hook.mjs missing).'* ]] || { printf 'got %s\n' "$output"; return 1; }
+  [ -z "$stderr" ] || { printf 'expected empty stderr, got %s\n' "$stderr"; return 1; }
+}
+
+@test "Codex SessionStart with the bundle missing prints a systemMessage notice" {
+  rm "$tmp/plugin/dist/local-decider-hook.mjs"
+  run env HOME="$home" PATH="$fakebin:$sysbin" /bin/sh "$tmp/plugin/hooks/local-decider-hook.sh" codex SessionStart
+  [ "$status" -eq 0 ]
+  [[ "$output" == '{"systemMessage":"local-decider: hooks inactive (bundle '* ]] || { printf 'got %s\n' "$output"; return 1; }
+}
+
+@test "unknown harness SessionStart with the bundle missing prints nothing" {
+  rm "$tmp/plugin/dist/local-decider-hook.mjs"
+  run env HOME="$home" PATH="$fakebin:$sysbin" /bin/sh "$tmp/plugin/hooks/local-decider-hook.sh" other SessionStart
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || { printf 'expected empty stdout, got %s\n' "$output"; return 1; }
+}
+
+@test "debug Stop with the bundle missing writes a diagnostic to stderr only" {
+  rm "$tmp/plugin/dist/local-decider-hook.mjs"
+  run --separate-stderr env HOME="$home" PATH="$fakebin:$sysbin" LOCAL_DECIDER_DEBUG=1 /bin/sh "$tmp/plugin/hooks/local-decider-hook.sh" claude Stop
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || { printf 'expected empty stdout, got %s\n' "$output"; return 1; }
+  local expected="local-decider: bundle dist/local-decider-hook.mjs missing (root $tmp/plugin); failing open"
+  [ "$stderr" = "$expected" ] || { printf 'expected %s, got %s\n' "$expected" "$stderr"; return 1; }
+}
+
+@test "SessionStart with no node prints a notice" {
+  if [ -x /opt/homebrew/bin/node ] || [ -x /usr/local/bin/node ]; then
+    skip "a system node is installed in a fallback location"
+  fi
+  run --separate-stderr env HOME="$home" PATH="$sysbin" LOCAL_DECIDER_DEBUG=1 /bin/sh "$tmp/plugin/hooks/local-decider-hook.sh" claude SessionStart
+  [ "$status" -eq 0 ]
+  [[ "$output" == '{"systemMessage":"local-decider: hooks inactive (node not found).'* ]] || { printf 'got %s\n' "$output"; return 1; }
+  [[ "$stderr" == 'local-decider: node not found (root '* ]] || { printf 'got stderr %s\n' "$stderr"; return 1; }
+}
+
+@test "SessionStart with the bundle present runs node" {
+  run env HOME="$home" PATH="$fakebin:$sysbin" /bin/sh "$tmp/plugin/hooks/local-decider-hook.sh" claude SessionStart
+  [ "$status" -eq 0 ]
+  local expected="node:$tmp/plugin/dist/local-decider-hook.mjs claude SessionStart"
+  [ "$output" = "$expected" ] || { printf 'expected %s, got %s\n' "$expected" "$output"; return 1; }
 }

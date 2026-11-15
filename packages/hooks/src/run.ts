@@ -4,7 +4,6 @@
  */
 import {
   commandOf,
-  DEFAULT_GATEWAY_URL,
   GatewayClient,
   isShellTool,
   str,
@@ -13,26 +12,31 @@ import {
   type HookInput,
 } from '@ziptie-soft/local-decider-core';
 
+import { gatewayConfig, type Env } from './gateway-config.ts';
 import { guardCommand } from './guard.ts';
 import {
   callOf,
   EVENT_POLICY,
+  isLifecycleEvent,
   mapEvent,
   parseEvent,
   parseHarness,
-  type HookEvent,
   type HookHarness,
+  type PolicyEvent,
   type ReadTranscript,
 } from './mapping.ts';
 import { guardDeny, translate } from './output.ts';
+import { healthFromEnv, sessionStart, type Health } from './session-start.ts';
 import { readSlice } from './transcript.ts';
 
-export type Env = Readonly<Record<string, string | undefined>>;
+export type { Env } from './gateway-config.ts';
 export type Decide = (policy: string, request: DecideRequest) => Promise<DecideResponse | null>;
 
 export interface RunDeps {
   /** Gateway call; defaults to a `GatewayClient` configured from `env`. */
   readonly decide?: Decide;
+  /** Gateway health for `SessionStart`; defaults to a `GatewayClient` configured from `env`. */
+  readonly health?: Health;
   readonly readTranscript?: ReadTranscript;
   /** Diagnostics sink, used only when `LOCAL_DECIDER_DEBUG=1`. */
   readonly stderr?: (line: string) => void;
@@ -59,9 +63,9 @@ export function timeoutOf(env: Env): number {
 }
 
 function clientFromEnv(env: Env): Decide {
-  const token = str(env['LOCAL_DECIDER_TOKEN']);
+  const { url, token } = gatewayConfig(env);
   const client = new GatewayClient({
-    baseUrl: str(env['LOCAL_DECIDER_URL']) ?? DEFAULT_GATEWAY_URL,
+    baseUrl: url,
     timeoutMs: timeoutOf(env),
     ...(token === undefined ? {} : { token }),
   });
@@ -94,7 +98,7 @@ function guardOutput(hook: HookInput, env: Env): string {
 
 interface Context {
   readonly harness: HookHarness;
-  readonly event: HookEvent;
+  readonly event: PolicyEvent;
   readonly hook: HookInput;
   readonly env: Env;
   readonly deps: RunDeps;
@@ -175,6 +179,10 @@ export async function run(
     if (harness === undefined || event === undefined || hook === null) {
       log(`ignoring ${harnessName} ${eventName} (unknown harness/event or bad stdin)`);
       return NOTHING;
+    }
+    if (isLifecycleEvent(event)) {
+      const health = deps.health ?? healthFromEnv(env, timeoutOf(env));
+      return { stdout: await sessionStart(harness, env, health), exitCode: 0 };
     }
     const stdout = await handle({ harness, event, hook, env, deps, log });
     return { stdout, exitCode: 0 };

@@ -5,7 +5,7 @@
 import type { DecideResponse } from '@ziptie-soft/local-decider-core';
 
 import type { GuardHit } from './guard.ts';
-import type { HookEvent, HookHarness } from './mapping.ts';
+import type { HookHarness, PolicyEvent } from './mapping.ts';
 
 const PREFIX = 'local-decider';
 const REASON_DETAIL_CHARS = 160;
@@ -129,7 +129,7 @@ function preToolUseOutput(harness: HookHarness, res: DecideResponse, autoMode: b
  */
 export function translate(
   harness: HookHarness,
-  event: HookEvent,
+  event: PolicyEvent,
   res: DecideResponse | null,
   autoMode = false,
 ): string {

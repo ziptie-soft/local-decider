@@ -126,6 +126,18 @@ cd plugins/local-decider
 claude plugin test
 '''
 
+[tasks."e2e:claude"]
+description = "Plugin end-to-end: headless Claude Code runs fixed steps in a scratch repo; checks the gateway's verdicts (needs a running gateway; LD_E2E_PLUGIN_DIR=plugins/local-decider tests the checkout)"
+run = "node scripts/harness-e2e.mjs claude"
+
+[tasks."e2e:codex"]
+description = "Plugin end-to-end: headless Codex runs fixed steps in a scratch repo; checks the gateway's verdicts (needs a running gateway and the plugin installed in Codex)"
+run = "node scripts/harness-e2e.mjs codex"
+
+[tasks.e2e]
+description = "Plugin end-to-end for Claude Code and Codex (e2e:claude, then e2e:codex)"
+run = "node scripts/harness-e2e.mjs all"
+
 [tasks.gateway]
 description = "Run the gateway in the foreground from source; args after --, e.g. mise run gateway -- --port 8765"
 run = "node --conditions=source packages/gateway/src/cli.ts gateway run"

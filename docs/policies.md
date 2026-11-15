@@ -24,7 +24,7 @@ flowchart LR
 | Policy | Asks | Rules (first match wins) | Default | Used by |
 |---|---|---|---|---|
 | `permission` | `verdict`: allow, ask, deny | allow at p ≥ 0.6 with precedent; allow at p ≥ 0.95; deny at confidence ≥ 0.8 | `ask` | Paseo `agent.permission.before`, hooks `PermissionRequest` |
-| `command-risk` | `risk`: safe, caution, dangerous | deny at confidence ≥ 0.7; ask at p(caution) ≥ 0.5 | `log` | hooks `PreToolUse` |
+| `command-risk` | `risk`: safe, caution, dangerous | deny at confidence ≥ 0.7; ask at p(caution) ≥ 0.5; log safe at confidence ≥ 0.5 | `ask` | hooks `PreToolUse` |
 | `turn-outcome` | `outcome`: done, needs_input, stuck, failed | `log` done, `notify` the others, each at confidence ≥ 0.6 | `log` | Paseo `agent.turn.after`, hooks `Stop` |
 | `routing` | `tier`: fast, standard, deep | route fast at 0.7, deep and standard at 0.5 (confidence) | `abstain` | Paseo `agent.create.before`, hooks `UserPromptSubmit` |
 | `routing-budget` | `tier`: cheap, standard, premium | route premium at 0.7, cheap and standard at 0.4 | `route:cheap` | variant of `routing` |
@@ -33,6 +33,13 @@ flowchart LR
 Adapters limit what each action can do. The permission hooks never deny from the model, and
 `command-risk` can only add friction. See the adapter table in
 [architecture.md](architecture.md#one-decision).
+
+Only a confident `safe` passes `command-risk` silently. The 2B model rated `rm -rf build`,
+`chmod 600` and `rm notes.txt` safe at confidence 0.27-0.40, so a safe below 0.5 asks. In the
+decision log (2026-11, 2,097 safe answers) safe confidence has p10 0.69, p25 0.79 and p50 0.89;
+3% fall below 0.5. Because the default is `ask`, a dangerous answer below 0.7 and a caution lead
+below p 0.5 also ask instead of logging. Move the floor with the `risk.safe` threshold (see
+[Thresholds](#thresholds)).
 
 ## Modes
 

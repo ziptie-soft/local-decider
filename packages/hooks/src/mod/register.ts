@@ -21,6 +21,7 @@ import { decide, getCall, postOutcome, readEnv, within, type ModEnv } from './ga
 import { buildInput } from './input.ts';
 import type {
   ModApi,
+  PluginOptions,
   Register,
   ToolCallHook,
   ToolCallResult,
@@ -96,11 +97,16 @@ interface Gate {
 }
 
 /** Everything that must hold before the decider is consulted at all; null passes through. */
-async function gate($: ModApi, e: ToolCheckEvent, id: string): Promise<Gate | null> {
+async function gate(
+  $: ModApi,
+  e: ToolCheckEvent,
+  id: string,
+  options: PluginOptions,
+): Promise<Gate | null> {
   if (!(await versionOk($))) {
     return null;
   }
-  const env = await readEnv($);
+  const env = await readEnv($, options);
   if (env.off || env.hostPermission) {
     return null;
   }
@@ -116,9 +122,10 @@ async function upgrade(
   $: ModApi,
   e: ToolCheckEvent,
   decided: ToolCheckResult,
+  options: PluginOptions,
 ): Promise<ToolCheckResult> {
   const id = e.tool_use_id ?? '';
-  const g = await gate($, e, id);
+  const g = await gate($, e, id, options);
   if (g === null) {
     return decided;
   }
@@ -141,9 +148,10 @@ export async function check(
   $: ModApi,
   e: ToolCheckEvent,
   next: Parameters<ToolCheckHook>[2],
+  options: PluginOptions = {},
 ): Promise<ToolCheckResult> {
   const decided = await next(e);
-  return isPlainAsk(e, decided, next.origin) ? upgrade($, e, decided) : decided;
+  return isPlainAsk(e, decided, next.origin) ? upgrade($, e, decided, options) : decided;
 }
 
 /**
@@ -170,8 +178,12 @@ export async function observe(
   return result;
 }
 
-export function register(on: Register): void {
+export function register(on: Register, options: PluginOptions = {}): void {
   // Literal filters: the bundler turns a top-level `const` into `var`, which the validator skips.
-  on('tool.check', { tool: ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'] }, check);
+  on(
+    'tool.check',
+    { tool: ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'] },
+    async ($, e, next) => check($, e, next, options),
+  );
   on('tool.call', { tool: ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'] }, observe);
 }
