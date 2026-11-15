@@ -6,8 +6,8 @@ import { describe, it } from 'node:test';
 import { llamaServerVersion } from '../src/engines/llama/version.ts';
 import { tempPaths } from './helpers.ts';
 
-function executable(file: string, output: string): void {
-  writeFileSync(file, `#!/bin/sh\nprintf '%s\\n' '${output}'\n`);
+function executable(file: string, output: string, stream: 1 | 2 = 1): void {
+  writeFileSync(file, `#!/bin/sh\nprintf '%s\\n' '${output}' >&${String(stream)}\n`);
   chmodSync(file, 0o700);
 }
 
@@ -19,6 +19,15 @@ describe('llama-server version stamp', () => {
     executable(file, 'version: 12319');
     utimesSync(file, new Date(), new Date(Date.now() + 2000));
     assert.equal(await llamaServerVersion(file), 'b12319');
+  });
+
+  it('reads the build number from semver version output', async () => {
+    const file = join(tempPaths().data, 'llama-server');
+    executable(file, 'version: 1.0.0-dev (build 12359, commit b1b770d90)', 2);
+    assert.equal(await llamaServerVersion(file), 'b12359');
+    executable(file, 'version: 0.9.0-dev (build 12110, commit cd959bae9)');
+    utimesSync(file, new Date(), new Date(Date.now() + 2000));
+    assert.equal(await llamaServerVersion(file), 'b12110');
   });
 
   it('falls back to a binary size and mtime stamp and returns null without a binary', async () => {

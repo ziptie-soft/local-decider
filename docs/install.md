@@ -138,7 +138,7 @@ build rather than `latest`:
 ```sh
 set tag (curl -fsSL https://github.com/ggml-org/llama.cpp/releases/latest/download/nightly-tag.txt)
 mise use -g "github:ggml-org/llama.cpp[asset_pattern=llama-*-bin-ubuntu-vulkan-x64.tar.gz]@$tag"
-llama-server --version        # needs build 11572 or newer
+llama-server --version        # needs build 11572 or newer; 12359 (1.0.0) or newer recommended
 llama-server --list-devices   # should list a Vulkan0 device that is not llvmpipe
 local-decider engine install --engine llama-vulkan
 ```

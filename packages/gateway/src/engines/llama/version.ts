@@ -17,7 +17,8 @@ function versionOutput(binary: string): Promise<string> {
       binary,
       ['--version'],
       { encoding: 'utf8', maxBuffer: MAX_OUTPUT_BYTES, shell: false, timeout: VERSION_TIMEOUT_MS },
-      (error, stdout) => (error === null ? resolve(stdout) : reject(error)),
+      // llama-server prints its version on stderr.
+      (error, stdout, stderr) => (error === null ? resolve(`${stdout}\n${stderr}`) : reject(error)),
     );
   });
 }
@@ -45,7 +46,8 @@ export async function llamaServerVersion(binary: string | undefined): Promise<st
 async function parseVersion(binary: string): Promise<string | null> {
   try {
     const output = await versionOutput(binary);
-    const match = /version:\s*(\d+)/.exec(output);
+    // Current builds print `version: 1.0.0-dev (build 12359, commit …)`; older ones `version: 12318`.
+    const match = /\bbuild\s+(\d+)/.exec(output) ?? /version:\s*(\d+)\s*(?:\(|$)/m.exec(output);
     return match?.[1] === undefined ? null : `b${match[1]}`;
   } catch {
     return null;

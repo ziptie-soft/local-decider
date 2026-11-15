@@ -69,6 +69,7 @@ describe('llama Vulkan descriptor', () => {
     assert.ok(args.includes('-a') && args.includes('d3-lite-q8_0'));
     assert.equal(args[args.indexOf('-ub') + 1], args[args.indexOf('-c') + 1]);
     assert.ok(args.includes('--offline') && args.includes('--no-webui'));
+    assert.equal(args[args.indexOf('--cors-origins') + 1], 'localhost');
     assert.ok(!args.includes('-hf') && !args.includes('--api-key'));
     assert.ok(!args.includes('-dev'));
     const deviceArgs = llamaServerArgs(
