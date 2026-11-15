@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.2](https://github.com/ziptie-soft/local-decider/compare/local-decider-v2.1.1...local-decider-v2.1.2) (2026-11-15)
+
+
+### Bug Fixes
+
+* **gateway:** restrict llama-server CORS and read its build from stderr ([4c1932f](https://github.com/ziptie-soft/local-decider/commit/4c1932f7f7231cae4e7e254a726b4560f44a7b03))
+
 ## [2.1.1](https://github.com/ziptie-soft/local-decider/compare/local-decider-v2.1.0...local-decider-v2.1.1) (2026-11-14)
 
 
