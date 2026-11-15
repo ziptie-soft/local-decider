@@ -8,7 +8,8 @@ import type {
   AgentTimelineItem,
   ToolCallDetail,
 } from '@getpaseo/protocol/agent-types';
-import { asRecord, canonicalSubject } from '@ziptie-soft/local-decider-core';
+
+import { asRecord, canonicalSubject } from './core/subject.ts';
 
 export const LIMITS = {
   line: 600,

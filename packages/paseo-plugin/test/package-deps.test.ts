@@ -3,14 +3,16 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-// Paseo installs an npm plugin without its devDependencies and supplies only these host modules,
-// so every other bare import must be a runtime dependency or the install fails to build.
+// Paseo installs an npm plugin without its devDependencies and supplies only these host modules.
+// The plugin imports nothing else: a runtime dependency would need a published npm-shrinkwrap.json
+// for the Paseo plugin registry, so code shared with core is vendored under server/core/ instead.
 const HOST_MODULES = [
   '@getpaseo/plugin',
   '@getpaseo/protocol',
   'react',
   'react-native',
   '@tanstack/react-query',
+  'zod',
 ];
 
 const root = join(import.meta.dirname, '..');
@@ -51,9 +53,26 @@ function bareImports(): Set<string> {
 }
 
 describe('published package', () => {
-  it('declares every non-host import as a runtime dependency', () => {
-    const runtime = new Set([...HOST_MODULES, ...Object.keys(manifest.dependencies ?? {})]);
-    const missing = [...bareImports()].filter((name) => !runtime.has(name));
-    assert.deepEqual(missing, []);
+  it('imports only host modules', () => {
+    const extra = [...bareImports()].filter((name) => !HOST_MODULES.includes(name));
+    assert.deepEqual(extra, []);
   });
+
+  it('has no runtime dependencies to install', () => {
+    assert.deepEqual(Object.keys(manifest.dependencies ?? {}), []);
+  });
+});
+
+describe('server/core', () => {
+  for (const file of ['subject.ts', 'canonical.ts']) {
+    it(`${file} is a verbatim copy of packages/core/src/${file}`, () => {
+      const copy = readFileSync(join(root, 'server/core', file), 'utf8');
+      const original = readFileSync(join(root, '../core/src', file), 'utf8');
+      assert.equal(
+        copy,
+        original,
+        `run: cp packages/core/src/${file} packages/paseo-plugin/server/core/`,
+      );
+    });
+  }
 });
