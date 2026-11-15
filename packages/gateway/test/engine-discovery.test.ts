@@ -203,6 +203,18 @@ describe('LM Studio native discovery', () => {
     assert.deepEqual(auths, ['Bearer s', null]);
   });
 
+  it('falls back to LM_API_TOKEN for lmstudio only', async () => {
+    const auths: (string | null)[] = [];
+    const doFetch: typeof fetch = (_url, init) => {
+      auths.push(new Headers(init?.headers).get('authorization'));
+      return Promise.resolve(Response.json({ data: [] }));
+    };
+    const discovery = new ModelDiscovery({ LM_API_TOKEN: 'lm' }, doFetch);
+    await discovery.refresh('lmstudio', endpoint('http://127.0.0.1:1234/v1', 'm'));
+    await discovery.refresh('openai-compatible', endpoint('http://127.0.0.1:1234/v1', 'm'));
+    assert.deepEqual(auths, ['Bearer lm', null]);
+  });
+
   it('leaves openai-compatible on /models only', async () => {
     const calls: string[] = [];
     const discovery = new ModelDiscovery({}, nativeFetch(NATIVE, calls, ['x']));

@@ -233,9 +233,13 @@ export function ConnectionForm({ theme, engine, onSetupLmStudio, seed }: Props):
       <SettingsInput
         key={`token:${engine.id}`}
         label="Token environment variable (optional)"
-        hint="The name of a variable on the gateway machine, never the token itself."
+        hint={
+          engine.id === 'lmstudio'
+            ? 'The name of a variable on the gateway machine, never the token itself. Empty uses LM_API_TOKEN if set.'
+            : 'The name of a variable on the gateway machine, never the token itself.'
+        }
         initialValue={c.form.tokenEnv}
-        placeholder="LM_API_TOKEN"
+        placeholder={engine.id === 'lmstudio' ? 'LM_API_TOKEN' : 'API_TOKEN'}
         onChangeText={(tokenEnv: string) => c.patch({ tokenEnv })}
       />
       <SettingsAction
