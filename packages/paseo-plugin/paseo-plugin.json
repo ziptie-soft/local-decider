@@ -2,6 +2,7 @@
   "id": "local-decider",
   "name": "Local decider",
   "description": "Classifies turn outcomes, triages permission requests and routes new agents through a local System One decision gateway. Shadow mode by default.",
+  "icon": "assets/icon.png",
   "media": ["assets/status.png", "assets/settings.png"],
   "requirements": {
     "paseo": ">=0.15.3 <0.17.0"

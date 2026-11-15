@@ -14,7 +14,7 @@ until you switch a policy to `act`.
   plugins**).
 - The **local-decider gateway** running on the daemon machine. The plugin is a thin client and
   never runs a model itself. Install the gateway first:
-  [docs/install.md](../../docs/install.md).
+  [docs/install.md](https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md).
 
 ## Install
 
@@ -41,7 +41,7 @@ while it runs, your setup comes back afterwards, and results are from this machi
 **Advanced: engine, device and model** (collapsed). Also choose each policy's mode and control
 the gateway service. What each setting does, and how the recommendation is chosen:
 [OVERVIEW.md](OVERVIEW.md). The engines come from the gateway; see
-[docs/engines.md](../../docs/engines.md).
+[docs/engines.md](https://github.com/ziptie-soft/local-decider/blob/master/docs/engines.md).
 
 ## Permissions and agent modes
 
@@ -56,7 +56,7 @@ The permission policy only sees requests that the agent's provider shows to Pase
 
 The plugin never denies a request. Parent agents can answer a child's pending request, and those
 answers can become exact-match precedent: see
-[supervised child agents](../../docs/supervised-subagents.md).
+[supervised child agents](https://github.com/ziptie-soft/local-decider/blob/master/docs/supervised-subagents.md).
 
 ## Privacy and what it runs
 

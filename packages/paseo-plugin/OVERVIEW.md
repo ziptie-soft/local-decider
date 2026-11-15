@@ -21,25 +21,36 @@ Paseo's behaviour only when the gateway's mode and the plugin's setting for that
 | Permission | When an agent asks to use a tool | Auto-allows when the model is very confident (p(allow) ≥ 0.95 by default). Never denies; everything else stays pending for you. Questions and plan approvals are left to you. |
 | Routing | When a new agent is created | Applies the preset the routing policy picks: provider, model, mode and thinking level, or an agent profile. A mode the creator set wins. Paseo 0.15.3 does not pass the first prompt, so routing uses the agent title and skips agents without one. |
 
-For permission checks the plugin sends the project, recent chat (with tool calls summarised),
-the agent's first and latest request, and the tool request. With child agents, the parent can
-answer a pending request; that answer is reported as supervised feedback and can become
-exact-match precedent. See the [supervised child agent guide](../../docs/supervised-subagents.md).
+With child agents, the parent can answer a pending request; that answer is reported as
+supervised feedback and can become exact-match precedent. See the
+[supervised child agent guide](https://github.com/ziptie-soft/local-decider/blob/master/docs/supervised-subagents.md).
 
 ## Setup
 
-Install the gateway on the daemon machine and run `local-decider gateway start`, which installs
-it as a user service (systemd on Linux, launchd on macOS). The sidebar then shows whether it is
-up, which model and engine it serves, and its median latency. A remote gateway needs
-`LOCAL_DECIDER_TOKEN` and `LOCAL_DECIDER_TOKEN_ORIGIN` in the daemon's environment; the bearer is
-never stored in plugin settings, which every connected client can read. The daemon reads the
-control and report tokens from the gateway's config directory and re-reads them after a 401.
+- **Paseo** `>=0.15.3 <0.17.0`, with plugins enabled on the daemon.
+- **Operating system:** the daemon host runs macOS (Apple Silicon for the MLX runtime) or Linux.
+  The AMD Ryzen AI NPU (FastFlowLM) and Vulkan GPU (llama.cpp) runtimes are Linux-only.
+- **The local-decider gateway** on the daemon machine, with an engine and a model. The plugin does
+  not install it; follow the
+  [install guide](https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md).
+
+Run `local-decider gateway start`, which installs the gateway as a user service (systemd on
+Linux, launchd on macOS). The sidebar then shows whether it is up, which model and engine it
+serves, and its median latency.
+
+A remote gateway must use https and needs `LOCAL_DECIDER_TOKEN` and
+`LOCAL_DECIDER_TOKEN_ORIGIN` in the daemon's environment. The bearer goes only to that origin or
+to loopback, and is never stored in plugin settings, which every connected client can read. For
+a gateway on the same machine, the daemon reads `report-token` and `control-token` from the
+gateway's config directory (`$LOCAL_DECIDER_CONFIG_DIR`, else `$XDG_CONFIG_HOME/local-decider`,
+else `~/.config/local-decider`), re-reads them after a 401, and sends them only to loopback.
 
 ## With the Claude Code or Codex plugin installed too
 
 Paseo runs Claude Code and Codex agents through their own CLIs, so the local-decider plugin for
 those CLIs also runs inside Paseo agents. The Paseo plugin tells it which decisions Paseo already
-makes (turn outcome, permission, routing), and it skips them. Its command guard and command-risk
+makes (turn outcome, permission, routing) by setting `LOCAL_DECIDER_HOST_POLICIES` in each
+agent's environment, and it skips them. Its command guard and command-risk
 checks still run, since Paseo has no equivalent.
 
 ## Settings
@@ -65,7 +76,7 @@ checks still run, since Paseo has no equivalent.
     Use, Download, Show install steps, Use automatic or Run benchmark. Switching to a specific
     runtime while Automatic is on says "(turns off automatic)" and offers to turn it back on.
   - **Benchmark this machine:** times every installed model on every runtime, one at a time, with
-    short, typical and long prompts. See [Benchmarks](#benchmarks).
+    short, typical and long prompts. See Benchmarks below.
   - **Advanced: engine, device and model** (collapsed): the engine, device and model pickers with
     download size, memory and a latency hint, Download with progress, Use, the connection form
     for OpenAI-compatible servers, and the engine check (FastFlowLM) with a Re-validate button.
@@ -73,19 +84,21 @@ checks still run, since Paseo has no equivalent.
     unless it is the active one, and an uninstalled engine says how to install it; the plugin
     never installs engines. An engine whose probabilities are not calibrated, such as
     OpenAI-compatible, shows an "uncalibrated" badge, and its models are discovered from the
-    server.
+    server. The connection form asks for the name of an environment variable on the gateway
+    machine that holds the server's API key, never the key itself.
 - **Decisions in chat:** show all rows, only notable ones (changed something, need attention,
   failed, or below 70% confidence in shadow), or none. Hiding rows does not stop decisions or
   the gateway's log. The details line and feedback buttons can be turned off separately.
 - **Sidebar:** the status item at the top or bottom of the sidebar, or hidden; what its label
   shows; and whether pressing it opens a quick status popover or the status screen.
 - **Advanced:** the gateway URL; a switch that adds the gateway's `decide` MCP tool to every
-  agent session (providers without MCP support then fail to open); and a switch that loads the
+  agent session, only for a loopback gateway without a bearer token (providers without MCP support
+  then fail to open); and a switch that loads the
   model when Paseo starts.
 - **Decision thresholds** (collapsed): a slider and number field for each rule of each policy,
   such as "auto-allow when verdict is allow" at p(allow) ≥ 0.95, in steps of 0.01, with Reset.
-  Below 0.90 it warns that more requests are auto-allowed without asking; below 0.80 that the
-  model will often auto-allow requests it is unsure about. It never goes below 0.50.
+  Below 0.90 it warns that more requests are auto-allowed without asking. An auto-allow rule
+  never goes below 0.80; other rules stop at the gateway's floor.
 - **Paths** (collapsed): the tools and directories the gateway uses, which depend on the gateway
   host (`flm` and the FastFlowLM model directory only appear where FastFlowLM is supported;
   `strands-decider`, `uv` and the Hugging Face cache everywhere), where each came from, and
@@ -156,6 +169,27 @@ towards.
 - Command Center items open the settings, the status screen and the statistics, and start, stop
   or restart the gateway service.
 
+## Where your data goes
+
+The plugin sends agent content to the gateway at the configured URL:
+
+- **Turn outcome:** the agent's task, recent chat (tool calls summarised) and its last message.
+- **Permission:** the project path, recent chat, the agent's first and latest request, and the
+  tool request with its input.
+- **Routing:** the project path and the new agent's title.
+- **Usage:** for agents that routing created, each turn's model id, token counts and cost, so the
+  statistics can show routing savings.
+- **`/decide`:** the text you type after the command.
+- **Feedback:** your answers to "Right answer?" chips and your accept or decline on prompts.
+
+The gateway redacts secrets it recognises, then passes the input to its engine and writes it to
+its decision log under `~/.local/share/local-decider/` on the gateway machine. With a built-in
+engine (strands-decider, FastFlowLM, llama.cpp) or LM Studio on the same machine, nothing leaves
+that machine. If you point the gateway at a remote URL, or the engine at an OpenAI-compatible
+server on another host, this content goes there. Decision rows are stored in the agent's Paseo
+timeline, so every client connected to the daemon can see them. **Write with an agent** starts a
+normal Paseo agent, so the interview and your answers go to that agent's provider.
+
 ## What this plugin runs
 
 The plugin starts one kind of process: the gateway's user service manager, when you press Start,
@@ -166,7 +200,24 @@ shown next to each button:
   `systemctl --user start|stop|restart local-decider.service`.
 - macOS, when `~/Library/LaunchAgents/dev.local-decider.gateway.plist` exists:
   `launchctl bootstrap gui/<uid> <plist>`, `launchctl bootout gui/<uid>/dev.local-decider.gateway`,
-  and `launchctl kickstart -k gui/<uid>/dev.local-decider.gateway`.
+  and `launchctl kickstart -k gui/<uid>/dev.local-decider.gateway`. If `bootstrap` reports the
+  agent is already loaded, Start runs `launchctl kickstart gui/<uid>/dev.local-decider.gateway`;
+  if the agent is not loaded, Restart runs the `bootstrap` command instead.
 
 It runs without a shell and times out after 20 seconds. Stop asks for confirmation first.
 Without an installed service there are no buttons, only the command to install one.
+
+## What it downloads
+
+Nothing, until you press a **Download** button. Each one names the model and its size, such as
+"Download (2.0 GB)", and asks the gateway to fetch that model's files into the engine's own
+cache on the gateway machine:
+
+- **strands-decider:** the model and adapter repositories from Hugging Face
+  (`huggingface.co/StrandsAgents`), with the engine's `hf download`.
+- **FastFlowLM:** the model with `flm pull`, from FastFlowLM's model registry.
+- **llama.cpp (Vulkan):** a pinned d3 GGUF file from Hugging Face (`huggingface.co/ggml-org`).
+
+Not pressing it leaves nothing downloaded, and the gateway refuses to switch to a model that is
+not downloaded. The plugin never installs engines or other software: for a missing engine it
+shows the install guide link and the command to run yourself.
