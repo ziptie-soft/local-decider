@@ -72,6 +72,17 @@ variable **name** is stored; never put the token itself in the form or config. O
 `--token-env` clears a previously saved name. With no name, `lmstudio` uses LM Studio's own
 `LM_API_TOKEN` variable when it is set; leave it unset if the server has authentication off.
 
+LM Studio generates its tokens; there is no default value. When **Require Authentication** is on
+(LM Studio 0.4.0 or newer):
+
+1. In LM Studio, open **Developer > Server Settings > Manage Tokens** and create a token. Copy it;
+   it is shown once.
+2. Set it as `LM_API_TOKEN` in the environment the gateway runs in (shell profile, mise env or a
+   secret manager), or under another name and pass that name with `--token-env`.
+3. Restart the gateway. A refused probe names these steps in the engine's status.
+
+See [LM Studio: Authentication](https://lmstudio.ai/docs/developer/core/authentication).
+
 The effective default file is `~/.config/local-decider/config.yaml`; `LOCAL_DECIDER_CONFIG_DIR`
 can select another config directory. Connection edits are validated and applied by a running
 gateway as soon as the file changes, so no restart is needed. When an engine id matches

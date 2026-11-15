@@ -27,6 +27,8 @@ const NO_LOGPROBS =
   'server returned no logprobs; LM Studio: use engine lmstudio (chat, maxTokens 8, /no_think), or use llama-server/Ollama/mlx_lm.server';
 const START_HINT =
   'start LM Studio (lms server start), ollama serve, llama-server or mlx_lm.server';
+const LM_STUDIO_AUTH_HINT =
+  'LM Studio requires an API token: create one in LM Studio (Developer > Server Settings > Manage Tokens), set it as LM_API_TOKEN (or the variable named by tokenEnv) where the gateway runs, and restart the gateway';
 const PROBE_QUESTION: Question = { type: 'noul', instructions: 'Say yes to confirm logprobs.' };
 
 export const sharedShape = {
@@ -236,12 +238,21 @@ export class OpenAICompatibleEngine implements Engine {
       this.#state = 'ready';
       this.#detail = undefined;
     } catch (error) {
-      const message = this.#errorMessage(error);
       this.#state = 'failed';
-      this.#detail = message.startsWith('engine unreachable:')
-        ? `no server at ${displayUrl(this.#url)}; ${START_HINT}`
-        : message;
+      this.#detail = this.#startFailure(error);
     }
+  }
+
+  #startFailure(error: unknown): string {
+    const message = this.#errorMessage(error);
+    if (message.startsWith('engine unreachable:')) {
+      return `no server at ${displayUrl(this.#url)}; ${START_HINT}`;
+    }
+    const status = error instanceof EngineError ? error.httpFailure?.status : undefined;
+    const rejected = status === 401 || status === 403;
+    return rejected && this.#config.type === 'lmstudio'
+      ? `${message}; ${LM_STUDIO_AUTH_HINT}`
+      : message;
   }
 
   health(): EngineHealth {

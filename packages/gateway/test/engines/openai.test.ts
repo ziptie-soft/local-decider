@@ -109,6 +109,8 @@ function fakeFetch(seen: (string | null)[]): typeof fetch {
   };
 }
 
+const refuse: typeof fetch = async () => new Response('unauthorized', { status: 401 });
+
 function near(actual: number | undefined, expected: number): void {
   assert.ok(actual !== undefined && Math.abs(actual - expected) < 1e-10);
 }
@@ -329,6 +331,16 @@ describe('OpenAI-compatible engine', () => {
     );
     await secure.start();
     assert.deepEqual(secureHeaders, ['Bearer secure-secret']);
+  });
+
+  it('explains how to get an LM Studio token when the server refuses the probe', async () => {
+    const lm = new OpenAICompatibleEngine(lmConfig('http://127.0.0.1:1234/v1'), {}, refuse);
+    await lm.start();
+    assert.equal(lm.health().state, 'failed');
+    assert.match(lm.health().detail ?? '', /Manage Tokens.*LM_API_TOKEN/);
+    const generic = new OpenAICompatibleEngine(config('http://127.0.0.1:1234/v1'), {}, refuse);
+    await generic.start();
+    assert.doesNotMatch(generic.health().detail ?? '', /Manage Tokens/);
   });
 
   it('uses LM_API_TOKEN for lmstudio when no tokenEnv is set', async () => {
