@@ -3,7 +3,7 @@
  * environment variable are saved on the gateway; discovery only fills the form and never selects
  * an engine. Nothing here says "connected" without a reachable probe.
  */
-import { useRpc } from '@getpaseo/plugin/client';
+import { openExternalUrl, useRpc } from '@getpaseo/plugin/client';
 import {
   SettingsAction,
   SettingsCard,
@@ -177,6 +177,23 @@ function Suggestions({
   );
 }
 
+const LM_STUDIO_AUTH_DOCS = 'https://lmstudio.ai/docs/developer/core/authentication';
+
+/** LM Studio tokens are generated in its app; this only links to how, nothing is created here. */
+function LmStudioTokenHelp({ engine }: { engine: EngineInfo }): ReactNode {
+  if (engine.id !== 'lmstudio') {
+    return null;
+  }
+  return (
+    <SettingsAction
+      label="LM Studio API token"
+      hint="Only when Require Authentication is on: create a token in LM Studio (Developer > Server Settings > Manage Tokens), set it as LM_API_TOKEN where the gateway runs, then restart the gateway."
+      actionLabel="How to get a token"
+      onPress={() => void openExternalUrl(LM_STUDIO_AUTH_DOCS)}
+    />
+  );
+}
+
 export function ConnectionForm({ theme, engine, onSetupLmStudio, seed }: Props): ReactNode {
   const c = useConnectionForm(engine, seed);
   const busy = c.action.busy !== null;
@@ -242,6 +259,7 @@ export function ConnectionForm({ theme, engine, onSetupLmStudio, seed }: Props):
         placeholder={engine.id === 'lmstudio' ? 'LM_API_TOKEN' : 'API_TOKEN'}
         onChangeText={(tokenEnv: string) => c.patch({ tokenEnv })}
       />
+      <LmStudioTokenHelp engine={engine} />
       <SettingsAction
         label="Save"
         hint="Keeps the connection on the gateway without switching to it."
