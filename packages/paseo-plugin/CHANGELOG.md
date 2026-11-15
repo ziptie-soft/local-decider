@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v2.2.0...paseo-plugin-v2.3.0) (2026-11-15)
+
+
+### Features
+
+* **paseo-plugin:** complete the registry listing: data flow, downloads, icon ([be1a07b](https://github.com/ziptie-soft/local-decider/commit/be1a07bdcd2fe6680c96a212095c151c5e277923))
+
 ## [2.2.0](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v2.1.2...paseo-plugin-v2.2.0) (2026-11-15)
 
 
