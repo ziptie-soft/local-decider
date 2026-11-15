@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.0](https://github.com/ziptie-soft/local-decider/compare/agent-plugin-v2.0.1...agent-plugin-v2.1.0) (2026-11-15)
+
+
+### Features
+
+* **hooks:** report approved Claude Code permission prompts as outcomes ([e528fe4](https://github.com/ziptie-soft/local-decider/commit/e528fe41647d05ae5f75beaf01990fd7a9b74d0b))
+* **plugin:** add gateway userConfig, SessionStart health check and harness e2e ([97f5ce7](https://github.com/ziptie-soft/local-decider/commit/97f5ce7fb4f2b60a9fe0e869e344b3bfbc48d581))
+
 ## [2.0.1](https://github.com/ziptie-soft/local-decider/compare/agent-plugin-v2.0.0...agent-plugin-v2.0.1) (2026-11-14)
 
 

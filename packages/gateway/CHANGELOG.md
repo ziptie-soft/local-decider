@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.3](https://github.com/ziptie-soft/local-decider/compare/local-decider-v2.1.2...local-decider-v2.1.3) (2026-11-15)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @ziptie-soft/local-decider-core bumped to 2.2.0
+
 ## [2.1.2](https://github.com/ziptie-soft/local-decider/compare/local-decider-v2.1.1...local-decider-v2.1.2) (2026-11-15)
 
 
