@@ -29,6 +29,7 @@
   "files": [
     "paseo-plugin.json",
     "OVERVIEW.md",
+    "assets/",
     "index.client.tsx",
     "index.server.ts",
     "client/",
@@ -48,18 +49,16 @@
     "test": "node --test --conditions=source 'test/**/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.client.json"
   },
-  "dependencies": {
-    "@ziptie-soft/local-decider-core": "workspace:*",
-    "zod": "^4.6.7"
-  },
   "devDependencies": {
     "@getpaseo/client": "0.15.3",
     "@getpaseo/plugin": "0.15.3",
     "@getpaseo/protocol": "0.15.3",
     "@tanstack/react-query": "^5.107.1",
     "@types/react": "~19.2.18",
+    "@ziptie-soft/local-decider-core": "workspace:*",
     "react": "19.1.0",
-    "react-native": "0.81.5"
+    "react-native": "0.81.5",
+    "zod": "^4.6.7"
   },
   "engines": {
     "node": ">=24.15"
