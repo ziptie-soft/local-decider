@@ -14,11 +14,26 @@ case "$4:$5" in
   'github-actions[bot]:release-please--branches--master'|'github-actions[bot]:release-please--branches--master--components--'*) exit 0 ;;
 esac
 
+# The lockfile without the Paseo plugin's importer block, which never feeds the hook bundle.
+lock_without_paseo_plugin() {
+  git show "$1:pnpm-lock.yaml" 2>/dev/null | awk '
+    /^  packages\/paseo-plugin:/ { skip = 1; next }
+    skip && (/^[^ ]/ || /^  [^ ]/) { skip = 0 }
+    !skip
+  '
+}
+
+lock=''
+if [ "$(lock_without_paseo_plugin "$1")" != "$(lock_without_paseo_plugin "$2")" ]; then
+  lock=pnpm-lock.yaml
+fi
+
 # Be conservative about core source: the hook bundle imports through its public barrel and
 # future imports can change which files esbuild includes. Tests and documentation do not ship.
 shared=$(git diff --name-only --no-renames "$1" "$2" -- \
-  pnpm-lock.yaml packages/core/src packages/core/package.json \
+  packages/core/src packages/core/package.json \
   packages/hooks/src packages/hooks/build.mjs packages/hooks/package.json)
+shared="$shared$lock"
 if [ -z "$shared" ]; then
   exit 0
 fi
