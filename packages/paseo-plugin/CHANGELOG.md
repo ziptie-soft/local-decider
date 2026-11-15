@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.2.0](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v2.1.2...paseo-plugin-v2.2.0) (2026-11-15)
+
+
+### Features
+
+* **engines:** explain how to get an LM Studio API token ([6bb4c88](https://github.com/ziptie-soft/local-decider/commit/6bb4c88d4684be96e20a68a2086c329eea8641e3))
+* **engines:** fall back to LM_API_TOKEN for lmstudio when tokenEnv is unset ([059fc47](https://github.com/ziptie-soft/local-decider/commit/059fc47c299a0069c6fbdcbbc29e6fb34129d6c2))
+* **paseo-plugin:** drop runtime dependencies and add listing screenshots for the Paseo registry ([1e47fe5](https://github.com/ziptie-soft/local-decider/commit/1e47fe5f7b148017c9908ad617f21fe63e222b2b))
+
+
+### Bug Fixes
+
+* **paseo-plugin:** tell the MLX and PyTorch MPS Apple GPU runtimes apart ([46726a7](https://github.com/ziptie-soft/local-decider/commit/46726a705283c5f96430f904c448676d2678355e))
+
 ## [2.1.2](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v2.1.1...paseo-plugin-v2.1.2) (2026-11-15)
 
 
