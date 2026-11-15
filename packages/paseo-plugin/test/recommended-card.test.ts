@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { parseEngineCatalog, type EngineCatalog } from '../shared/engines.ts';
-import { recommendedCard } from '../shared/recommended-card.ts';
+import { recommendedCard, runtimeName } from '../shared/recommended-card.ts';
 
 const NOON = '2026-11-12T12:00:00.000Z';
 
@@ -446,5 +446,16 @@ describe('recommendedCard precedence, overlays and badges', () => {
     assert.equal(card.kind, 'ok-manual');
     assert.equal(card.latency, null);
     assert.equal(card.reasonText, null);
+  });
+});
+
+describe('runtimeName', () => {
+  it('tells the two Apple GPU runtimes apart', () => {
+    const c = catalog({});
+    const at = (device: string): string =>
+      runtimeName(c, { engine: 'strands-decider', device, backend: null });
+    assert.equal(at('mlx'), 'Apple GPU (MLX)');
+    assert.equal(at('mps'), 'Apple GPU (PyTorch MPS)');
+    assert.equal(at('cpu'), 'CPU');
   });
 });
