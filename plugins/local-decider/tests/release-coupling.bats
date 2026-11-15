@@ -44,6 +44,52 @@ check_diff() {
   [[ "$output" == *'without a plugins/local-decider change'* ]]
 }
 
+write_lock() {
+  cat >"$repo/pnpm-lock.yaml" <<EOF
+lockfileVersion: '9.0'
+
+importers:
+
+  packages/hooks:
+    devDependencies:
+      esbuild:
+        version: $1
+
+  packages/paseo-plugin:
+    $2:
+      zod:
+        version: 4.6.7
+
+  plugins/local-decider: {}
+
+packages:
+
+  zod@4.6.7:
+    resolution: {integrity: sha512-x}
+EOF
+}
+
+@test "ignores lockfile changes confined to the Paseo plugin's importer" {
+  write_lock 0.28.2 dependencies
+  commit_changes
+  base=$(git -C "$repo" rev-parse HEAD)
+  write_lock 0.28.2 devDependencies
+  commit_changes
+  run check_diff
+  [ "$status" -eq 0 ]
+}
+
+@test "still requires a plugin release when another importer changes alongside" {
+  write_lock 0.28.2 dependencies
+  commit_changes
+  base=$(git -C "$repo" rev-parse HEAD)
+  write_lock 0.28.3 devDependencies
+  commit_changes
+  run check_diff
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'without a plugins/local-decider change'* ]]
+}
+
 @test "accepts shared source changes accompanied by a plugin change" {
   printf 'change\n' >>"$repo/packages/hooks/src/run.ts"
   printf 'change\n' >>"$repo/plugins/local-decider/README.md"
