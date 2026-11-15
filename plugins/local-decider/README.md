@@ -140,6 +140,33 @@ For Codex, point a personal `~/.agents/plugins/marketplace.json` at the checkout
 `{ "source": "local", "path": "<checkout>/plugins/local-decider" }`. Without a build the hooks
 exit 0 silently.
 
+End-to-end check against a running gateway, with a logged-in harness (it spends a few model
+turns):
+
+```sh
+pnpm --filter @ziptie-soft/local-decider-hooks build   # Claude loads the checkout's bundle
+mise run e2e:claude    # or e2e:codex, or e2e for both
+LD_E2E_USER_SETTINGS=1 mise run e2e:claude   # with your user settings and the installed plugin
+```
+
+Each run starts the harness headless in a scratch git repo under the temp directory and has it run
+a fixed list of steps there. The steps include a file write, `rm -rf` and `chmod` inside the scratch
+repo, one approval-requiring call and a `curl | sh` from a `.invalid` host. The run then reads that
+session's records from the decision store. It passes when routing, `command-risk`, `permission`
+(at least 3) and `turn-outcome` verdicts were all recorded and the guard denied `curl | sh`.
+
+Claude runs with `--setting-sources project` and `--plugin-dir plugins/local-decider` (override
+with `LD_E2E_PLUGIN_DIR`), so your own allow rules, sandbox auto-allow and hooks don't answer
+permission requests before the plugin sees them. Managed settings still apply; the run warns when
+they exist. `scripts/e2e-approve.mjs` is added through `--settings` as a second
+`PermissionRequest` hook standing in for you: it denies `chmod` and allows everything else. The
+run also checks that it decided at least 3 requests including a deny, and prints how many
+outcomes the gateway recorded for the session's permission verdicts. With
+`--permission-mode manual --permission-prompts none`, anything left undecided is denied instead
+of waiting for you. Codex runs with `--approve-for-me` and `--dangerously-bypass-hook-trust`, so
+the plugin hooks run without the `/hooks` trust step. `LD_E2E_KEEP=1` keeps the scratch repo, the
+harness's event stream (hook events included) and the approver log.
+
 release-please bumps this package only for commits that touch `plugins/local-decider/`. Pull
 request CI checks that changes to shared hook/core source or the dependency lockfile include a
 change here and a PR title that triggers a release, so the plugin release includes its rebuilt

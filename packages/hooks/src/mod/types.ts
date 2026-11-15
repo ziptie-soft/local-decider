@@ -83,3 +83,6 @@ export interface Register {
   (event: 'tool.check', filter: { tool: readonly string[] }, hook: ToolCheckHook): void;
   (event: 'tool.call', filter: { tool: readonly string[] }, hook: ToolCallHook): void;
 }
+
+/** `register(on, options)`'s second argument: the manifest's `userConfig` values. */
+export type PluginOptions = Readonly<Record<string, string | number | boolean | readonly string[]>>;

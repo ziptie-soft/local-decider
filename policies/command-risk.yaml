@@ -28,6 +28,11 @@ rules:
   # Probability, not confidence: a narrow caution lead (p 0.51 vs safe 0.48) still asks.
   - when: { question: risk, answer: caution, minProbability: 0.5 }
     action: ask
-# `log`, not `abstain`: the harness sees no difference, but stats count "rated safe, no friction"
-# rather than "no opinion".
-default: log
+  # Only a confident "safe" passes silently. Confidence 0.5 sits at the decision log's p3
+  # (2026-11); unsure safes such as `rm -rf build` or `chmod 600` scored 0.27-0.40.
+  # `log`, not `abstain`: the harness sees no difference, but stats count "rated safe, no
+  # friction" rather than "no opinion".
+  - when: { question: risk, answer: safe, minConfidence: 0.5 }
+    action: log
+# Everything unsure asks: a low-confidence safe, and dangerous < 0.7 or caution p < 0.5 leads.
+default: ask

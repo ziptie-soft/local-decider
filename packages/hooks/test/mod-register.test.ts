@@ -347,4 +347,18 @@ describe('register', () => {
       assert.deepEqual(tools, ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
     }
   });
+
+  it('passes its userConfig options to the gateway calls', async () => {
+    const hooks = new Map<string, (...args: never[]) => Promise<unknown>>();
+    const on = (name: string, _f: unknown, hook: (...args: never[]) => Promise<unknown>): void => {
+      hooks.set(name, hook);
+    };
+    register(on, { gateway_url: 'https://gw.example.com', gateway_token: 'opt' });
+    const api = fakeApi(world());
+    const hook = hooks.get('tool.check') as unknown as typeof check;
+    const result = await hook(api.$, event(), nextOf(PLAIN_ASK));
+    assert.equal(result.decision, 'allow');
+    assert.equal(api.gets[0], `https://gw.example.com/v1/calls/${ID}`);
+    assert.match(api.posts[0]?.url ?? '', /^https:\/\/gw\.example\.com\/v1\/decide\/permission$/);
+  });
 });

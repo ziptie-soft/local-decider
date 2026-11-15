@@ -2,6 +2,18 @@
   "description": "local-decider: deterministic command guard plus local decision-model policies (fail-open)",
   "modules": ["./local-decider-auto-mode.mjs"],
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/local-decider-hook.sh\" claude SessionStart",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|mcp__.*",

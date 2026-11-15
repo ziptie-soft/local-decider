@@ -3,15 +3,15 @@
  * budget. Everything fails to `null` (or a no-op) so the mod fails open to the classifier.
  */
 import {
-  DEFAULT_GATEWAY_URL,
   tokenAllowed,
   trimTrailingSlashes,
   type DecideRequest,
   type DecideResponse,
 } from '@ziptie-soft/local-decider-core';
 
+import { gatewayConfig } from '../gateway-config.ts';
 import type { CallInfo } from './check.ts';
-import type { ModApi } from './types.ts';
+import type { ModApi, PluginOptions } from './types.ts';
 
 const DEFAULT_BUDGET_MS = 1500;
 
@@ -25,17 +25,30 @@ export interface ModEnv {
   readonly hostPermission: boolean;
 }
 
-/** `$.env.get` accepts literal names only, so each variable is read by its own call. */
-export async function readEnv($: ModApi): Promise<ModEnv> {
+function option(options: PluginOptions, key: string): string | undefined {
+  const value = options[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * `$.env.get` accepts literal names only, so each variable is read by its own call. The
+ * `userConfig` values arrive as `options` (Claude Code sets `CLAUDE_PLUGIN_OPTION_*` only in
+ * command hooks' environments) and rank as they do for the hook runner.
+ */
+export async function readEnv($: ModApi, options: PluginOptions = {}): Promise<ModEnv> {
   const hostPolicies = await $.env.get('LOCAL_DECIDER_HOST_POLICIES');
-  const url = await $.env.get('LOCAL_DECIDER_URL');
-  const token = await $.env.get('LOCAL_DECIDER_TOKEN');
+  const { url, token } = gatewayConfig({
+    LOCAL_DECIDER_URL: await $.env.get('LOCAL_DECIDER_URL'),
+    LOCAL_DECIDER_TOKEN: await $.env.get('LOCAL_DECIDER_TOKEN'),
+    CLAUDE_PLUGIN_OPTION_GATEWAY_URL: option(options, 'gateway_url'),
+    CLAUDE_PLUGIN_OPTION_GATEWAY_TOKEN: option(options, 'gateway_token'),
+  });
   const mod = await $.env.get('LOCAL_DECIDER_MOD');
   const timeout = Number(await $.env.get('LOCAL_DECIDER_TIMEOUT_MS'));
-  const baseUrl = trimTrailingSlashes(url === undefined || url === '' ? DEFAULT_GATEWAY_URL : url);
+  const baseUrl = trimTrailingSlashes(url);
   return {
     baseUrl,
-    token: token !== undefined && token !== '' && tokenAllowed(baseUrl) ? token : undefined,
+    token: token !== undefined && tokenAllowed(baseUrl) ? token : undefined,
     budgetMs: Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_BUDGET_MS,
     off: mod === 'off',
     hostPermission: (hostPolicies ?? '').split(',').some((p) => p.trim() === 'permission'),
