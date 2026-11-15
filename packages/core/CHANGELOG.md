@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/ziptie-soft/local-decider/compare/core-v2.1.1...core-v2.2.0) (2026-11-15)
+
+
+### Features
+
+* **plugin:** add gateway userConfig, SessionStart health check and harness e2e ([97f5ce7](https://github.com/ziptie-soft/local-decider/commit/97f5ce7fb4f2b60a9fe0e869e344b3bfbc48d581))
+
 ## [2.1.1](https://github.com/ziptie-soft/local-decider/compare/core-v2.1.0...core-v2.1.1) (2026-11-14)
 
 
