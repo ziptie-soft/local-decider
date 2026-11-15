@@ -61,6 +61,21 @@ describe('published package', () => {
   it('has no runtime dependencies to install', () => {
     assert.deepEqual(Object.keys(manifest.dependencies ?? {}), []);
   });
+
+  it('ships the listing overview, icon and media', () => {
+    const plugin = JSON.parse(readFileSync(join(root, 'paseo-plugin.json'), 'utf8')) as {
+      icon?: string;
+      media?: string[];
+    };
+    const listing = ['OVERVIEW.md', plugin.icon ?? '', ...(plugin.media ?? [])];
+    for (const path of listing) {
+      assert.ok(statSync(join(root, path)).isFile(), `${path} is missing`);
+      const published = manifest.files.some((entry) =>
+        entry.endsWith('/') ? path.startsWith(entry) : path === entry,
+      );
+      assert.ok(published, `${path} is not covered by package.json files`);
+    }
+  });
 });
 
 describe('server/core', () => {
