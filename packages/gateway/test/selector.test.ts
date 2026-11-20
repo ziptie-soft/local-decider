@@ -55,6 +55,17 @@ const timing = (p50Ms: number): Measured => ({
 });
 
 describe('engine ranking', () => {
+  it('never offers an MLX candidate for a v2 (transformers) model', () => {
+    const family = 'strands-decider:StrandsAgents/strands-decider-E2B-gemma4-v2-2611';
+    const r = rank(MAC, caps({ apple: { ...YES('mlx'), mps: true } }), {
+      preferredFamily: family,
+    });
+    const v2 = r.candidates.filter((c) => c.model.includes('-v2-'));
+    assert.ok(v2.length > 0);
+    assert.ok(v2.every((c) => c.device !== 'mlx'));
+    assert.ok(v2.some((c) => c.device === 'mps'));
+  });
+
   it('Linux with an NPU: FLM NPU first, CPU last', () => {
     const r = rank(LINUX, caps({ npu: YES() }));
     assert.deepEqual(ladder(r), ['fastflowlm:NPU', 'strands-decider:CPU']);

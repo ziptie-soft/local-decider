@@ -53,7 +53,9 @@ export function planCatalogueDownloads(
   provenanceRevision = '',
 ): string[][] {
   const artifacts = entry.artifacts ?? [];
-  if (baseModel !== '' && !artifacts.includes(baseModel)) {
+  // v2 checkpoints are self-contained: their base is pinned for provenance but not downloaded.
+  const provenanceOnly = entry.generation === 2 && entry.revisions?.[baseModel] !== undefined;
+  if (baseModel !== '' && !artifacts.includes(baseModel) && !provenanceOnly) {
     throw new Error(
       `${entry.id} declares base_model ${baseModel}, which is not one of its pinned artifacts ` +
         `(${artifacts.join(', ')}); refusing to download it`,
@@ -121,11 +123,13 @@ base = ""
 prov_rev = ""
 try:
     cfg = json.load(open(hf_hub_download(sys.argv[1], "strands_decider_config.json", revision=rev)))
-    base = cfg.get("base_model", "")
+    prov2 = cfg.get("provenance") or {}
+    base = cfg.get("base_model") or prov2.get("base_model", "")
+    prov_rev = prov2.get("base_revision") or ""
     try:
         prov = json.load(open(hf_hub_download(sys.argv[1], "provenance.json", revision=rev)))
         if prov.get("base_model") == base:
-            prov_rev = prov.get("base_model_revision") or ""
+            prov_rev = prov.get("base_model_revision") or prov_rev
     except Exception:
         pass
 except Exception:

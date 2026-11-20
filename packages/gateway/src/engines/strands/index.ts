@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { DEVICES, defineEngine, type EngineContext, type ModelDescriptor } from '../descriptor.ts';
 import { hfCacheDir, hfCached } from './hf-cache.ts';
 import { resolveStrandsDevice } from './mlx.ts';
-import { MODELS, hfDownloadArgs } from './models.ts';
+import { MODELS, hfDownloadArgs, isTransformersModel } from './models.ts';
 import { StrandsDeciderEngine, strandsBinary } from './server.ts';
 
 export const DEFAULT_MODEL = 'StrandsAgents/strands-decider-2B-qwen3.5-v1-2610';
@@ -78,7 +78,8 @@ export const strandsEngine = defineEngine({
   supports: () => ({ ok: true }),
   tag: (config, host, ctx) => {
     const binary = ctx?.tools?.strandsDecider ?? (ctx?.paths && strandsBinary(ctx.paths));
-    return resolveStrandsDevice(config.device, host, binary).backend ?? 'PyTorch';
+    const transformers = isTransformersModel(config.model);
+    return resolveStrandsDevice(config.device, host, binary, transformers).backend ?? 'PyTorch';
   },
   devices: (host) => {
     if (host.platform === 'darwin' && host.arch === 'arm64') {

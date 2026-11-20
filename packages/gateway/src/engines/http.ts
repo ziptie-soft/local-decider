@@ -1,7 +1,7 @@
 import { trimTrailingSlashes } from '@ziptie-soft/local-decider-core';
 import type { SystemOneRequest, SystemOneResponse } from '@ziptie-soft/local-decider-core';
 
-import { EngineError } from './types.ts';
+import { ENGINE_BUSY_ERROR, EngineError, isEngineBusy } from './types.ts';
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
@@ -127,6 +127,11 @@ export async function postSystemOne(
     signal,
     maxBytes: MAX_RESPONSE_BYTES,
     fetch: options.fetch,
+  }).catch((error: unknown) => {
+    if (isEngineBusy(error)) {
+      throw new EngineError(ENGINE_BUSY_ERROR, (error as EngineError).httpFailure);
+    }
+    throw error;
   });
   if (!isResponse(body)) {
     throw new EngineError('engine response has no answers');

@@ -824,6 +824,11 @@ other models. Verify cited lines before implementing; they come from a read-only
 
 ### U1 Strands v2 checkpoints
 
+- **Status:** partly done. E2B v2 is in `strands/models.ts` (`generation: 2`, adapter and base
+  pinned to the upstream-recorded revisions, not recommended); `mlx.ts` never resolves MLX for it,
+  `device: mlx` fails the start, and the selector and `appleFresh` skip MLX for v2. A `/v1/systemone`
+  503 now counts as busy (X3). Open: the E4B, 12B, 26B-A4B and 31B v2 repos are not public yet;
+  benchmark E2B v2 on ROCm and macOS before changing `recommended`; MLX behaviour untested on macOS.
 - **Priority:** P2. **Size:** S.
 - **Problem:** v0.4.0 adds Gemma 4 v2 checkpoints (`strands-decider-<size>-gemma4-v2-2611`,
   32k context, native images, token readout). Only E2B v2 was on Hugging Face on 2026-11-20
