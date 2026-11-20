@@ -499,6 +499,29 @@ describe('typed outcome labels', () => {
     assert.deepEqual(s?.calibrationHints, [{ rule: 'verdict.allow', n: 1, denies: 0 }]);
   });
 
+  it('lets a verified outcome win over an unverified one in either order', () => {
+    const unverifiedDeny: LogRecord = {
+      kind: 'outcome',
+      ts: 't',
+      decisionId: 'x',
+      outcome: 'deny',
+      source: 'user',
+      verified: false,
+    };
+    const verifiedAllow = labelled('allow')[1];
+    assert.ok(verifiedAllow);
+    const decisionRecord = labelled()[0];
+    assert.ok(decisionRecord);
+    for (const outcomes of [
+      [verifiedAllow, unverifiedDeny],
+      [unverifiedDeny, verifiedAllow],
+    ]) {
+      const [s] = computeStats([decisionRecord, ...outcomes]);
+      assert.equal(s?.labelled, 1);
+      assert.equal(s?.agreement, 1);
+    }
+  });
+
   it('keeps the first verified allow sample when a deny follows', () => {
     assert.deepEqual(hints('allow', 'deny'), [{ rule: 'verdict.allow', n: 1, denies: 0 }]);
   });

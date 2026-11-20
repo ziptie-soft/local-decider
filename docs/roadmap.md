@@ -718,6 +718,8 @@ other models. Verify cited lines before implementing; they come from a read-only
   overwrite a verified one for the same decision.
 - **Direction:** map through `comparableOutcome`, count vetoes as not-allowed, reuse
   `eligibleAllowRules`, let verified rows win; tests with `unsafe` and neutral labels.
+- **Status:** done — calibration maps vetoes to negatives, shares `eligibleAllowRules`; stats
+  keeps verified outcomes over unverified ones.
 
 ### N5 Paseo: an auto-allow can be recorded as a verified user allow
 
