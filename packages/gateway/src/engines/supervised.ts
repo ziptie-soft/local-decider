@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import type { Paths } from '../paths.ts';
+import { engineChildEnv } from './child-env.ts';
+import { killChild, trackChild } from './child-reaper.ts';
 import { getHealth, postSystemOne } from './http.ts';
 import { createEngineLogFilter } from './log-filter.ts';
 import { EngineError, type Engine, type EngineHealth, type EngineState } from './types.ts';
@@ -119,9 +121,9 @@ export class SupervisedEngine implements Engine {
     if (child === undefined || child.exitCode !== null) {
       return;
     }
-    child.kill('SIGTERM');
+    killChild(child, 'SIGTERM');
     const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
-    const timer = sleep(10_000).then(() => child.kill('SIGKILL'));
+    const timer = sleep(10_000).then(() => killChild(child, 'SIGKILL'));
     await Promise.race([exited, timer]);
   }
 
@@ -139,7 +141,9 @@ export class SupervisedEngine implements Engine {
     const log = createWriteStream(logPath, { flags: 'a' });
     const child = spawn(binary.path, this.#spec.args(port), {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, ...this.#spec.env },
+      env: engineChildEnv(process.env, this.#spec.env),
+      // Its own process group, so stop and the exit hook reach any grandchildren too.
+      detached: process.platform !== 'win32',
     });
     child.stdout?.pipe(createEngineLogFilter()).pipe(log, { end: false });
     child.stderr?.pipe(createEngineLogFilter()).pipe(log, { end: false });
@@ -147,8 +151,23 @@ export class SupervisedEngine implements Engine {
       log.end();
       this.#onExit(code, signal);
     });
+    // ENOENT or EACCES: no 'exit' follows, so fail here instead of crashing on an unhandled event.
+    child.once('error', (error) => {
+      log.end();
+      this.#onSpawnError(child, error);
+    });
+    trackChild(child);
     this.#child = child;
     return true;
+  }
+
+  #onSpawnError(child: ChildProcess, error: Error): void {
+    if (this.#stopping || this.#child !== child) {
+      return;
+    }
+    this.#child = undefined;
+    this.#readyAt = undefined;
+    this.#fail(`engine failed to start: ${error.message}`);
   }
 
   #onExit(code: number | null, signal: NodeJS.Signals | null): void {

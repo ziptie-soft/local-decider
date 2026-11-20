@@ -49,6 +49,7 @@ import {
 } from './engine-discovery.ts';
 import { candidateKey, FallbackPolicy, type FallbackOptions } from './engine-fallback.ts';
 import { ServerProbe, type DiscoverRequest } from './engine-probe.ts';
+import { configTokenEnvNames, setSecretEnvNames } from './engines/child-env.ts';
 import type {
   EngineContext,
   EngineDescriptor,
@@ -1711,6 +1712,7 @@ export class EngineControl implements BenchmarkHost {
 
   #build(sel: EngineSelection | null): ManagedEngine {
     const config = sel === null ? this.#config.engine : this.#engineConfig(sel);
+    setSecretEnvNames(configTokenEnvNames(this.#config));
     const inner = this.#create(config, this.#paths, this.#tools);
     const life =
       sel === null

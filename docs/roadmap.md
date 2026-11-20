@@ -749,6 +749,7 @@ other models. Verify cited lines before implementing; they come from a read-only
 ### N7 Engine child hygiene: environment, argv, error handler
 
 - **Priority:** P1. **Size:** S.
+- **Status:** done — env allowlist, reserved `extraArgs` flags, spawn error handler, exit reaper.
 - **Problem:** `engines/supervised.ts` passes the whole `process.env` (bearer, report and
   `tokenEnv` secrets) to the engine; there is no `child.on('error')`, so spawn `ENOENT` is
   unhandled; children are not killed on gateway exit. `extraArgs` (`strands/index.ts`) can carry
