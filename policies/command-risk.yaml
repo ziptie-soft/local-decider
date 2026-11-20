@@ -5,6 +5,8 @@ id: command-risk
 version: 2
 description: Flag risky shell commands and tool calls before they run.
 mode: shadow
+# Hook-enforced: not callable or listed through MCP, so an agent cannot probe it.
+mcp: false
 priority: high
 state:
   maxTokens: 1000

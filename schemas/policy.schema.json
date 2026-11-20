@@ -43,6 +43,11 @@
       "type": "string",
       "enum": ["high", "normal", "low"]
     },
+    "mcp": {
+      "default": true,
+      "description": "Callable and listed through MCP; `false` for policies a harness hook enforces.",
+      "type": "boolean"
+    },
     "harnesses": {
       "default": [],
       "type": "array",

@@ -56,7 +56,7 @@ const INPUT = {
   request: { command: 'ls' },
   history: 'user: list files',
 };
-const req = { harness: 'cli' as const, input: INPUT };
+const req = { harness: 'claude-code' as const, input: INPUT };
 const signal = (): AbortSignal => new AbortController().signal;
 
 interface PrecedentLog extends LogStore {
@@ -152,7 +152,7 @@ describe('Decider precedent rebuilds', () => {
     const log = precedentLog();
     const decider = createPrecedentDecider(initial, log);
     const input = { ...INPUT, subject: 'Bash: npm test' };
-    const request = { harness: 'cli' as const, input, workspace: { cwd: '/p' } };
+    const request = { harness: 'claude-code' as const, input, workspace: { cwd: '/p' } };
     const first = await decider.decide('permission', request, signal());
     assert.equal(first.action, 'ask');
     decider.noteOutcome({
@@ -243,7 +243,7 @@ describe('Decider', () => {
     const { decider } = setup('act', new FakeEngine({ allow: 0.7, ask: 0.2, deny: 0.1 }));
     const response = await decider.decide(
       'permission',
-      { harness: 'cli', input: { ...INPUT, subject: 'Bash: npm test' } },
+      { harness: 'claude-code', input: { ...INPUT, subject: 'Bash: npm test' } },
       signal(),
     );
     assert.equal(response.action, 'ask');
@@ -262,7 +262,7 @@ describe('Decider', () => {
     for (let index = 0; index < 3; index += 1) {
       const response = await decider.decide(
         'permission',
-        { harness: 'cli', input, workspace },
+        { harness: 'claude-code', input, workspace },
         signal(),
       );
       assert.equal(response.action, 'ask');
@@ -294,7 +294,7 @@ describe('Decider', () => {
     );
     const learned = await decider.decide(
       'permission',
-      { harness: 'cli', input, workspace },
+      { harness: 'claude-code', input, workspace },
       signal(),
     );
     assert.equal(learned.action, 'allow', JSON.stringify(learned));
@@ -305,7 +305,7 @@ describe('Decider', () => {
     assert.ok(!JSON.stringify(log.read()).includes('Bash: npm test'));
     const otherWorkspace = await decider.decide(
       'permission',
-      { harness: 'cli', input, workspace: { cwd: '/another-project' } },
+      { harness: 'claude-code', input, workspace: { cwd: '/another-project' } },
       signal(),
     );
     assert.equal(otherWorkspace.action, 'ask');
@@ -409,7 +409,7 @@ describe('Decider', () => {
     const secret = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
     await decider.decide(
       'permission',
-      { harness: 'cli', input: { ...INPUT, request: { z: 1, command: `echo ${secret}` } } },
+      { harness: 'claude-code', input: { ...INPUT, request: { z: 1, command: `echo ${secret}` } } },
       signal(),
     );
     const state = engine.requests[0]?.state;
@@ -520,7 +520,7 @@ describe('Decider', () => {
     const next = new FakeEngine({ allow: 1 });
     const { decider } = setup('act', engine, 0);
     const other = {
-      harness: 'cli' as const,
+      harness: 'claude-code' as const,
       input: { ...INPUT, request: { command: 'pwd' } },
     };
     const running = decider.decide('permission', req, signal());
@@ -619,7 +619,7 @@ describe('Decider', () => {
       [1, 2, 3].map((i) =>
         decider.decide(
           'permission',
-          { harness: 'cli', input: { ...INPUT, tool: String(i) } },
+          { harness: 'claude-code', input: { ...INPUT, tool: String(i) } },
           signal(),
         ),
       ),
@@ -908,7 +908,7 @@ describe('Decider under load', () => {
 });
 
 function toolReq(i: number): typeof req {
-  return { harness: 'cli', input: { ...INPUT, tool: String(i) } };
+  return { harness: 'claude-code', input: { ...INPUT, tool: String(i) } };
 }
 
 function gated(gate: Promise<void>): FakeEngine {
@@ -957,7 +957,10 @@ function routingSetup(): Setup {
   };
 }
 
-const routingReq = { harness: 'cli' as const, input: { project: '/p', prompt: 'rename foo' } };
+const routingReq = {
+  harness: 'claude-code' as const,
+  input: { project: '/p', prompt: 'rename foo' },
+};
 
 describe('Decider variants', () => {
   it('lists a policy and its variants, and nothing for unknown or variant ids', () => {

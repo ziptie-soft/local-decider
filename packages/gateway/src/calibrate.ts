@@ -6,6 +6,7 @@ import type {
   ShadowRecord,
 } from '@ziptie-soft/local-decider-core';
 
+import { isProbeDecision } from './log-store.ts';
 import {
   comparableOutcome,
   correctedOutcome,
@@ -119,7 +120,7 @@ function sampleGroups(
 ): Map<string, Group> {
   const groups = new Map<string, Group>();
   for (const record of records) {
-    if (record.kind !== 'decision') continue;
+    if (record.kind !== 'decision' || isProbeDecision(record)) continue;
     const outcome = labels.get(record.decisionId);
     const sample = outcome === undefined ? undefined : sampleFor(record, outcome);
     if (sample === undefined) continue;

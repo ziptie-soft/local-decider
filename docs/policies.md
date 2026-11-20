@@ -85,6 +85,7 @@ variantOf: permission     # optional: can stand in for another policy (see Varia
 mode: shadow              # off | shadow | act
 priority: high            # engine queue order: high (a hook waits), normal, low
 harnesses: []             # empty = every harness
+mcp: true                 # false: not callable or listed through MCP (hook-enforced policies)
 cache: { ttlSeconds: 0 }  # reuse answers for identical state
 state:
   maxTokens: 2500         # decision models take ~4k tokens; leave room for the questions

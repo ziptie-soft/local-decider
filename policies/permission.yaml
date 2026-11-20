@@ -5,6 +5,8 @@ id: permission
 version: 2
 description: Decide whether a tool or permission request is routine enough to allow without asking.
 mode: shadow
+# Hook-enforced: not callable or listed through MCP, so an agent cannot probe it.
+mcp: false
 priority: high
 state:
   maxTokens: 2500

@@ -346,7 +346,7 @@ describe('gateway HTTP', () => {
 
   it('rejects oversized bodies', async () => {
     const res = await post('/v1/decide/turn-outcome', {
-      harness: 'cli',
+      harness: 'claude-code',
       input: { lastMessage: 'x'.repeat(300 * 1024) },
     });
     assert.equal(res.status, 413);
@@ -379,7 +379,10 @@ describe('gateway HTTP', () => {
 
   it('records outcomes and serves stats', async () => {
     const decision = await json(
-      await post('/v1/decide/turn-outcome', { harness: 'cli', input: { lastMessage: 'ok' } }),
+      await post('/v1/decide/turn-outcome', {
+        harness: 'claude-code',
+        input: { lastMessage: 'ok' },
+      }),
     );
     assert.equal(
       (
@@ -409,7 +412,7 @@ describe('gateway HTTP', () => {
   it('records usage against a decision and reports token savings', async () => {
     const decision = await json(
       await post('/v1/decide/turn-outcome', {
-        harness: 'cli',
+        harness: 'claude-code',
         input: { lastMessage: 'ok' },
         models: {
           requested: 'claude/claude-opus-4-6[1m]',
