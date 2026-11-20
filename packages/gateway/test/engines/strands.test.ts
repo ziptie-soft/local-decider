@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { downloadSteps } from '../../src/downloads.ts';
+import { planCatalogueDownloads } from '../../src/engine-install.ts';
 import type { EngineContext, HostInfo } from '../../src/engines/descriptor.ts';
+import { pinnedCheckpoint } from '../../src/engines/strands/hf-cache.ts';
 import { strandsEngine, hfCached } from '../../src/engines/strands/index.ts';
 import { resolveStrandsDevice } from '../../src/engines/strands/mlx.ts';
+import { hfDownloadArgs } from '../../src/engines/strands/models.ts';
 import { serveArgs } from '../../src/engines/strands/server.ts';
 import { tempPaths } from '../helpers.ts';
 
@@ -59,7 +62,12 @@ describe('strands descriptor', () => {
       false,
     );
     for (const artifact of model.artifacts ?? []) {
-      const snapshot = join(cache, `models--${artifact.replace('/', '--')}`, 'snapshots', 'abc');
+      const snapshot = join(
+        cache,
+        `models--${artifact.replace('/', '--')}`,
+        'snapshots',
+        model.revisions?.[artifact] ?? 'abc',
+      );
       mkdirSync(snapshot, { recursive: true });
       writeFileSync(join(snapshot, 'config.json'), '{}');
     }
@@ -79,9 +87,101 @@ describe('strands descriptor', () => {
     const model = strandsEngine.models.find((entry) => entry.id.includes('2B-qwen3.5'));
     assert.ok(model);
     assert.deepEqual(downloadSteps(model, context(paths.data, binary)), [
-      { command: hf, args: ['download', model.artifacts?.[0]] },
-      { command: hf, args: ['download', model.artifacts?.[1]] },
+      {
+        command: hf,
+        args: hfDownloadArgs(
+          model.artifacts?.[0] ?? '',
+          model.revisions?.[model.artifacts?.[0] ?? ''],
+        ),
+      },
+      {
+        command: hf,
+        args: hfDownloadArgs(
+          model.artifacts?.[1] ?? '',
+          model.revisions?.[model.artifacts?.[1] ?? ''],
+        ),
+      },
     ]);
+  });
+
+  it('pins every catalogue artifact to a 40-char commit', () => {
+    for (const model of strandsEngine.models) {
+      assert.ok((model.artifacts ?? []).length > 0, model.id);
+      assert.deepEqual(
+        Object.keys(model.revisions ?? {}).toSorted(),
+        [...(model.artifacts ?? [])].toSorted(),
+      );
+      for (const rev of Object.values(model.revisions ?? {})) {
+        assert.match(rev, /^[0-9a-f]{40}$/);
+      }
+    }
+  });
+
+  it('passes --revision to hf download', () => {
+    const model = strandsEngine.models[0];
+    assert.ok(model);
+    const binary = executable(join(tempPaths().venvs, 'strands-decider', 'bin', 'strands-decider'));
+    executable(join(dirname(binary), 'hf'));
+    const steps = downloadSteps(model, context(tempPaths().data, binary));
+    for (const step of steps) {
+      assert.equal(step.args[2], '--revision');
+      assert.match(step.args[3] ?? '', /^[0-9a-f]{40}$/);
+    }
+  });
+
+  it('checks the pinned snapshot in the HF cache', () => {
+    const cache = join(tempPaths().data, 'hf-cache');
+    const snap = join(cache, 'models--a--b', 'snapshots', 'other');
+    mkdirSync(snap, { recursive: true });
+    writeFileSync(join(snap, 'f'), '');
+    assert.equal(hfCached(cache, 'a/b'), true);
+    assert.equal(hfCached(cache, 'a/b', 'pinned'), false);
+    const pinned = join(cache, 'models--a--b', 'snapshots', 'pinned');
+    mkdirSync(pinned);
+    writeFileSync(join(pinned, 'f'), '');
+    assert.equal(hfCached(cache, 'a/b', 'pinned'), true);
+  });
+
+  it('refuses a base_model outside the descriptor artifacts', () => {
+    const model = strandsEngine.models[0];
+    assert.ok(model);
+    assert.throws(() => planCatalogueDownloads(model, 'evil/base'), /not one of its pinned/);
+    const plan = planCatalogueDownloads(model, model.artifacts?.[1] ?? '');
+    assert.equal(plan.length, 2);
+    assert.equal(plan[0]?.[2], '--revision');
+  });
+
+  it('refuses catalogue pin drift against provenance', () => {
+    const model = strandsEngine.models[0];
+    assert.ok(model);
+    const base = model.artifacts?.[1] ?? '';
+    const pinned = model.revisions?.[base] ?? '';
+    assert.throws(() => planCatalogueDownloads(model, base, 'f'.repeat(40)), /pin drift/);
+    assert.equal(planCatalogueDownloads(model, base, pinned).length, 2);
+    assert.equal(planCatalogueDownloads(model, base, '').length, 2);
+  });
+
+  it('serves the pinned snapshot directory when cached, else the repo id', () => {
+    const model = strandsEngine.models[0];
+    assert.ok(model);
+    const cache = join(tempPaths().data, 'hf-cache');
+    assert.equal(pinnedCheckpoint(cache, model.id), undefined);
+    const rev = model.revisions?.[model.id] ?? '';
+    const snap = join(cache, `models--${model.id.replace('/', '--')}`, 'snapshots', rev);
+    mkdirSync(snap, { recursive: true });
+    writeFileSync(join(snap, 'config.json'), '{}');
+    assert.equal(pinnedCheckpoint(cache, model.id), snap);
+    assert.equal(pinnedCheckpoint(cache, 'user/unlisted'), undefined);
+    const config = strandsEngine.configSchema.parse({ type: 'strands-decider', model: model.id });
+    const args = serveArgs(config, 9000, undefined, snap);
+    assert.equal(args[1], snap);
+    assert.deepEqual(args.slice(args.indexOf('--model-name')), [
+      '--model-name',
+      'strands-decider-2B-qwen3.5-v1-2610',
+      ...args.slice(args.indexOf('--model-name') + 2),
+    ]);
+    assert.equal(serveArgs(config, 9000)[1], model.id);
+    assert.ok(!serveArgs(config, 9000).includes('--model-name'));
   });
 
   describe('device resolution', () => {

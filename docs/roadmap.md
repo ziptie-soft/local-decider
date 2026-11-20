@@ -680,6 +680,11 @@ other models. Verify cited lines before implementing; they come from a read-only
 
 ### N2 Engine supply chain: unpinned Hugging Face weights
 
+- **Status:** done. Catalogue models carry pinned revisions (`revisions` in `strands/models.ts`);
+  `engine install` downloads them with `--revision`, refuses a `base_model` or provenance base
+  revision that drifts from the pin, and `serve` starts from the pinned snapshot directory with
+  `--model-name` (works offline). `mise run lint:uvlock` checks the lock. Non-catalogue ids stay
+  unpinned with a warning.
 - **Priority:** P0. **Size:** S.
 - **Problem:** The lock half is fixed (see above). `hf download` (`engine-install.ts`,
   `strands/index.ts`) passes no `--revision`, and the base-model repo is read from the downloaded
