@@ -155,7 +155,8 @@ interface ThresholdSample {
   readonly denied: boolean;
 }
 
-function eligibleAllowRules(policy: Policy): PolicyRule[] {
+/** Allow rules with a probability threshold; `precedent: allow` rules are never eligible. */
+export function eligibleAllowRules(policy: Policy): PolicyRule[] {
   return policy.rules.filter(
     (rule) =>
       rule.action === 'allow' &&
@@ -319,7 +320,11 @@ function noteOutcomeRecord(
   classifier: Map<string, OutcomeRecord>,
   verified: Map<string, string>,
 ): void {
-  outcomes.set(record.decisionId, record);
+  const held = outcomes.get(record.decisionId);
+  // A verified outcome is never replaced by an unverified one, whatever the arrival order.
+  if (held === undefined || isVerifiedOutcome(record) || !isVerifiedOutcome(held)) {
+    outcomes.set(record.decisionId, record);
+  }
   if (record.source === 'classifier' || record.claimedSource === 'classifier') {
     classifier.set(record.decisionId, record);
   }
