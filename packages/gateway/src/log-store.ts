@@ -1,4 +1,12 @@
-import type { LogRecord } from '@ziptie-soft/local-decider-core';
+import type { LogRecord, ShadowRecord } from '@ziptie-soft/local-decider-core';
+
+/**
+ * Decisions asked through MCP or the CLI are probes, not harness tool calls: they may be logged
+ * but never feed agreement, savings, calibration or precedent.
+ */
+export function isProbeDecision(record: ShadowRecord): boolean {
+  return record.harness === 'mcp' || record.harness === 'cli';
+}
 
 /** Durable decision, outcome and usage storage; precedent and calibration are rebuilt from it. */
 export interface LogStore {

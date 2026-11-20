@@ -6,6 +6,7 @@ import type {
   ShadowRecord,
 } from '@ziptie-soft/local-decider-core';
 
+import { isProbeDecision } from './log-store.ts';
 import { correctedOutcome, isVerifiedOutcome, outcomeClass } from './outcome-labels.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -65,7 +66,11 @@ export class PrecedentStore {
   /** Remember escalated decisions, and keyed auto-allowed ones for vetoes, until final. */
   noteDecision(record: ShadowRecord): void {
     const key = record.precedentKey;
-    if (key === undefined || (record.action !== 'ask' && record.action !== 'allow')) {
+    if (
+      key === undefined ||
+      isProbeDecision(record) ||
+      (record.action !== 'ask' && record.action !== 'allow')
+    ) {
       return;
     }
     const policyId = record.variant ?? record.policy;

@@ -137,6 +137,14 @@ export const policySchema = z
       .enum(['high', 'normal', 'low'])
       .default('normal')
       .describe('Engine queue priority: `high` for decisions a hook waits on.'),
+    /**
+     * Whether the MCP `decide` and `policies` tools expose this policy. Policies a harness hook
+     * enforces set `false` so an agent cannot probe them for a phrasing that yields an allow.
+     */
+    mcp: z
+      .boolean()
+      .default(true)
+      .describe('Callable and listed through MCP; `false` for policies a harness hook enforces.'),
     /** Harness ids this policy applies to; empty = all. */
     harnesses: z.array(z.string().regex(ID_PATTERN)).default([]),
     state: z

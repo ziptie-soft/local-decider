@@ -24,7 +24,7 @@ function decision(
     kind: 'decision',
     ts: '2026-11-10T00:00:00.000Z',
     decisionId: id,
-    harness: 'cli',
+    harness: 'claude-code',
     policy: 'permission',
     mode: 'shadow',
     inputHash: 'h',
@@ -46,6 +46,18 @@ function decision(
 }
 
 describe('computeStats', () => {
+  it('ignores decisions asked through MCP or the CLI', () => {
+    const records: LogRecord[] = [
+      decision('mcp-call', 'allow', 0.9, { harness: 'mcp' }),
+      decision('cli-call', 'allow', 0.9, { harness: 'cli' }),
+      { kind: 'outcome', ts: 't', decisionId: 'mcp-call', outcome: 'allow', source: 'user' },
+    ];
+    assert.deepEqual(computeStats(records), []);
+    const [stats] = computeStats([...records, decision('real', 'allow', 0.9)]);
+    assert.equal(stats?.decisions, 1);
+    assert.equal(stats.labelled, 0);
+  });
+
   it('splits unverified outcomes by their claimed source without labeling decisions', () => {
     const [stats] = computeStats([
       decision('classifier-call', 'allow', 0.99),

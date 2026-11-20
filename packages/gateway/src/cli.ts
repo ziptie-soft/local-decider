@@ -52,7 +52,7 @@ import { rankEngines } from './engines/selector.ts';
 import { strandsBinary } from './engines/strands/server.ts';
 import { parseEvalCases, runPolicyEval } from './eval.ts';
 import { installLlamaModel } from './llama-install.ts';
-import { serveMcpStdio, type McpBackend } from './mcp.ts';
+import { parseMcpPolicies, serveMcpStdio, type McpBackend } from './mcp.ts';
 import { resolvePaths, type Paths } from './paths.ts';
 import { loadPolicies, policyDirs } from './policies.ts';
 import { readControlToken } from './report-token.ts';
@@ -617,7 +617,7 @@ async function mcp(ctx: Context): Promise<void> {
       return result;
     },
     async listPolicies() {
-      return fetchPolicies(ctx);
+      return parseMcpPolicies(await fetchPolicies(ctx));
     },
   };
   await serveMcpStdio(backend);

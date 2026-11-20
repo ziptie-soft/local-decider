@@ -16,7 +16,7 @@ function decision(id: string, ageDays: number): LogRecord {
     kind: 'decision',
     ts: new Date(Date.now() - ageDays * DAY).toISOString(),
     decisionId: id,
-    harness: 'cli',
+    harness: 'claude-code',
     policy: 'permission',
     mode: 'shadow',
     inputHash: 'h',

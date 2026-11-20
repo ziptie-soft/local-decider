@@ -11,6 +11,7 @@ import type {
 
 import { classifierAgreement, type ClassifierAgreement } from './classifier-agreement.ts';
 import { ENGINE_BENCHMARK_RUNNING_ERROR } from './engine-busy.ts';
+import { isProbeDecision } from './log-store.ts';
 import { percentile, sortedLatencies, wilsonUpper } from './numbers.ts';
 import {
   comparableOutcome,
@@ -358,7 +359,10 @@ function joinRecords(records: readonly LogRecord[], options: StatsOptions): Join
       if (record.source === 'unverified') unverified.push(record);
     } else if (record.kind === 'usage') {
       usage.push(record);
-    } else if (options.scope === undefined || record.scope === options.scope) {
+    } else if (
+      !isProbeDecision(record) &&
+      (options.scope === undefined || record.scope === options.scope)
+    ) {
       const list = byPolicy.get(record.policy) ?? [];
       list.push(record);
       byPolicy.set(record.policy, list);

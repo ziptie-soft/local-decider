@@ -760,6 +760,8 @@ other models. Verify cited lines before implementing; they come from a read-only
 ### N8 MCP `decide` is an oracle and pollutes stats
 
 - **Priority:** P2. **Size:** S.
+- **Status:** done — policy `mcp: false` gates `permission`/`command-risk`; `policies` trimmed;
+  MCP/CLI rows skipped by stats, calibration, precedent.
 - **Problem:** `mcp.ts` runs any policy, including `permission` and `command-risk`, and the
   `policies` tool returns thresholds, so an agent can probe which phrasing yields an allow before
   the real tool call. MCP and CLI decisions enter agreement, savings and calibration.

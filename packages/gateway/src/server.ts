@@ -32,7 +32,7 @@ import {
 } from './engine-control.ts';
 import { allModels } from './engines/registry.ts';
 import type { LogStore } from './log-store.ts';
-import { handleMcpHttp } from './mcp.ts';
+import { handleMcpHttp, policyInfo } from './mcp.ts';
 import { modelFits } from './models.ts';
 import { withConfiguredRoutes, withRoute } from './routing.ts';
 import type { Pricing } from './savings.ts';
@@ -576,6 +576,8 @@ function route(method: string, path: string): Handler | undefined {
           id: policy.id,
           mode,
           description: policy.description,
+          mcp: policy.mcp,
+          questions: policyInfo(policy).questions,
           inputKeys: policy.state.sections.map((s) => s.from),
           routes: policyRoutes(policy),
           thresholds: decider.thresholdsOf(policy.id),

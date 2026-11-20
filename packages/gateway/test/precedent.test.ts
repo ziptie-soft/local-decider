@@ -19,6 +19,20 @@ function makeStore(now: () => number = () => NOW): PrecedentStore {
   return new PrecedentStore((id) => (id === 'permission' ? SETTINGS : undefined), now);
 }
 
+describe('probe decisions', () => {
+  it('learns nothing from decisions asked through MCP or the CLI', () => {
+    const store = makeStore();
+    for (const harness of ['mcp', 'cli'] as const) {
+      store.noteDecision({ ...decision(`probe-${harness}`), harness });
+      store.noteOutcome(outcome(`probe-${harness}`));
+    }
+    assert.deepEqual(store.tally('subject-hash'), { allows: 0, denies: 0 });
+    store.noteDecision(decision('real'));
+    store.noteOutcome(outcome('real'));
+    assert.deepEqual(store.tally('subject-hash'), { allows: 1, denies: 0 });
+  });
+});
+
 describe('unverified vetoes', () => {
   it('allows configured vetoes but never unverified allow evidence', () => {
     const withClassifier = new PrecedentStore(

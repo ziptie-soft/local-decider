@@ -38,7 +38,7 @@ function decision(
     kind: 'decision',
     ts: '2026-11-10T00:00:00.000Z',
     decisionId: id,
-    harness: 'cli',
+    harness: 'claude-code',
     policy: 'permission',
     mode: 'shadow',
     inputHash: id,
@@ -127,6 +127,22 @@ function relabel(
 }
 
 describe('calibrate', () => {
+  it('ignores decisions asked through MCP or the CLI', () => {
+    for (const harness of ['mcp', 'cli'] as const) {
+      const records = sampleLog().map((r) => (r.kind === 'decision' ? { ...r, harness } : r));
+      assert.deepEqual(calibrate(records, LOADED), []);
+    }
+    const mixed = [
+      ...sampleLog(),
+      ...sampleLog().map((r) =>
+        r.kind === 'decision'
+          ? { ...r, harness: 'mcp' as const, decisionId: `m-${r.decisionId}` }
+          : { ...r, decisionId: `m-${r.decisionId}` },
+      ),
+    ];
+    assert.equal(calibrate(mixed, LOADED)[0]?.n, 100);
+  });
+
   it('fits temperature and reports Brier and ECE', () => {
     const [result] = calibrate(sampleLog(), LOADED);
     assert.ok(result);
