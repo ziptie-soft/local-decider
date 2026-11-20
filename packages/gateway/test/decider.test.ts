@@ -440,6 +440,173 @@ describe('Decider', () => {
     assert.equal(engine.requests.length, 1);
   });
 
+  it('coalesces identical concurrent requests into one engine call', async () => {
+    const engine = new FakeEngine({ allow: 1 });
+    const inner = engine.respond;
+    engine.respond = async (r, s) => {
+      await sleep(30);
+      return inner(r, s);
+    };
+    const { decider } = setup('act', engine, 60);
+    const [a, b] = await Promise.all([
+      decider.decide('permission', req, signal()),
+      decider.decide('permission', req, signal()),
+    ]);
+    assert.equal(engine.requests.length, 1);
+    assert.equal(a.action, b.action);
+    assert.equal(b.error, undefined);
+  });
+
+  it('does not coalesce when the cache is disabled', async () => {
+    const engine = new FakeEngine({ allow: 1 });
+    const { decider } = setup('act', engine, 0);
+    await Promise.all([
+      decider.decide('permission', req, signal()),
+      decider.decide('permission', req, signal()),
+    ]);
+    assert.equal(engine.requests.length, 2);
+  });
+
+  it('keeps a shared call alive when one waiter aborts and the other waits', async () => {
+    const engine = new FakeEngine({ allow: 1 });
+    const inner = engine.respond;
+    let engineSignal: AbortSignal | undefined;
+    engine.respond = async (r, s) => {
+      engineSignal = s;
+      await sleep(60);
+      return inner(r, s);
+    };
+    const { decider } = setup('act', engine, 60);
+    const leaver = new AbortController();
+    const first = decider.decide('permission', req, leaver.signal);
+    const second = decider.decide('permission', req, signal());
+    await sleep(10);
+    leaver.abort();
+    const left = await first;
+    assert.match(left.error ?? '', /timed out/);
+    const stayed = await second;
+    assert.equal(stayed.error, undefined);
+    assert.equal(engine.requests.length, 1);
+    assert.equal(engineSignal?.aborted, false);
+  });
+
+  it('aborts the shared engine call once every waiter has left', async () => {
+    const engine = new FakeEngine({ allow: 1 });
+    let engineSignal: AbortSignal | undefined;
+    engine.respond = async (_r, s) => {
+      engineSignal = s;
+      await sleep(200, undefined, { signal: s });
+      return { model: 'fake-model', answers: {} };
+    };
+    const { decider } = setup('act', engine, 60);
+    const a = new AbortController();
+    const b = new AbortController();
+    const first = decider.decide('permission', req, a.signal);
+    const second = decider.decide('permission', req, b.signal);
+    await sleep(10);
+    a.abort();
+    b.abort();
+    await Promise.all([first, second]);
+    assert.equal(engineSignal?.aborted, true);
+  });
+
+  it('fails a queued job open when the engine is replaced before it runs', async () => {
+    const engine = new FakeEngine({ allow: 1 });
+    const inner = engine.respond;
+    engine.respond = async (r, s) => {
+      await sleep(40);
+      return inner(r, s);
+    };
+    const next = new FakeEngine({ allow: 1 });
+    const { decider } = setup('act', engine, 0);
+    const other = {
+      harness: 'cli' as const,
+      input: { ...INPUT, request: { command: 'pwd' } },
+    };
+    const running = decider.decide('permission', req, signal());
+    const queued = decider.decide('permission', other, signal());
+    await sleep(10);
+    decider.replaceEngine(next);
+    const [, result] = await Promise.all([running, queued]);
+    assert.equal(next.requests.length, 0);
+    assert.notEqual(result.error, undefined);
+  });
+
+  it('does not cache an answer computed before a hold or engine replacement', async () => {
+    for (const invalidate of [
+      (d: Decider): void => {
+        d.hold('busy');
+        d.hold(null);
+      },
+      (d: Decider): void => {
+        d.replaceEngine(d.engine);
+      },
+    ]) {
+      const engine = new FakeEngine({ allow: 1 });
+      const inner = engine.respond;
+      engine.respond = async (r, s) => {
+        await sleep(30);
+        return inner(r, s);
+      };
+      const { decider } = setup('act', engine, 60);
+      const running = decider.decide('permission', req, signal());
+      await sleep(10);
+      invalidate(decider);
+      await running;
+      const again = await decider.decide('permission', req, signal());
+      assert.equal(again.cached, false);
+      assert.equal(engine.requests.length, 2);
+    }
+  });
+
+  it('runs a more urgent request on its own instead of joining a lower-priority call', async () => {
+    const engine = new FakeEngine({ allow: 1 });
+    const inner = engine.respond;
+    engine.respond = async (r, s) => {
+      await sleep(30);
+      return inner(r, s);
+    };
+    const { decider } = setup('shadow', engine, 60);
+    const low = decider.decide('permission', req, signal());
+    decider.setMode('permission', 'act');
+    const urgent = decider.decide('permission', req, signal());
+    await Promise.all([low, urgent]);
+    assert.equal(engine.requests.length, 2);
+  });
+
+  it('lets a lower-priority request join a more urgent call', async () => {
+    const engine = new FakeEngine({ allow: 1 });
+    const inner = engine.respond;
+    engine.respond = async (r, s) => {
+      await sleep(30);
+      return inner(r, s);
+    };
+    const { decider } = setup('act', engine, 60);
+    const urgent = decider.decide('permission', req, signal());
+    decider.setMode('permission', 'shadow');
+    const low = decider.decide('permission', req, signal());
+    await Promise.all([low, urgent]);
+    assert.equal(engine.requests.length, 1);
+  });
+
+  it('does not let a new request join a shared call that every waiter abandoned', async () => {
+    const engine = new FakeEngine({ allow: 1 });
+    const inner = engine.respond;
+    engine.respond = async (r, s) => {
+      await sleep(80);
+      return inner(r, s);
+    };
+    const { decider } = setup('act', engine, 60);
+    const leaver = new AbortController();
+    const first = decider.decide('permission', req, leaver.signal);
+    await sleep(10);
+    leaver.abort();
+    await first;
+    const fresh = await decider.decide('permission', req, signal());
+    assert.equal(fresh.error, undefined);
+    assert.equal(engine.requests.length, 2);
+  });
+
   it('runs one engine request at a time', async () => {
     const engine = new FakeEngine({ allow: 1 });
     const inner = engine.respond;

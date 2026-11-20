@@ -415,6 +415,7 @@ export function parsePathUpdate(body: unknown): { key: PathKey; value: string | 
 }
 
 const PREEMPT_CAP_MS = 10_000;
+const SWITCH_HOLD_REASON = 'engine switching';
 
 export interface EngineControlOptions {
   /** Where settings are read and every settings-page change is written (config.yaml). */
@@ -1798,9 +1799,24 @@ export class EngineControl implements BenchmarkHost {
       this.#save([{ path: ['selection'], value: selection }]);
       this.#applied = this.#config;
     }
-    await previous.stop().catch(() => undefined);
+    await this.#retire(previous);
     this.#switching = false;
     this.#startTracked(engine);
+  }
+
+  /**
+   * Stop the old engine once its running decisions finish (bounded; the rest fail open). New
+   * decisions fail open through the decider hold meanwhile, so the new engine cannot load before
+   * the old one has stopped and only one model is resident. Independent of a benchmark hold.
+   */
+  async #retire(previous: ManagedEngine): Promise<void> {
+    this.#decider?.holdSwitch(SWITCH_HOLD_REASON);
+    try {
+      await previous.drain();
+      await previous.stop().catch(() => undefined);
+    } finally {
+      this.#decider?.holdSwitch(null);
+    }
   }
 
   #startTracked(engine: ManagedEngine): void {

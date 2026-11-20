@@ -272,6 +272,29 @@ describe('gateway HTTP', () => {
     }
   });
 
+  it('starts no decision when the client leaves during the body read', async () => {
+    const baseline = engine.requests.length;
+    const port = Number(new URL(gw.url).port);
+    await new Promise<void>((resolve, reject) => {
+      const socket = connect(port, '127.0.0.1', () => {
+        socket.write(
+          'POST /v1/systemone HTTP/1.1\r\nHost: 127.0.0.1\r\n' +
+            'Content-Type: application/json\r\nContent-Length: 500\r\n\r\n{"state":',
+        );
+        setTimeout(() => socket.destroy(), 20);
+      });
+      socket.on('close', () => resolve());
+      socket.on('error', reject);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(engine.requests.length, baseline);
+    const ok = await post('/v1/systemone', {
+      state: 's',
+      questions: { q: { type: 'choice', instructions: 'i', criteria: { done: 'd' } } },
+    });
+    assert.equal(ok.status, 200, 'a normal request is not aborted');
+  });
+
   it('GET /models and /v1/policies', async () => {
     const models = await json(await fetch(`${gw.url}/models`));
     assert.ok(Array.isArray(models['models']));

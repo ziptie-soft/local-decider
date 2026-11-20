@@ -114,6 +114,8 @@ class ModelEngine implements Engine {
   }
 }
 
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 function recommendationOf(status: Record<string, unknown>): string | undefined {
   const rec = status['recommendation'] as { automatic: { engine: string } | null };
   return rec.automatic?.engine;
@@ -1216,6 +1218,105 @@ describe('EngineControl switching', () => {
     );
     stopping.resolve();
     await switching;
+  });
+
+  it('waits for a running decision before stopping the previous engine', async () => {
+    const gate = deferred<void>();
+    const { control, created } = setup({
+      failing: { on: false, ready: true, answers: true, gate: gate.promise },
+    });
+    const running = control.engine.decide({ state: 's', questions: {} }, AbortSignal.timeout(5000));
+    await settleEventLoop();
+    const switching = control.select({ model: E2B, device: 'cpu' });
+    await settleEventLoop();
+    await sleep(30);
+    assert.equal(created[0]?.stopped, 0, 'old engine still serving the running decision');
+    gate.resolve();
+    await running;
+    await switching;
+    assert.equal(created[0]?.stopped, 1);
+  });
+
+  it('keeps one model resident: a mid-drain request neither reaches nor starts the new engine', async () => {
+    const gate = deferred<void>();
+    const { control, decider, created } = setup({
+      failing: { on: false, ready: true, answers: true, gate: gate.promise },
+    });
+    const events: string[] = [];
+    const running = control.engine.decide({ state: 's', questions: {} }, AbortSignal.timeout(5000));
+    await settleEventLoop();
+    const oldStop = created[0]!.stop.bind(created[0]!);
+    created[0]!.stop = async () => {
+      events.push('stop-old');
+      await oldStop();
+    };
+    const switching = control.select({ model: E2B, device: 'cpu' });
+    await settleEventLoop();
+    const next = created[1]!;
+    const nextStart = next.start.bind(next);
+    next.start = async () => {
+      events.push('start-new');
+      await nextStart();
+    };
+    const nextDecide = next.decide.bind(next);
+    next.decide = async (...args) => {
+      events.push('decide-new');
+      return nextDecide(...args);
+    };
+    const midDrain = await decider.decide(
+      'permission',
+      { harness: 'cli', input: { project: '/p', tool: 'Bash', request: { command: 'ls' } } },
+      AbortSignal.timeout(5000),
+    );
+    assert.match(midDrain.error ?? '', /switching/);
+    assert.deepEqual(events, []);
+    gate.resolve();
+    await running;
+    await switching;
+    await control.idle();
+    await settleEventLoop();
+    assert.deepEqual(events, ['stop-old']);
+    assert.equal(decider.held, null, 'the switch hold is released');
+  });
+
+  it('keeps the switch hold when a benchmark hold is released mid-drain', async () => {
+    const gate = deferred<void>();
+    const { control, decider } = setup({
+      failing: { on: false, ready: true, answers: true, gate: gate.promise },
+    });
+    const running = control.engine.decide({ state: 's', questions: {} }, AbortSignal.timeout(5000));
+    await settleEventLoop();
+    const switching = control.select({ model: E2B, device: 'cpu' });
+    await settleEventLoop();
+    decider.hold('engine benchmark running');
+    decider.hold(null);
+    assert.equal(decider.held, 'engine switching');
+    gate.resolve();
+    await running;
+    await switching;
+    assert.equal(decider.held, null);
+  });
+
+  it('serialises overlapping switches: the second starts after the first has stopped its engine', async () => {
+    const gate = deferred<void>();
+    const { control, created } = setup({
+      failing: { on: false, ready: true, answers: true, gate: gate.promise },
+    });
+    const running = control.engine.decide({ state: 's', questions: {} }, AbortSignal.timeout(5000));
+    await settleEventLoop();
+    const first = control.select({ model: E2B, device: 'cpu' });
+    const second = control.select({ model: TWOB, device: 'cpu' });
+    await settleEventLoop();
+    await sleep(30);
+    assert.equal(created.length, 2, 'the second switch has not built its engine yet');
+    assert.equal(created[1]?.stopped, 0);
+    gate.resolve();
+    await running;
+    await Promise.all([first, second]);
+    await control.idle();
+    assert.equal(created.length, 3);
+    assert.equal(created[0]?.stopped, 1);
+    assert.equal(created[1]?.stopped, 1);
   });
 
   it('swaps in a new engine for an allowed model and stops the old one', async () => {
