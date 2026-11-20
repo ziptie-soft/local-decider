@@ -1,10 +1,13 @@
 import type { DecideRequest, DecideResponse } from '@ziptie-soft/local-decider-core';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, it } from 'node:test';
 
 import { mapEvent, parseEvent } from '../src/mapping.ts';
+import { translate } from '../src/output.ts';
+import { PERMISSION_ALLOW_TOOLS } from '../src/permission-tools.ts';
 import { run, type Decide } from '../src/run.ts';
 import type { TranscriptSlice } from '../src/transcript.ts';
 
@@ -20,7 +23,9 @@ function response(action: string, enforced: boolean): DecideResponse {
     mode: enforced ? 'act' : 'shadow',
     action,
     enforced,
-    answers: { q: { type: 'choice', answer: 'a', probabilities: { a: 0.9 }, confidence: 0.8 } },
+    answers: {
+      q: { type: 'choice', answer: 'a', probabilities: { a: 0.9, b: 0.1 }, confidence: 0.8 },
+    },
     rule: 0,
     engine: 'test',
     model: 'm',
@@ -214,6 +219,24 @@ describe('event → policy mapping', () => {
   });
 });
 
+/** A PermissionRequest for `tool`; the gateway says an enforced allow (or shadow when asked). */
+async function permissionFor(
+  harness: string,
+  tool: string,
+  shadow = false,
+): Promise<{ stdout: string; calls: number }> {
+  const { decide, calls } = fake('allow', !shadow);
+  const hook = { ...HOOKS.PermissionRequest, tool_name: tool };
+  const res = await run(
+    harness,
+    'PermissionRequest',
+    JSON.stringify(hook),
+    {},
+    { decide, readTranscript: readPermissionContext },
+  );
+  return { stdout: res.stdout, calls: calls.length };
+}
+
 describe('output translation', () => {
   it('prints nothing in shadow mode, whatever the action', async () => {
     for (const harness of ['claude', 'codex']) {
@@ -286,6 +309,53 @@ describe('output translation', () => {
       assert.deepEqual(parsed(await stdoutOf(harness, 'PermissionRequest', 'allow', true)), allow);
       assert.equal(await stdoutOf(harness, 'PermissionRequest', 'deny', true), '');
       assert.equal(await stdoutOf(harness, 'PermissionRequest', 'ask', true), '');
+    }
+  });
+
+  it('PermissionRequest: only allowlisted tools are allowed, others abstain before the gateway', async () => {
+    for (const tool of ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit']) {
+      const res = await permissionFor('claude', tool);
+      assert.notEqual(res.stdout, '', tool);
+      assert.equal(res.calls, 1);
+    }
+    for (const tool of ['Bash', 'apply_patch']) {
+      assert.notEqual((await permissionFor('codex', tool)).stdout, '', tool);
+    }
+    const abstain = [
+      'ExitPlanMode',
+      'AskUserQuestion',
+      'Task',
+      'Agent',
+      'mcp__x__y',
+      'Unknown',
+      '',
+    ];
+    for (const tool of abstain) {
+      const res = await permissionFor('claude', tool);
+      assert.deepEqual(res, { stdout: '', calls: 0 }, `claude ${tool}`);
+    }
+    assert.deepEqual(await permissionFor('codex', 'Edit'), { stdout: '', calls: 0 });
+    assert.deepEqual(await permissionFor('claude', 'apply_patch'), { stdout: '', calls: 0 });
+    assert.equal((await permissionFor('claude', 'Bash', true)).stdout, '');
+  });
+
+  it('hooks.json PermissionRequest matchers list exactly the allowlisted tools', () => {
+    const files = { claude: 'hooks.json', codex: 'codex-hooks.json' } as const;
+    for (const [harness, file] of Object.entries(files) as [keyof typeof files, string][]) {
+      const url = new URL(`../../../plugins/local-decider/hooks/${file}`, import.meta.url);
+      const json = JSON.parse(readFileSync(url, 'utf8')) as {
+        hooks: { PermissionRequest: { matcher: string }[] };
+      };
+      const matcher = json.hooks.PermissionRequest[0]?.matcher ?? '';
+      assert.deepEqual(new Set(matcher.split('|')), PERMISSION_ALLOW_TOOLS[harness], file);
+    }
+  });
+
+  it('translate repeats the tool check on the output side', () => {
+    const allow = response('allow', true);
+    assert.notEqual(translate('claude', 'PermissionRequest', allow, false, 'Bash'), '');
+    for (const tool of ['ExitPlanMode', 'AskUserQuestion', 'mcp__x__y', undefined]) {
+      assert.equal(translate('claude', 'PermissionRequest', allow, false, tool), '');
     }
   });
 

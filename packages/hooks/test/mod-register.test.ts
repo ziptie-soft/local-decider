@@ -29,8 +29,18 @@ const AUTO_CALL = {
 const ALLOW: Partial<DecideResponse> = {
   decisionId: 'd1',
   policy: 'permission',
+  mode: 'act',
+  scope: 'claude-auto',
   action: 'allow',
   enforced: true,
+  answers: {
+    q: { type: 'choice', answer: 'a', probabilities: { a: 0.9, b: 0.1 }, confidence: 0.9 },
+  },
+  rule: 0,
+  engine: 'test',
+  model: 'm',
+  latencyMs: 1,
+  cached: false,
 };
 
 function world(over: Partial<World> = {}): World {
@@ -142,6 +152,22 @@ describe('check in act mode', () => {
       { ...ALLOW, action: 'ask' as const },
       { ...ALLOW, action: 'deny' as const },
       { ...ALLOW, enforced: false },
+    ]) {
+      const { result } = await run(world({ answer }));
+      assert.deepEqual(result, PLAIN_ASK);
+    }
+  });
+
+  it('returns the ask for a malformed, inconsistent or shadow gateway reply', async () => {
+    const { answers: _answers, ...noAnswers } = ALLOW;
+    for (const answer of [
+      noAnswers,
+      { ...ALLOW, mode: 'shadow' as const },
+      { ...ALLOW, error: 'engine failed' },
+      { ...ALLOW, policy: 'other' },
+      { ...ALLOW, scope: 'claude' as unknown as 'claude-auto' },
+      { ...ALLOW, decisionId: 7 as unknown as string },
+      'allow' as unknown as Partial<DecideResponse>,
     ]) {
       const { result } = await run(world({ answer }));
       assert.deepEqual(result, PLAIN_ASK);
