@@ -729,6 +729,8 @@ other models. Verify cited lines before implementing; they come from a read-only
   primary allow action, which for some providers may be "always allow".
 - **Direction:** create the entry synchronously; treat an ambiguous `tryAllow` result as ours;
   prefer a one-shot allow by intent; tests for both races.
+- **Status:** done — entry created synchronously, failed sends stay the plugin's own, one-shot
+  allow only, auto-allow limited to shell and edit tools.
 
 ### N6 Request lifetime bugs that grow with concurrency
 
