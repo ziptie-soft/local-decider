@@ -586,12 +586,12 @@ function route(method: string, path: string): Handler | undefined {
       );
   }
   if (key === 'POST /v1/systemone' || key === 'POST /invocations') {
-    return async (req, res, { decider }) =>
-      send(
-        res,
-        200,
-        await decider.systemOne(parseSystemOne(await readJson(req)), requestSignal(res)),
-      );
+    return async (req, res, { decider }) => {
+      const signal = requestSignal(res);
+      const body = parseSystemOne(await readJson(req));
+      signal.throwIfAborted();
+      send(res, 200, await decider.systemOne(body, signal));
+    };
   }
   if (key === 'POST /v1/usage') {
     return async (req, res, { log }) => {
@@ -629,9 +629,11 @@ function route(method: string, path: string): Handler | undefined {
   if (policy !== undefined) {
     return async (req, res, { decider, settings }) => {
       const config = settings?.();
+      const signal = requestSignal(res);
       const parsed = parseDecideRequest(await readJson(req));
+      signal.throwIfAborted();
       const request = config === undefined ? parsed : withConfiguredRoutes(config, parsed);
-      const response = await decider.decide(policy, request, requestSignal(res));
+      const response = await decider.decide(policy, request, signal);
       send(
         res,
         200,

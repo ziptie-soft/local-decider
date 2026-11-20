@@ -3,6 +3,9 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 import { EngineError, type Engine, type EngineHealth } from './types.ts';
 
+/** How long a switch or unload waits for running decisions (the default decision timeout). */
+const DRAIN_TIMEOUT_MS = 10_000;
+
 export type Lifecycle = 'lazy' | 'eager';
 
 export interface LifecycleOptions {
@@ -24,6 +27,8 @@ export class ManagedEngine implements Engine {
   #loading: Promise<void> | undefined;
   #timer: NodeJS.Timeout | undefined;
   #unloadedIdle = false;
+  #inFlight = 0;
+  readonly #drainWaiters: (() => void)[] = [];
 
   constructor(inner: Engine, options: LifecycleOptions) {
     this.#inner = inner;
@@ -78,6 +83,9 @@ export class ManagedEngine implements Engine {
 
   async unload(reason?: 'idle'): Promise<void> {
     clearTimeout(this.#timer);
+    if (reason !== 'idle') {
+      await this.drain();
+    }
     this.#unloadedIdle = reason === 'idle';
     await this.#inner.stop();
   }
@@ -113,9 +121,47 @@ export class ManagedEngine implements Engine {
 
   async decide(request: SystemOneRequest, signal: AbortSignal): Promise<SystemOneResponse> {
     this.#lastUsed = (this.#options.now ?? Date.now)();
-    this.#arm();
-    await this.ensureReady(signal);
-    return this.#inner.decide(request, signal);
+    this.#inFlight += 1;
+    clearTimeout(this.#timer);
+    try {
+      await this.ensureReady(signal);
+      return await this.#inner.decide(request, signal);
+    } finally {
+      this.#inFlight -= 1;
+      if (this.#inFlight === 0) {
+        this.#arm();
+        for (const resolve of this.#drainWaiters.splice(0)) {
+          resolve();
+        }
+      }
+    }
+  }
+
+  /**
+   * Resolve once no decision is running, or after `timeoutMs`: the caller then proceeds and the
+   * stragglers fail open.
+   */
+  async drain(timeoutMs = DRAIN_TIMEOUT_MS): Promise<void> {
+    if (this.#inFlight === 0) {
+      return;
+    }
+    let timer: NodeJS.Timeout | undefined;
+    let waiter: (() => void) | undefined;
+    await Promise.race([
+      new Promise<void>((resolve) => {
+        waiter = resolve;
+        this.#drainWaiters.push(resolve);
+      }),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+        timer.unref();
+      }),
+    ]);
+    clearTimeout(timer);
+    const at = waiter === undefined ? -1 : this.#drainWaiters.indexOf(waiter);
+    if (at >= 0) {
+      this.#drainWaiters.splice(at, 1);
+    }
   }
 
   async stop(): Promise<void> {
@@ -123,10 +169,10 @@ export class ManagedEngine implements Engine {
     await this.#inner.stop();
   }
 
-  /** (Re)start the idle timer; only lazy engines unload. */
+  /** (Re)start the idle timer; only lazy engines unload, and never while a decision runs. */
   #arm(): void {
     clearTimeout(this.#timer);
-    if (this.#options.lifecycle !== 'lazy') {
+    if (this.#options.lifecycle !== 'lazy' || this.#inFlight > 0) {
       return;
     }
     this.#timer = setTimeout(() => {

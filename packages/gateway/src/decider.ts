@@ -117,6 +117,17 @@ interface EngineResult {
   readonly error?: string;
 }
 
+const PRIORITY_RANK: Readonly<Record<Priority, number>> = { low: 0, normal: 1, high: 2 };
+
+/** An engine call that identical concurrent requests share. */
+interface SharedCall {
+  readonly hash: string;
+  readonly priority: Priority;
+  readonly controller: AbortController;
+  readonly promise: Promise<EngineResult>;
+  waiters: number;
+}
+
 interface PrecedentDecision {
   readonly key: string;
   readonly tally: PrecedentTally;
@@ -146,8 +157,13 @@ export class Decider {
   /** Decisions waiting for a managed engine to load (outside the queue). */
   #preparing = 0;
   #holdReason: string | null = null;
+  #switchReason: string | null = null;
+  /** Bumped by hold and replaceEngine: answers computed before it must not enter the cache. */
+  #generation = 0;
   readonly #latency = new LatencyWindow();
   readonly #cache = new Map<string, CacheEntry>();
+  /** Engine calls running now by input hash; identical requests join instead of calling again. */
+  readonly #inflight = new Map<string, SharedCall>();
   readonly #precedent: PrecedentStore;
   /** Recent harness tool calls and what each policy decided for them. */
   readonly calls = new CallStore();
@@ -175,10 +191,46 @@ export class Decider {
     return this.#engine;
   }
 
+  /** Why decisions currently fail open, or null. */
+  get held(): string | null {
+    return this.#blocked;
+  }
+
   /** Fail open while a gateway operation temporarily owns the engine. */
   hold(reason: string | null): void {
     this.#holdReason = reason;
+    this.#invalidate();
+  }
+
+  /**
+   * The same fail-open hold for an engine switch, kept apart from `hold` so a benchmark's release
+   * cannot end it early and vice versa.
+   */
+  holdSwitch(reason: string | null): void {
+    this.#switchReason = reason;
+    this.#invalidate();
+  }
+
+  #invalidate(): void {
+    this.#generation += 1;
     this.#cache.clear();
+    this.#inflight.clear();
+  }
+
+  /** The reason decisions fail open now, from either hold. */
+  get #blocked(): string | null {
+    return this.#holdReason ?? this.#switchReason;
+  }
+
+  /** Throws for a queued job whose engine was replaced or held since it was enqueued. */
+  #assertCurrent(generation: number): void {
+    const reason = this.#blocked;
+    if (reason !== null) {
+      throw new EngineBusyError(reason);
+    }
+    if (generation !== this.#generation) {
+      throw new EngineBusyError('engine changed');
+    }
   }
 
   /** Called with the engine that errored, so a supervisor can check its health. */
@@ -351,7 +403,9 @@ export class Decider {
   replaceEngine(next: Engine): Engine {
     const previous = this.#engine;
     this.#engine = next;
+    this.#generation += 1;
     this.#cache.clear();
+    this.#inflight.clear();
     return previous;
   }
 
@@ -366,13 +420,15 @@ export class Decider {
 
   /** Pass-through `/v1/systemone`: keys sorted, strings redacted, one request at a time. */
   async systemOne(request: SystemOneRequest, signal: AbortSignal): Promise<SystemOneResponse> {
-    if (this.#holdReason !== null) {
-      throw new EngineBusyError(this.#holdReason);
-    }
+    this.#assertCurrent(this.#generation);
+    const generation = this.#generation;
     const clean = sortKeysDeep(redactDeep(request));
     const started = performance.now();
     const bounded = this.#signal(signal);
-    const response = await this.#queue.run(bounded, () => this.#engine.decide(clean, bounded));
+    const response = await this.#queue.run(bounded, () => {
+      this.#assertCurrent(generation);
+      return this.#engine.decide(clean, bounded);
+    });
     this.#latency.add(performance.now() - started);
     return response;
   }
@@ -495,15 +551,88 @@ export class Decider {
     signal: AbortSignal,
     priority: Priority = 'normal',
   ): Promise<EngineResult> {
-    if (this.#holdReason !== null) {
-      return { answers: {}, latencyMs: 0, cached: false, error: this.#holdReason };
+    const blocked = this.#blocked;
+    if (blocked !== null) {
+      return { answers: {}, latencyMs: 0, cached: false, error: blocked };
     }
     const hit = this.#cache.get(hash);
     if (hit !== undefined && hit.expires > Date.now()) {
       return { answers: hit.answers, latencyMs: 0, cached: true };
     }
+    if (ttlSeconds <= 0) {
+      return this.#compute(request, hash, ttlSeconds, signal, priority);
+    }
+    const running = this.#inflight.get(hash);
+    if (running !== undefined) {
+      // The queue cannot re-prioritise a running call: a more urgent request runs on its own.
+      if (PRIORITY_RANK[priority] <= PRIORITY_RANK[running.priority]) {
+        return this.#join(running, signal);
+      }
+      return this.#compute(request, hash, ttlSeconds, signal, priority);
+    }
+    // The shared call has its own signal: it aborts only once every waiter has left.
+    const controller = new AbortController();
+    const call: SharedCall = {
+      hash,
+      priority,
+      controller,
+      waiters: 0,
+      promise: this.#compute(request, hash, ttlSeconds, controller.signal, priority).finally(() => {
+        if (this.#inflight.get(hash) === call) {
+          this.#inflight.delete(hash);
+        }
+      }),
+    };
+    this.#inflight.set(hash, call);
+    return this.#join(call, signal);
+  }
+
+  /** Wait for a shared call; return early (not abort it) when this caller's signal fires. */
+  async #join(call: SharedCall, signal: AbortSignal): Promise<EngineResult> {
+    call.waiters += 1;
+    let onAbort: (() => void) | undefined;
+    const aborted = new Promise<EngineResult>((resolve) => {
+      onAbort = (): void => {
+        call.waiters -= 1;
+        if (call.waiters === 0) {
+          // Unlist it now: a newcomer must not join a call that is already aborted.
+          if (this.#inflight.get(call.hash) === call) {
+            this.#inflight.delete(call.hash);
+          }
+          call.controller.abort(signal.reason);
+        }
+        resolve({
+          answers: {},
+          latencyMs: 0,
+          cached: false,
+          error: errorMessage(signal.reason),
+        });
+      };
+      if (signal.aborted) {
+        onAbort();
+      } else {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+    });
+    try {
+      return await Promise.race([call.promise, aborted]);
+    } finally {
+      if (onAbort !== undefined) {
+        signal.removeEventListener('abort', onAbort);
+      }
+    }
+  }
+
+  async #compute(
+    request: SystemOneRequest,
+    hash: string,
+    ttlSeconds: number,
+    signal: AbortSignal,
+    priority: Priority,
+  ): Promise<EngineResult> {
     // A managed engine (ensureReady) loads on demand, outside the queue; others must be up.
     const engine = this.#engine;
+    const generation = this.#generation;
     if (engine.ensureReady === undefined && engine.health().state !== 'ready') {
       return { answers: {}, latencyMs: 0, cached: false, error: `engine ${engine.health().state}` };
     }
@@ -520,7 +649,10 @@ export class Decider {
       // the old behaviour).
       const response = await this.#queue.run(
         bounded,
-        () => this.#engine.decide(request, bounded),
+        () => {
+          this.#assertCurrent(generation);
+          return this.#engine.decide(request, bounded);
+        },
         priority,
         QUEUE_LIMITS,
       );
@@ -530,7 +662,9 @@ export class Decider {
       if (Object.keys(answers).length === 0) {
         return { answers, latencyMs, cached: false, error: 'engine returned no usable answers' };
       }
-      this.#remember(hash, answers, ttlSeconds);
+      if (generation === this.#generation) {
+        this.#remember(hash, answers, ttlSeconds);
+      }
       this.#successHandler?.(engine);
       return { answers, latencyMs, cached: false };
     } catch (error) {

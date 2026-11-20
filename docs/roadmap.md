@@ -744,6 +744,7 @@ other models. Verify cited lines before implementing; they come from a read-only
   visible.
 - **Direction:** signal before the body read; an in-flight counter that defers unload, switch and
   benchmark holds; coalesce by hash. Land with X3.
+- **Status:** done — signal before body read, in-flight drain, hash coalescing with waiters.
 
 ### N7 Engine child hygiene: environment, argv, error handler
 
