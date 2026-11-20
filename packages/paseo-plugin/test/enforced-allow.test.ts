@@ -1,11 +1,10 @@
+import { isEnforcedAllow as coreIsEnforcedAllow } from '@ziptie-soft/local-decider-core';
 /**
  * `shared/decision.ts` copies core's `isEnforcedAllow` (the published plugin cannot import core at
  * runtime). Core is a devDependency, so this test may import it and fails when the copies drift.
  */
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-
-import { isEnforcedAllow as coreIsEnforcedAllow } from '@ziptie-soft/local-decider-core';
 
 import { isEnforcedAllow } from '../shared/decision.ts';
 import { response } from './fakes.ts';
@@ -23,7 +22,10 @@ const fixtures = [
 ];
 
 it('the plugin isEnforcedAllow agrees with core on every valid reply', () => {
-  assert.ok(fixtures.some((reply) => coreIsEnforcedAllow(reply)), 'a fixture is an allow');
+  assert.ok(
+    fixtures.some((reply) => coreIsEnforcedAllow(reply)),
+    'a fixture is an allow',
+  );
   for (const reply of fixtures) {
     assert.equal(isEnforcedAllow(reply), coreIsEnforcedAllow(reply), JSON.stringify(reply));
   }
