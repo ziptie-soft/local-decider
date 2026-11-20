@@ -111,3 +111,12 @@ export type OutcomeSource =
   | 'supervised'
   | 'classifier'
   | 'unverified';
+
+/**
+ * The plugin's copy of core's `isEnforcedAllow` (the published plugin cannot import core): an
+ * enforced decision in `act` whose action is `allow`, with no error. The gateway client has
+ * already validated the shape.
+ */
+export function isEnforcedAllow(res: DecideResponse): boolean {
+  return res.enforced && res.mode === 'act' && res.action === 'allow' && res.error === undefined;
+}
