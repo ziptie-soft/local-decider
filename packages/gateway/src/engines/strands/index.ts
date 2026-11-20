@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { z } from 'zod';
 
 import { DEVICES, defineEngine, type EngineContext, type ModelDescriptor } from '../descriptor.ts';
+import { checkExtraArgs } from './extra-args.ts';
 import { hfCacheDir, hfCached } from './hf-cache.ts';
 import { resolveStrandsDevice } from './mlx.ts';
 import { MODELS, hfDownloadArgs, isTransformersModel } from './models.ts';
@@ -23,6 +24,7 @@ const strandsSchema = z.strictObject({
   /** Extra `serve` flags, e.g. ["--no-warmup"]. Only flags; never derived from requests. */
   extraArgs: z
     .array(z.string().regex(/^--[a-z][a-z0-9-]*(?:=[\w./:-]+)?$|^[\w./:-]+$/))
+    .superRefine(checkExtraArgs)
     .default([]),
   startTimeoutSeconds: z.number().int().min(10).max(3600).default(900),
 });
