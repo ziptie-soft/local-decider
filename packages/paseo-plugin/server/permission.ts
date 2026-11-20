@@ -118,7 +118,7 @@ const EDIT_DETAILS = ['edit', 'write'];
  * (`packages/hooks/src/permission-tools.ts`). Plan approval, questions, `mcp__*` and unknown
  * tools stay with the user.
  */
-export function mayAutoAllow(request: AgentPermissionRequest): boolean {
+function mayAutoAllow(request: AgentPermissionRequest): boolean {
   const detail = request.detail?.type;
   if (request.kind !== 'tool' || request.name.startsWith('mcp__')) {
     return false;
