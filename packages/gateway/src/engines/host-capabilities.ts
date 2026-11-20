@@ -19,6 +19,7 @@ export interface CapabilityResult {
 export interface HostCapabilities {
   readonly npu: CapabilityResult;
   readonly nvidia: CapabilityResult;
+  readonly rocm: CapabilityResult;
   readonly apple: CapabilityResult;
   readonly vulkan: CapabilityResult;
   readonly probedAt: number;
@@ -194,6 +195,38 @@ async function probeNvidia(deps: ProbeDeps, run: Run): Promise<CapabilityResult>
   }
 }
 
+/** First non-generic `gfx` agent name from `rocminfo`, e.g. `gfx1150`. */
+function parseRocm(output: string): CapabilityResult {
+  const name = [...output.matchAll(/\b(gfx[0-9]+[a-z0-9]*(?:-generic\S*)?)/g)]
+    .map((m) => m[1] ?? '')
+    .find((n) => !n.includes('generic'));
+  return name === undefined ? unknown('rocminfo output not understood') : available(`ROCm ${name}`);
+}
+
+async function probeRocm(deps: ProbeDeps, run: Run): Promise<CapabilityResult> {
+  if (deps.platform !== 'linux') {
+    return unavailable('not linux');
+  }
+  let nodes: string[];
+  try {
+    nodes = deps.fs.list('/dev');
+  } catch {
+    return unknown('/dev unreadable');
+  }
+  if (!nodes.includes('kfd')) {
+    return unavailable('no /dev/kfd device');
+  }
+  const tool = deps.which('rocminfo');
+  if (tool === undefined) {
+    return unknown('/dev/kfd present, rocminfo not found');
+  }
+  try {
+    return parseRocm(await run(tool, []));
+  } catch {
+    return unknown('rocminfo failed or timed out');
+  }
+}
+
 function parseApple(output: string): CapabilityResult {
   let parsed: { mlx?: boolean; metal?: boolean; mps?: boolean };
   try {
@@ -275,10 +308,11 @@ async function runProbes(options: ProbeOptions): Promise<HostCapabilities> {
     options.perProbeMs ?? PER_PROBE_MS,
     deps.now() + (options.budgetMs ?? BUDGET_MS),
   );
-  const [nvidia, apple, vulkan] = await Promise.all([
+  const [nvidia, rocm, apple, vulkan] = await Promise.all([
     probeNvidia(deps, run),
+    probeRocm(deps, run),
     probeApple(deps, run, options.strandsDecider),
     probeVulkan(deps, run),
   ]);
-  return { npu: probeNpu(deps), nvidia, apple, vulkan, probedAt: deps.now() };
+  return { npu: probeNpu(deps), nvidia, rocm, apple, vulkan, probedAt: deps.now() };
 }

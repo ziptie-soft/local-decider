@@ -160,6 +160,10 @@ describe('StrandsDeciderEngine', () => {
     const optIn = serveArgs(strandsConfig({ device: 'cpu', extraArgs: ['--warmup'] }), 1);
     assert.ok(optIn.includes('--warmup') && !optIn.includes('--no-warmup'));
     assert.throws(() => strandsConfig({ extraArgs: ['; rm -rf /'] }), /invalid config/);
+    assert.ok(!serveArgs(strandsConfig(), 1).includes('--max-concurrency'), 'unset by default');
+    const capped = serveArgs(strandsConfig({ maxConcurrency: 4 }), 1);
+    assert.equal(capped[capped.indexOf('--max-concurrency') + 1], '4');
+    assert.throws(() => strandsConfig({ maxConcurrency: 0 }), /invalid config/);
   });
 
   it('fails clearly when the engine is not installed', async () => {

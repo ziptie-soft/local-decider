@@ -424,7 +424,7 @@ const BENCH_CALL_TIMEOUT_MS = 180_000;
 const STAMP_CAP_MS = 5000;
 const UNKNOWN_TARGET_MS = 60_000;
 const MAX_ERROR = 500;
-const BACKENDS: readonly string[] = ['NPU', 'CUDA', 'Vulkan', 'MLX', 'MPS', 'CPU'];
+const BACKENDS: readonly string[] = ['NPU', 'CUDA', 'ROCm', 'Vulkan', 'MLX', 'MPS', 'CPU'];
 const DEVICE_BACKENDS: Readonly<Record<string, Backend>> = {
   mlx: 'MLX',
   mps: 'MPS',

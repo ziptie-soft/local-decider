@@ -16,7 +16,7 @@ const YES = (variant?: 'mlx' | 'mps'): CapabilityResult => ({
 });
 
 function caps(over: Partial<HostCapabilities>): HostCapabilities {
-  return { npu: NO, nvidia: NO, apple: NO, vulkan: NO, probedAt: 0, ...over };
+  return { npu: NO, nvidia: NO, rocm: NO, apple: NO, vulkan: NO, probedAt: 0, ...over };
 }
 
 const LINUX: HostInfo = { platform: 'linux', arch: 'x64', totalMemoryBytes: 64e9 };
@@ -65,6 +65,12 @@ describe('engine ranking', () => {
   it('Linux with NVIDIA: CUDA then CPU', () => {
     const r = rank(LINUX, caps({ nvidia: YES() }));
     assert.deepEqual(ladder(r), ['strands-decider:CUDA', 'strands-decider:CPU']);
+  });
+
+  it('Linux with ROCm: ROCm (device cuda) then CPU', () => {
+    const r = rank(LINUX, caps({ rocm: YES() }));
+    assert.deepEqual(ladder(r), ['strands-decider:ROCm', 'strands-decider:CPU']);
+    assert.equal(r.automatic?.device, 'cuda');
   });
 
   it('plain Linux, and unknowns, fall to CPU; unknown is not available', () => {

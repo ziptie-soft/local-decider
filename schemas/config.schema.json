@@ -58,6 +58,11 @@
               "minimum": 1,
               "maximum": 64
             },
+            "maxConcurrency": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            },
             "extraArgs": {
               "default": [],
               "type": "array",
@@ -394,6 +399,11 @@
             },
             "maxBatch": {
               "default": 8,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            },
+            "maxConcurrency": {
               "type": "integer",
               "minimum": 1,
               "maximum": 64

@@ -95,6 +95,7 @@ function choiceResponse(
 export const NO_CAPABILITIES: HostCapabilities = {
   npu: { status: 'unavailable', evidence: 'stub' },
   nvidia: { status: 'unavailable', evidence: 'stub' },
+  rocm: { status: 'unavailable', evidence: 'stub' },
   apple: { status: 'unavailable', evidence: 'stub' },
   vulkan: { status: 'unavailable', evidence: 'stub' },
   probedAt: 0,

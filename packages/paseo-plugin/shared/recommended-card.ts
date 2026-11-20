@@ -113,6 +113,7 @@ const RUNTIME_WORDS: Record<string, string> = {
   NPU: 'NPU',
   Vulkan: 'GPU (Vulkan)',
   CUDA: 'GPU (CUDA)',
+  ROCm: 'GPU (ROCm)',
   MLX: 'Apple GPU (MLX)',
   MPS: 'Apple GPU (PyTorch MPS)',
   CPU: 'CPU',

@@ -17,6 +17,8 @@ const strandsSchema = z.strictObject({
   /** Attach to a running `strands-decider serve` instead of spawning one. */
   url: z.url().optional(),
   maxBatch: z.number().int().min(1).max(64).default(8),
+  /** `serve --max-concurrency` (strands-decider >= 0.4.0): requests run at once; unset = upstream default. */
+  maxConcurrency: z.number().int().min(1).max(64).optional(),
   /** Extra `serve` flags, e.g. ["--no-warmup"]. Only flags; never derived from requests. */
   extraArgs: z
     .array(z.string().regex(/^--[a-z][a-z0-9-]*(?:=[\w./:-]+)?$|^[\w./:-]+$/))
@@ -85,6 +87,7 @@ export const strandsEngine = defineEngine({
       return ['auto', 'cpu', 'mlx', 'mps'];
     }
     if (host.platform === 'linux') {
+      // ROCm torch also reports as `cuda`, so AMD GPUs use this device too.
       return ['auto', 'cpu', 'cuda'];
     }
     return ['auto', 'cpu'];
