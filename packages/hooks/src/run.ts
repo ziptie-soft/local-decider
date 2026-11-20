@@ -27,6 +27,7 @@ import {
 } from './mapping.ts';
 import { postToolUse, purgePending, rememberPermission, type OutcomeDeps } from './outcomes.ts';
 import { guardDeny, translate } from './output.ts';
+import { mayAutoAllow } from './permission-tools.ts';
 import { healthFromEnv, sessionStart, type Health } from './session-start.ts';
 import { readSlice } from './transcript.ts';
 
@@ -103,7 +104,25 @@ interface Context {
   readonly log: (msg: string) => void;
 }
 
+function requestOf(ctx: Context, call: ReturnType<typeof mapEvent>): DecideRequest {
+  const sessionId = str(ctx.hook['session_id']);
+  const toolCall = callOf(ctx.harness, ctx.event, ctx.hook);
+  return {
+    harness: ctx.harness === 'claude' ? 'claude-code' : 'codex',
+    ...(sessionId === undefined ? {} : { sessionId }),
+    ...(toolCall === undefined ? {} : { call: toolCall }),
+    ...(call.workspace === undefined ? {} : { workspace: call.workspace }),
+    input: call.input,
+  };
+}
+
 async function decideAndTranslate(ctx: Context): Promise<string> {
+  const tool = str(ctx.hook['tool_name']);
+  if (ctx.event === 'PermissionRequest' && !mayAutoAllow(ctx.harness, tool)) {
+    // Not a tool the hook may allow: no engine call, the harness shows its normal prompt.
+    ctx.log(`permission: ${tool ?? 'unnamed tool'} is not auto-allowable; abstaining`);
+    return '';
+  }
   const call = mapEvent(ctx.event, ctx.hook, ctx.deps.readTranscript ?? readSlice);
   if (
     ctx.event === 'PermissionRequest' &&
@@ -112,15 +131,7 @@ async function decideAndTranslate(ctx: Context): Promise<string> {
     ctx.log('permission: recent user context unavailable; abstaining');
     return '';
   }
-  const sessionId = str(ctx.hook['session_id']);
-  const toolCall = callOf(ctx.harness, ctx.event, ctx.hook);
-  const request: DecideRequest = {
-    harness: ctx.harness === 'claude' ? 'claude-code' : 'codex',
-    ...(sessionId === undefined ? {} : { sessionId }),
-    ...(toolCall === undefined ? {} : { call: toolCall }),
-    ...(call.workspace === undefined ? {} : { workspace: call.workspace }),
-    input: call.input,
-  };
+  const request = requestOf(ctx, call);
   const decide = ctx.deps.decide ?? clientFromEnv(ctx.env);
   const res = await decide(call.policy, request);
   ctx.log(
@@ -128,7 +139,8 @@ async function decideAndTranslate(ctx: Context): Promise<string> {
       ? `${call.policy}: no answer (gateway down, slow or erroring); abstaining`
       : `${call.policy}: action=${res.action} enforced=${String(res.enforced)} id=${res.decisionId}`,
   );
-  const stdout = translate(ctx.harness, ctx.event, res, ctx.hook['permission_mode'] === 'auto');
+  const autoMode = ctx.hook['permission_mode'] === 'auto';
+  const stdout = translate(ctx.harness, ctx.event, res, autoMode, tool);
   if (ctx.event === 'PermissionRequest' && res !== null) {
     rememberPermission({ ...ctx, res, stdout, deps: ctx.deps.outcomes });
   }

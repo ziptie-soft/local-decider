@@ -3,6 +3,7 @@
  * budget. Everything fails to `null` (or a no-op) so the mod fails open to the classifier.
  */
 import {
+  isDecideResponse,
   tokenAllowed,
   trimTrailingSlashes,
   type DecideRequest,
@@ -92,14 +93,24 @@ export async function getCall($: ModApi, env: ModEnv, id: string): Promise<CallI
   return request<CallInfo>($, env, 'GET', `/v1/calls/${encodeURIComponent(id)}`);
 }
 
-/** Run a policy. Never rejects; `null` when the gateway is unreachable or errors. */
+/**
+ * Run a policy. Never rejects; `null` when the gateway is unreachable, errors or answers with
+ * anything but a valid decision for this policy and scope (fail open: never an allow).
+ */
 export async function decide(
   $: ModApi,
   env: ModEnv,
   policy: string,
   body: DecideRequest,
 ): Promise<DecideResponse | null> {
-  return request<DecideResponse>($, env, 'POST', `/v1/decide/${encodeURIComponent(policy)}`, body);
+  const reply = await request<unknown>(
+    $,
+    env,
+    'POST',
+    `/v1/decide/${encodeURIComponent(policy)}`,
+    body,
+  );
+  return isDecideResponse(reply, policy, body.scope) ? reply : null;
 }
 
 /** Report what the classifier decided for a decision. Never rejects. */

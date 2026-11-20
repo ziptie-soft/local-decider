@@ -3,6 +3,8 @@ export {
   DEFAULT_GATEWAY_URL,
   CONTROL_HEADER,
   GatewayClient,
+  isDecideResponse,
+  isEnforcedAllow,
   loopbackUrl,
   tokenAllowed,
   trimTrailingSlashes,

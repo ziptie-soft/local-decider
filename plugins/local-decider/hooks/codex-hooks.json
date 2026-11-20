@@ -28,7 +28,7 @@
     ],
     "PermissionRequest": [
       {
-        "matcher": "*",
+        "matcher": "Bash|apply_patch",
         "hooks": [
           {
             "type": "command",

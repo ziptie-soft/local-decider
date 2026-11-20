@@ -2,10 +2,11 @@
  * DecideResponse → harness stdout. An empty string means "abstain": exit 0 with no output, so the
  * harness runs its normal flow. Only enforced decisions produce output (ADR-0005).
  */
-import type { DecideResponse } from '@ziptie-soft/local-decider-core';
+import { isEnforcedAllow, type DecideResponse } from '@ziptie-soft/local-decider-core';
 
 import type { GuardHit } from './guard.ts';
 import type { HookHarness, PolicyEvent } from './mapping.ts';
+import { mayAutoAllow } from './permission-tools.ts';
 
 const PREFIX = 'local-decider';
 const REASON_DETAIL_CHARS = 160;
@@ -132,18 +133,19 @@ export function translate(
   event: PolicyEvent,
   res: DecideResponse | null,
   autoMode = false,
+  tool?: string,
 ): string {
+  if (event === 'PermissionRequest') {
+    // v1 never denies from the model: anything but an enforced allow of an allowlisted tool
+    // leaves the normal prompt (Claude) or the auto-reviewer (Codex) in charge.
+    return isEnforcedAllow(res) && mayAutoAllow(harness, tool) ? permissionAllow() : '';
+  }
   const enforced: unknown = res?.enforced;
   if (res === null || enforced !== true || res.mode !== 'act' || res.error !== undefined) {
     return '';
   }
   if (event === 'PreToolUse') {
     return preToolUseOutput(harness, res, autoMode);
-  }
-  if (event === 'PermissionRequest') {
-    // v1 never denies from the model: anything but an enforced allow leaves the normal prompt
-    // (Claude) or the auto-reviewer (Codex) in charge.
-    return res.action === 'allow' ? permissionAllow() : '';
   }
   if (event === 'UserPromptSubmit' && res.action.startsWith('route:')) {
     return routingContext(harness, res);

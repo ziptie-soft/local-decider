@@ -668,6 +668,9 @@ other models. Verify cited lines before implementing; they come from a read-only
 
 ### N1 PermissionRequest hook auto-allows any tool, including plan approval
 
+- **Status:** done — `permission-tools.ts` allowlists the tools a PermissionRequest may be allowed
+  for (everything else abstains before the gateway call and again in `translate`), one shared
+  `isEnforcedAllow` in core serves hook and mod, and the mod validates the gateway reply.
 - **Priority:** P0. **Size:** S.
 - **Problem:** `hooks.json` matches `*` for `PermissionRequest`, and `decideAndTranslate`
   (`packages/hooks/src/run.ts`) never reads `tool_name`, so an enforced allow can approve

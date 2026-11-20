@@ -5,7 +5,7 @@
  * every other path returns what Claude Code decided. A failure skips the hook, so the classifier
  * decides as if the mod were not installed.
  */
-import type { DecideResponse } from '@ziptie-soft/local-decider-core';
+import { isEnforcedAllow, type DecideResponse } from '@ziptie-soft/local-decider-core';
 
 import {
   callAllows,
@@ -135,9 +135,12 @@ async function upgrade(
     return decided;
   }
   const r = await within($, g.env.budgetMs, res);
-  const allow = r !== null && r.enforced && r.action === 'allow';
-  pending.set(id, { res, env: g.env, applied: allow });
-  return allow ? { decision: 'allow', reason: reasonOf(r) } : decided;
+  if (!isEnforcedAllow(r)) {
+    pending.set(id, { res, env: g.env, applied: false });
+    return decided;
+  }
+  pending.set(id, { res, env: g.env, applied: true });
+  return { decision: 'allow', reason: reasonOf(r) };
 }
 
 /** Calls the mod sent to the gateway; exported so tests can inspect and drain it. */

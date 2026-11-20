@@ -25,7 +25,9 @@ function response(action: string, enforced: boolean, decisionId = 'd-1'): Decide
     mode: enforced ? 'act' : 'shadow',
     action,
     enforced,
-    answers: {},
+    answers: {
+      q: { type: 'choice', answer: 'a', probabilities: { a: 0.9, b: 0.1 }, confidence: 0.9 },
+    },
     rule: 0,
     engine: 'test',
     model: 'm',
@@ -117,9 +119,10 @@ describe('PostToolUse outcomes', () => {
   });
 
   it('matches non-shell tools ignoring description', async () => {
-    const tool = { ...BASE, tool_name: 'mcp__s__t', tool_input: { q: 1, description: 'a' } };
+    const input = { file_path: '/work/app/a.ts', old_string: 'x' };
+    const tool = { ...BASE, tool_name: 'Edit', tool_input: { ...input, description: 'a' } };
     await permission(response('abstain', false), tool);
-    await posted({ ...tool, tool_input: { q: 1, description: 'b' } });
+    await posted({ ...tool, tool_input: { ...input, description: 'b' } });
     assert.deepEqual(reported, ['d-1']);
   });
 
