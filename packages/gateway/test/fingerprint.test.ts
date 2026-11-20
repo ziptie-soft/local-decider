@@ -15,6 +15,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
   return {
     npu: capability('unavailable', 'no npu'),
     nvidia: capability('unavailable', 'no nvidia'),
+    rocm: capability('unavailable', 'no rocm'),
     vulkan: capability('unavailable', 'no vulkan'),
     apple: capability('unavailable', 'no apple'),
     probedAt: 1,

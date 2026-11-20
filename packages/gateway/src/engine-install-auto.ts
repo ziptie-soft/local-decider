@@ -19,6 +19,7 @@ export interface AutoTarget {
 const FLAVOR: Readonly<Record<Backend, InstallFlavor>> = {
   NPU: 'cpu',
   CUDA: 'cuda',
+  ROCm: 'rocm',
   Vulkan: 'cpu',
   MLX: 'mlx',
   // Torch wheels on macOS include MPS.

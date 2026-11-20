@@ -37,10 +37,14 @@ A coding-agent harness keeps hitting small, fixed-choice questions. Can this `gi
 without asking? Did the agent finish, or is it waiting for me? Does this task need the big model?
 Is this command risky?
 
-local-decider answers them with a local "System One" decision model. The model reads the state
-once and returns a probability for each option, plus a calibrated confidence. A YAML **policy**
-turns the answer into an action (`allow`, `ask`, `deny`, `notify`, `route:<preset>`, ...). Only
-high-confidence answers act. Everything else falls through to the harness's normal behaviour.
+local-decider answers them with a local "System One" decision model
+([Strands Decider](https://github.com/strands-labs/strands-decider); see its
+[launch post](https://strandsagents.com/blog/introducing-strands-decider/) and the
+[savings case study](https://strandsagents.com/blog/amazon-saves-millions-replacing-sonnet-with-strands-decider/)).
+The model reads the state once and returns a probability for each option, plus a calibrated
+confidence. A YAML **policy** turns the answer into an action (`allow`, `ask`, `deny`, `notify`,
+`route:<preset>`, ...). Only high-confidence answers act. Everything else falls through to the
+harness's normal behaviour.
 
 A local **gateway** runs the model and the policies. Thin harness plugins call it over HTTP on
 `127.0.0.1:8765`. If the gateway is down, slow or erroring, the plugins do nothing and the
@@ -145,7 +149,7 @@ local-decider gateway start       # systemd user unit (Linux) or launchd agent (
 local-decider gateway status
 ```
 
-`engine install` takes `--flavor cpu|mlx|cuda`, `--model <id>` and `--no-download`. On Linux with
+`engine install` takes `--flavor cpu|mlx|cuda|rocm`, `--model <id>` and `--no-download`. On Linux with
 an AMD Ryzen AI NPU, install [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM) yourself with
 your package manager or its installer (local-decider never downloads it), then pull a model and
 pick it in Paseo's settings:
@@ -230,7 +234,7 @@ share it.
 
 | Key | What it does | Default |
 |---|---|---|
-| `engine` | `type: strands-decider`, `systemone-remote`, `fastflowlm` or `llama-vulkan`, with `model`, `device`, `url` | strands-decider, `StrandsAgents/strands-decider-2B-qwen3.5-v1-2610`, `device: auto` |
+| `engine` | `type: strands-decider`, `systemone-remote`, `fastflowlm` or `llama-vulkan`, with `model`, `device`, `url` (strands-decider also `maxBatch`, `maxConcurrency`) | strands-decider, `StrandsAgents/strands-decider-2B-qwen3.5-v1-2610`, `device: auto` |
 | `selection` | Engine and model picked in the settings page; beats `engine.type` and `engine.model` | unset |
 | `policies.<id>.mode` | `off` (never asked), `shadow` (log only), `act` (adapters may enforce) | the policy file's mode, `shadow` |
 | `policies.<id>.thresholds` | Rule thresholds by `<question>.<answer>`, e.g. `verdict.allow: 0.9`; an allow never goes below 0.5 | the policy file's values |
@@ -245,7 +249,7 @@ A short example:
 # yaml-language-server: $schema=schemas/config.schema.json
 engine:
   type: strands-decider
-  device: auto                  # auto | cpu | mlx | mps | cuda
+  device: auto                  # auto | cpu | mlx | mps | cuda (also ROCm)
 policies:
   permission: { mode: act, thresholds: { verdict.allow: 0.9 } }
   routing: { mode: act, variant: routing-budget }
@@ -353,8 +357,8 @@ Latency of one 4-option question, measured at the client (p50):
   desktop.
 - On Vulkan, d3-mini Q8_0 is about 13–14% faster than Q4_K_M at 256 and 1,024 tokens; the NPU
   d3:mini is still faster from 1,024 tokens up. Its p95 is noisy, up to 10.6 s at 3,800 tokens.
-- Strands 2B on a ROCm GPU is about 4× faster than on the CPU; the engine has no ROCm install
-  flavour yet.
+- Strands 2B on a ROCm GPU is about 4× faster than on the CPU. `engine install --flavor rocm`
+  installs ROCm torch, and the gateway picks it when it finds `/dev/kfd` and a `gfx` agent.
 - Through the gateway, a short decision took 250 ms on `d3:nano` and about 600 ms on `d3:mini`.
   `d3:mini` answered all six integration cases correctly with p ≥ 0.91 and is the recommended
   FastFlowLM model.
@@ -378,7 +382,11 @@ Latency of one 4-option question, measured at the client (p50):
 ## Prior art and credits
 
 [Strands Decider](https://github.com/strands-labs/strands-decider) (the `/v1/systemone` contract
-and models, Apache-2.0), [Laya](https://github.com/NandhaKishorM/laya),
+and models, Apache-2.0; see [NOTICE](NOTICE)) with its
+[launch post](https://strandsagents.com/blog/introducing-strands-decider/) and an
+[Amazon case study](https://strandsagents.com/blog/amazon-saves-millions-replacing-sonnet-with-strands-decider/)
+showing 70% fewer tokens and about 98% lower cost per call against Claude Sonnet 4.6,
+[Laya](https://github.com/NandhaKishorM/laya),
 [GLiClass](https://github.com/Knowledgator/GLiClass),
 [auto-mode-for-paseo](https://github.com/obetomuniz/auto-mode-for-paseo),
 [jev-paseo](https://github.com/hypnguyen1209/jev-paseo),

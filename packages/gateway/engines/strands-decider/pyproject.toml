@@ -1,5 +1,5 @@
 # Managed environment for the strands-decider engine. `local-decider engine install` runs
-#   uv sync --project <this dir> --extra <cpu|mlx|cuda>
+#   uv sync --project <this dir> --extra <cpu|mlx|cuda|rocm>
 # with UV_PROJECT_ENVIRONMENT=~/.local/share/local-decider/venvs/strands-decider, so the venv
 # never lives inside a plugin or package directory.
 [project]
@@ -7,26 +7,45 @@ name = "local-decider-strands-engine"
 version = "0.0.0"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-  # Pinned to a main commit: Gemma 4 and MLX support are not in a PyPI release yet.
-  "strands-decider @ git+https://github.com/strands-labs/strands-decider@846b69ebe7603038caa3bfe250e50f1137b141d7",
+  # https://github.com/strands-labs/strands-decider (Apache-2.0); bump with `uv lock`.
+  "strands-decider==0.4.0",
 ]
 
 [project.optional-dependencies]
-cpu = ["torch>=2.7"]
-mlx = [
-  "strands-decider[mlx] @ git+https://github.com/strands-labs/strands-decider@846b69ebe7603038caa3bfe250e50f1137b141d7",
+cpu = ["torch>=2.7", "torchvision>=0.22"]
+mlx = ["strands-decider[mlx]==0.4.0"]
+# NVIDIA: upstream's cuda extra adds flash-linear-attention kernels.
+cuda = ["torch>=2.7", "strands-decider[cuda]==0.4.0"]
+# AMD GPUs through ROCm torch. ROCm torch reports the GPU as `cuda`, so `serve --device cuda`.
+rocm = [
+  "torch>=2.14; sys_platform == 'linux'",
+  "torchvision>=0.29; sys_platform == 'linux'",
+  "triton-rocm; sys_platform == 'linux'",
 ]
-cuda = ["torch>=2.7"]
 
 [tool.uv]
 package = false
-conflicts = [[{ extra = "cpu" }, { extra = "cuda" }, { extra = "mlx" }]]
+conflicts = [[{ extra = "cpu" }, { extra = "cuda" }, { extra = "mlx" }, { extra = "rocm" }]]
 
 # CPU-only torch wheels on Linux (the default PyPI wheel pulls ~3 GB of CUDA libraries).
 [tool.uv.sources]
-torch = [{ index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" }]
+torch = [
+  { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" },
+  { index = "pytorch-rocm", extra = "rocm", marker = "sys_platform == 'linux'" },
+]
+torchvision = [
+  { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" },
+  { index = "pytorch-rocm", extra = "rocm", marker = "sys_platform == 'linux'" },
+]
+triton-rocm = [{ index = "pytorch-rocm", extra = "rocm", marker = "sys_platform == 'linux'" }]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+# ROCm wheels (~3 GB) for AMD GPUs; 7.2 runs on gfx1150 (Radeon 880M/890M) without overrides.
+[[tool.uv.index]]
+name = "pytorch-rocm"
+url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true

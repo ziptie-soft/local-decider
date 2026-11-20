@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { Paths } from './paths.ts';
 
-export type InstallFlavor = 'cpu' | 'mlx' | 'cuda';
+export type InstallFlavor = 'cpu' | 'mlx' | 'cuda' | 'rocm';
 
 export function defaultFlavor(
   platform: NodeJS.Platform = process.platform,
@@ -34,7 +34,7 @@ export function installStrandsEngine(
     throw new Error(`engine project not found at ${project}`);
   }
   const venv = join(paths.venvs, 'strands-decider');
-  execFileSync('uv', ['sync', '--project', project, '--frozen', '--extra', flavor], {
+  execFileSync('uv', ['sync', '--project', project, '--locked', '--extra', flavor], {
     stdio: 'inherit',
     env: { ...process.env, UV_PROJECT_ENVIRONMENT: venv },
   });

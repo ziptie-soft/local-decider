@@ -73,7 +73,7 @@ const USAGE = `local-decider — local decision models for coding-agent harnesse
 Usage:
   local-decider gateway run [--host H] [--port N]   run in the foreground
   local-decider gateway start|restart|stop|status|uninstall  user service (start is a no-op if running)
-  local-decider engine install [--flavor cpu|mlx|cuda] [--model ID] [--no-download]
+  local-decider engine install [--flavor cpu|mlx|cuda|rocm] [--model ID] [--no-download]
   local-decider engine install --engine fastflowlm [--model d3:nano]  AMD NPU (Linux): uses your flm
   local-decider engine install --engine llama-vulkan [--model d3-mini-q4_k_m]  Linux GPU (Vulkan): downloads a pinned d3 GGUF
   local-decider engine list                         list engines and models

@@ -1,6 +1,9 @@
 /**
  * The `/v1/systemone` wire contract (Strands Decider, also served by Laya and GLiClass servers)
  * and its normalisation into one answer shape with a calibrated confidence for every type.
+ *
+ * Wire types follow strands-labs/strands-decider (Apache-2.0), reimplemented here, not copied:
+ * https://github.com/strands-labs/strands-decider/tree/v0.4.0
  */
 
 export type QuestionType = 'noul' | 'choice' | 'score';

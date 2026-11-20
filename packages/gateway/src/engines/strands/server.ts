@@ -27,6 +27,9 @@ export function serveArgs(
     args.push('--device', device);
   }
   args.push('--max-batch', String(config.maxBatch));
+  if (config.maxConcurrency !== undefined) {
+    args.push('--max-concurrency', String(config.maxConcurrency));
+  }
   // Warmup compiles kernel shapes; on CPU there is nothing to compile and it adds ~27 s to every
   // start (ready in 4.6 s without it, first request no slower). `--warmup` in extraArgs opts back in.
   if (device === 'cpu' && !config.extraArgs.some((a) => a === '--warmup' || a === '--no-warmup')) {

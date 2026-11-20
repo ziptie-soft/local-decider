@@ -131,7 +131,7 @@ family is the one you chose, else the gateway's default. Within it:
 
 1. Runtimes with a fresh measurement are ranked by typical latency; the fastest wins.
 2. Close calls (within about 10%) go to a dedicated runtime such as the NPU, then to the steadier
-   one, then to the hardware order NPU, CUDA, Vulkan, MLX, MPS, CPU.
+   one, then to the hardware order NPU, CUDA or ROCm, Vulkan, MLX, MPS, CPU.
 3. An out-of-date or few-run measurement counts as unmeasured: that runtime keeps its place in the
    hardware order until it is measured again.
 4. A runtime whose last run failed moves behind the ranked ones.

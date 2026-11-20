@@ -141,6 +141,36 @@ describe('host capability probes', () => {
     assert.equal((await probeHostCapabilities(failing)).nvidia.status, 'unknown');
   });
 
+  it('detects ROCm via /dev/kfd and rocminfo, skipping generic agents', async () => {
+    const info = 'Agent 1\n  Name: AMD Ryzen\nAgent 2\n  Name: gfx11-generic\n  Name: gfx1150\n';
+    const caps = await probeHostCapabilities(
+      deps({
+        fs: fakeFs({ '/dev/kfd': '' }),
+        tools: ['rocminfo'],
+        runs: { '/usr/bin/rocminfo': info },
+      }),
+    );
+    assert.equal(caps.rocm.status, 'available');
+    assert.equal(caps.rocm.evidence, 'ROCm gfx1150');
+  });
+
+  it('ROCm is unavailable without /dev/kfd and unknown without a working rocminfo', async () => {
+    assert.equal((await probeHostCapabilities(deps())).rocm.status, 'unavailable');
+    invalidateHostCapabilities();
+    const fs = fakeFs({ '/dev/kfd': '' });
+    assert.equal((await probeHostCapabilities(deps({ fs }))).rocm.status, 'unknown');
+    invalidateHostCapabilities();
+    const failing = deps({
+      fs,
+      tools: ['rocminfo'],
+      runs: { '/usr/bin/rocminfo': errno('EPERM') },
+    });
+    assert.equal((await probeHostCapabilities(failing)).rocm.status, 'unknown');
+    invalidateHostCapabilities();
+    const odd = deps({ fs, tools: ['rocminfo'], runs: { '/usr/bin/rocminfo': 'nothing\n' } });
+    assert.equal((await probeHostCapabilities(odd)).rocm.status, 'unknown');
+  });
+
   it('excludes software Vulkan devices', async () => {
     const software = await probeHostCapabilities(
       deps({

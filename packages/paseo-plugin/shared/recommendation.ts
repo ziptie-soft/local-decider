@@ -150,6 +150,7 @@ export function parseFallback(value: unknown): Fallback | null {
 const BACKEND_NAMES: Record<string, string> = {
   NPU: 'AMD NPU',
   CUDA: 'NVIDIA GPU (CUDA)',
+  ROCm: 'AMD GPU (ROCm)',
   Vulkan: 'GPU (Vulkan)',
   MLX: 'Apple GPU (MLX)',
   MPS: 'Apple GPU (PyTorch MPS)',
@@ -292,7 +293,9 @@ export function installCommand(t: Target, backend: string | null): string {
     return `local-decider engine install --engine llama-vulkan --model ${t.model}`;
   }
   const flavor =
-    backend === 'MLX' || backend === 'CUDA' ? ` --flavor ${backend.toLowerCase()}` : '';
+    backend === 'MLX' || backend === 'CUDA' || backend === 'ROCm'
+      ? ` --flavor ${backend.toLowerCase()}`
+      : '';
   return `local-decider engine install${flavor}`;
 }
 
