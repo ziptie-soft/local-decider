@@ -44,3 +44,18 @@ export class EngineError extends Error {
     this.httpFailure = httpFailure;
   }
 }
+
+/** Message of a 503 from `/v1/systemone`: the engine's queue wait timed out. */
+export const ENGINE_BUSY_ERROR = 'engine busy (503)';
+
+/**
+ * A 503 from the engine's `/v1/systemone` (strands-decider v2 serve, after `--queue-timeout`):
+ * transient load, not a crash or a bad install.
+ */
+export function isEngineBusy(error: unknown): boolean {
+  return (
+    error instanceof EngineError &&
+    error.httpFailure?.status === 503 &&
+    error.httpFailure.path.endsWith('/v1/systemone')
+  );
+}

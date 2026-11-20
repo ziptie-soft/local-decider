@@ -14,7 +14,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { Decider, QUEUE_MAX, renderValue, UnknownPolicyError } from '../src/decider.ts';
 import { ENGINE_BENCHMARK_RUNNING_ERROR, EngineBusyError } from '../src/engine-busy.ts';
 import { ManagedEngine } from '../src/engines/lazy.ts';
-import type { Engine } from '../src/engines/types.ts';
+import { EngineError, type Engine } from '../src/engines/types.ts';
 import type { LogStore } from '../src/log-store.ts';
 import { defaultPolicyDir, type LoadedPolicy } from '../src/policies.ts';
 import { FakeEngine, tempLog } from './helpers.ts';
@@ -475,6 +475,34 @@ describe('Decider', () => {
       JSON.stringify(engine.requests[0]?.state),
       '{"a":1,"b":"[REDACTED:anthropic-key]"}',
     );
+  });
+
+  it('treats an engine 503 as busy: fail open, not an engine failure', async () => {
+    const busy: Engine = {
+      id: 'busy',
+      model: 'm',
+      start: () => Promise.resolve(),
+      health: () => ({ state: 'ready', model: 'm' }),
+      decide: () =>
+        Promise.reject(
+          new EngineError('engine busy (503)', {
+            status: 503,
+            path: '/v1/systemone',
+            body: 'queue timeout',
+          }),
+        ),
+      stop: () => Promise.resolve(),
+    };
+    const decider = deciderOn('shadow', busy);
+    let failures = 0;
+    decider.onEngineFailure(() => {
+      failures += 1;
+    });
+    const res = await decider.decide('permission', req, signal());
+    assert.deepEqual(res.answers, {});
+    assert.equal(res.error, 'engine busy (503)');
+    assert.notEqual(res.action, 'allow');
+    assert.equal(failures, 0, 'a 503 must not count as an engine failure');
   });
 
   it('fails open before the warm cache while held and clears it on release', async () => {

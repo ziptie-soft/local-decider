@@ -2,7 +2,7 @@ import type { InstallFlavor } from './engine-install.ts';
 import type { HostInfo } from './engines/descriptor.ts';
 import type { EngineId } from './engines/registry.ts';
 import type { Backend, Candidate, Ranking } from './engines/selector.ts';
-import { modelFits } from './models.ts';
+import { catalogModel, modelFits } from './models.ts';
 
 /** Automatic install input: the P3 ranking for this host. Absent when config is explicit. */
 export interface AutoInstall {
@@ -47,6 +47,9 @@ function describe(chosen: Candidate, flavor: InstallFlavor, why: string): AutoTa
 function appleFresh(host: HostInfo, chosen: Candidate): AutoTarget | undefined {
   if (!appleSiliconDefault(host, chosen) || chosen.engine !== 'strands-decider') {
     return undefined;
+  }
+  if (catalogModel(chosen.model, 'strands-decider')?.generation === 2) {
+    return undefined; // v2 has no MLX backend: no mlx flavor for it
   }
   if (!modelFits(chosen.model, host.totalMemoryBytes, 'mlx', 'strands-decider')) {
     return undefined;

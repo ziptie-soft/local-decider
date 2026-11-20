@@ -31,7 +31,7 @@ import { randomUUID } from 'node:crypto';
 
 import { CallStore, type CallDecision } from './call-store.ts';
 import { EngineBusyError } from './engine-busy.ts';
-import type { Engine } from './engines/types.ts';
+import { ENGINE_BUSY_ERROR, isEngineBusy, type Engine } from './engines/types.ts';
 import type { LogStore } from './log-store.ts';
 import type { LoadedPolicy } from './policies.ts';
 import { PrecedentStore } from './precedent.ts';
@@ -564,6 +564,15 @@ export class Decider {
   #failed(error: unknown, engine: Engine, started: number): EngineResult {
     if (error instanceof QueueFullError) {
       return { answers: {}, latencyMs: 0, cached: false, error: 'engine queue full' };
+    }
+    if (isEngineBusy(error)) {
+      // Transient load (the engine's queue timeout): fail open, but not an engine failure.
+      return {
+        answers: {},
+        latencyMs: performance.now() - started,
+        cached: false,
+        error: ENGINE_BUSY_ERROR,
+      };
     }
     this.#failureHandler?.(engine);
     return {

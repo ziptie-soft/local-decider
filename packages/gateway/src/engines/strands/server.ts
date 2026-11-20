@@ -7,6 +7,7 @@ import type { Device, HostInfo } from '../descriptor.ts';
 import { SupervisedEngine, type ServerSpec } from '../supervised.ts';
 import { hfCacheDir, pinnedCheckpoint } from './hf-cache.ts';
 import { resolveStrandsDevice, type DeviceResolution } from './mlx.ts';
+import { isTransformersModel } from './models.ts';
 
 const STRANDS_VENV = 'strands-decider';
 
@@ -54,7 +55,8 @@ function strandsSpec(
 ): ServerSpec {
   const binary = tools?.strandsDecider ?? strandsBinary(paths);
   // Resolved once per launch (refreshed in `binary()`), so argv and health agree.
-  let device: DeviceResolution = resolveStrandsDevice(config.device, host, binary);
+  const transformers = isTransformersModel(config.model);
+  let device: DeviceResolution = resolveStrandsDevice(config.device, host, binary, transformers);
   return {
     id: 'strands-decider',
     model: config.model,
@@ -63,7 +65,14 @@ function strandsSpec(
     healthPath: '/health',
     env: { PYTHONUNBUFFERED: '1', ...tools?.env },
     binary: () => {
-      device = resolveStrandsDevice(config.device, host, binary);
+      if (transformers && config.device === 'mlx') {
+        // Fail the start with a clear reason rather than let upstream reject the flag.
+        return {
+          missing:
+            'v2 checkpoints use the transformers backend, which has no MLX device; set device to auto, mps or cpu',
+        };
+      }
+      device = resolveStrandsDevice(config.device, host, binary, transformers);
       return {
         path: binary,
         missing: `${binary} not found; run \`local-decider engine install\``,

@@ -129,9 +129,36 @@ export const MODELS: readonly ModelDescriptor<'strands-decider'>[] = [
       'google/gemma-4-26B-A4B-it': '4d7ae4984b7db7de8f8457170b3f1a419ee76d52',
     },
   },
+  {
+    id: 'StrandsAgents/strands-decider-E2B-gemma4-v2-2611',
+    engine: 'strands-decider',
+    label: 'Strands E2B · Gemma 4 v2',
+    generation: 2,
+    downloadGb: 10.3,
+    // fp32 on CPU (upstream default) is twice the 10.3 GB bf16 weights; the model card asks for 24 GB of GPU memory.
+    memoryGb: 22,
+    gpuMemoryGb: 24,
+    latencyHint: '62 ms on an H100 (1 question, bf16); CPU not measured here',
+    // JevBench is 87.4% of the 231 public items (about 202); the card gives no Brier score.
+    quality: { jevBench: 202, decisionIndex: 57.1 },
+    source: 'https://huggingface.co/StrandsAgents/strands-decider-E2B-gemma4-v2-2611',
+    // Self-contained checkpoint (transformers loads only this directory); the base is pinned to
+    // verify upstream's recorded provenance, not downloaded.
+    artifacts: ['StrandsAgents/strands-decider-E2B-gemma4-v2-2611'],
+    revisions: {
+      'StrandsAgents/strands-decider-E2B-gemma4-v2-2611':
+        'a879714f3b0f2eb9c4eff6dde89e04ee01d44862',
+      'google/gemma-4-E2B-it': '3e22461f65e89153144f8adb70e3b8c2cc9845a7',
+    },
+  },
 ];
 
 /** `hf download` argv for a repo, pinned with `--revision` when a commit is known. */
 export function hfDownloadArgs(repo: string, revision?: string): string[] {
   return revision === undefined ? ['download', repo] : ['download', repo, '--revision', revision];
+}
+
+/** True for v2 (transformers backend) catalogue models, which cannot run on MLX. */
+export function isTransformersModel(model: string): boolean {
+  return MODELS.find((m) => m.id === model)?.generation === 2;
 }

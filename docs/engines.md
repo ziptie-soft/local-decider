@@ -139,6 +139,14 @@ Append a `ModelDescriptor` to the engine's `models.ts`: `id`, `engine`, `label`,
 engine: for `strands-decider` it lists Hugging Face repos, adapter first. A model that does not fit
 within 80% of the machine's memory is listed but cannot be selected.
 
+**Strands v2 checkpoints** (`strands-decider-<size>-gemma4-v2-2611`, `generation: 2` in the
+catalogue) use the transformers backend, not MLX: `device: mlx` fails the start with a clear
+reason, `auto` never resolves to MLX and the selector offers them on CUDA, MPS and CPU only. Only
+E2B v2 is on Hugging Face (2026-11-21), pinned together with the upstream-recorded base revision,
+and it is not recommended by default. `serve` queues requests and answers 503 after
+`--queue-timeout`; the gateway reports that as `engine busy (503)`, fails open and does not count
+it as an engine failure or restart.
+
 ## 5. macOS and Linux defaults
 
 - **Apple Silicon.** `engine install` picks the `mlx` flavour. With `device: auto` the gateway

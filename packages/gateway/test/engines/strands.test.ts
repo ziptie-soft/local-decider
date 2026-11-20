@@ -10,8 +10,11 @@ import { pinnedCheckpoint } from '../../src/engines/strands/hf-cache.ts';
 import { strandsEngine, hfCached } from '../../src/engines/strands/index.ts';
 import { resolveStrandsDevice } from '../../src/engines/strands/mlx.ts';
 import { hfDownloadArgs } from '../../src/engines/strands/models.ts';
-import { serveArgs } from '../../src/engines/strands/server.ts';
+import { StrandsDeciderEngine, serveArgs } from '../../src/engines/strands/server.ts';
 import { tempPaths } from '../helpers.ts';
+
+const V2 = 'StrandsAgents/strands-decider-E2B-gemma4-v2-2611';
+const BASE_E2B_V2 = 'google/gemma-4-E2B-it';
 
 function executable(path: string): string {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -107,10 +110,9 @@ describe('strands descriptor', () => {
   it('pins every catalogue artifact to a 40-char commit', () => {
     for (const model of strandsEngine.models) {
       assert.ok((model.artifacts ?? []).length > 0, model.id);
-      assert.deepEqual(
-        Object.keys(model.revisions ?? {}).toSorted(),
-        [...(model.artifacts ?? [])].toSorted(),
-      );
+      // v2 checkpoints are self-contained: the base is pinned for provenance, not downloaded.
+      const pinned = [...(model.artifacts ?? []), ...(model.generation === 2 ? [BASE_E2B_V2] : [])];
+      assert.deepEqual(Object.keys(model.revisions ?? {}).toSorted(), pinned.toSorted());
       for (const rev of Object.values(model.revisions ?? {})) {
         assert.match(rev, /^[0-9a-f]{40}$/);
       }
@@ -182,6 +184,49 @@ describe('strands descriptor', () => {
     ]);
     assert.equal(serveArgs(config, 9000)[1], model.id);
     assert.ok(!serveArgs(config, 9000).includes('--model-name'));
+  });
+
+  describe('v2 (transformers) models', () => {
+    const darwin: HostInfo = { platform: 'darwin', arch: 'arm64', totalMemoryBytes: 64e9 };
+
+    it('is catalogued, not recommended, and pinned to upstream provenance', () => {
+      const model = strandsEngine.models.find((m) => m.id === V2);
+      assert.equal(model?.generation, 2);
+      assert.notEqual(model?.recommended, true);
+      assert.deepEqual(model?.artifacts, [V2]);
+      assert.equal(model?.revisions?.[BASE_E2B_V2], '3e22461f65e89153144f8adb70e3b8c2cc9845a7');
+    });
+
+    it('plans only the checkpoint download and still checks base provenance drift', () => {
+      const model = strandsEngine.models.find((m) => m.id === V2);
+      assert.ok(model);
+      const pinned = model.revisions?.[BASE_E2B_V2] ?? '';
+      assert.equal(planCatalogueDownloads(model, BASE_E2B_V2, pinned).length, 1);
+      assert.throws(() => planCatalogueDownloads(model, BASE_E2B_V2, 'f'.repeat(40)), /pin drift/);
+      assert.throws(() => planCatalogueDownloads(model, 'evil/base'), /not one of its pinned/);
+    });
+
+    it('never resolves MLX', () => {
+      const binary = mlxVenv(join(tempPaths().venvs, 'mlx'));
+      assert.equal(resolveStrandsDevice('auto', darwin, binary, true).resolved, undefined);
+      assert.equal(resolveStrandsDevice('mlx', darwin, binary, true).resolved, undefined);
+      assert.equal(resolveStrandsDevice('mps', darwin, binary, true).resolved, 'mps');
+    });
+
+    it('fails the start clearly for an explicit mlx device', async () => {
+      const paths = tempPaths();
+      const binary = executable(join(paths.data, 'bin', 'strands-decider'));
+      const config = strandsEngine.configSchema.parse({
+        type: 'strands-decider',
+        model: V2,
+        device: 'mlx',
+      });
+      const engine = new StrandsDeciderEngine(config, paths, undefined, darwin);
+      assert.ok(binary);
+      await engine.start();
+      assert.equal(engine.health().state, 'failed');
+      assert.match(engine.health().detail ?? '', /no MLX device/);
+    });
   });
 
   describe('device resolution', () => {

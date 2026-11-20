@@ -211,6 +211,10 @@ function rungCandidate(
   if (engine === undefined || model === undefined) {
     return undefined;
   }
+  if (rung.device === 'mlx' && model.generation === 2) {
+    // v2 checkpoints run on the transformers backend only: never offer them on MLX.
+    return undefined;
+  }
   const base = {
     engine: rung.engine,
     device: rung.device,
