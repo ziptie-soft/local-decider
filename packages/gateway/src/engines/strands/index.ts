@@ -4,8 +4,9 @@ import { dirname, join } from 'node:path';
 import { z } from 'zod';
 
 import { DEVICES, defineEngine, type EngineContext, type ModelDescriptor } from '../descriptor.ts';
+import { hfCacheDir, hfCached } from './hf-cache.ts';
 import { resolveStrandsDevice } from './mlx.ts';
-import { MODELS } from './models.ts';
+import { MODELS, hfDownloadArgs } from './models.ts';
 import { StrandsDeciderEngine, strandsBinary } from './server.ts';
 
 export const DEFAULT_MODEL = 'StrandsAgents/strands-decider-2B-qwen3.5-v1-2610';
@@ -28,18 +29,10 @@ const strandsSchema = z.strictObject({
 
 export type StrandsEngineConfig = z.infer<typeof strandsSchema>;
 
-/** `models--Org--Name/snapshots/<rev>` holds at least one file. */
-export function hfCached(hfCache: string, repo: string): boolean {
-  const snapshots = join(hfCache, `models--${repo.replace('/', '--')}`, 'snapshots');
-  if (!existsSync(snapshots)) {
-    return false;
-  }
-  return readdirSync(snapshots).some((rev) => readdirSync(join(snapshots, rev)).length > 0);
-}
+export { hfCached };
 
 function hfCachePath(ctx: EngineContext): string {
-  const configured = ctx.tools?.env['HF_HUB_CACHE'] ?? ctx.env['HF_HUB_CACHE'];
-  return configured ?? join(ctx.env['HF_HOME'] ?? join(homedir(), '.cache', 'huggingface'), 'hub');
+  return hfCacheDir(ctx.tools?.env, ctx.env);
 }
 
 function strandsModelsPresent(
@@ -51,7 +44,9 @@ function strandsModelsPresent(
     new Map(
       models.map((model) => [
         model.id,
-        (model.artifacts ?? []).every((artifact) => hfCached(cache, artifact)),
+        (model.artifacts ?? []).every((artifact) =>
+          hfCached(cache, artifact, model.revisions?.[artifact]),
+        ),
       ]),
     ),
   );
@@ -68,7 +63,10 @@ function strandsDownloadSteps(
       'the strands-decider engine is not installed; run `local-decider engine install`',
     );
   }
-  return (model.artifacts ?? []).map((artifact) => ({ command: hf, args: ['download', artifact] }));
+  return (model.artifacts ?? []).map((artifact) => ({
+    command: hf,
+    args: hfDownloadArgs(artifact, model.revisions?.[artifact]),
+  }));
 }
 
 export const strandsEngine = defineEngine({

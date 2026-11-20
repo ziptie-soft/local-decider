@@ -5,6 +5,7 @@ import type { Paths } from '../../paths.ts';
 import type { Toolchain } from '../../toolchain.ts';
 import type { Device, HostInfo } from '../descriptor.ts';
 import { SupervisedEngine, type ServerSpec } from '../supervised.ts';
+import { hfCacheDir, pinnedCheckpoint } from './hf-cache.ts';
 import { resolveStrandsDevice, type DeviceResolution } from './mlx.ts';
 
 const STRANDS_VENV = 'strands-decider';
@@ -21,8 +22,14 @@ export function serveArgs(
   device: Exclude<Device, 'auto'> | undefined = config.device === 'auto'
     ? undefined
     : config.device,
+  /** A pinned HF snapshot directory to serve instead of the repo id (see `pinnedCheckpoint`). */
+  checkpoint?: string,
 ): string[] {
-  const args = ['serve', config.model, '--host', '127.0.0.1', '--port', String(port)];
+  const args = ['serve', checkpoint ?? config.model, '--host', '127.0.0.1', '--port', String(port)];
+  if (checkpoint !== undefined) {
+    // Upstream names the model after the checkpoint's basename, which would now be the sha.
+    args.push('--model-name', config.model.split('/').pop() ?? config.model);
+  }
   if (device !== undefined) {
     args.push('--device', device);
   }
@@ -62,7 +69,13 @@ function strandsSpec(
         missing: `${binary} not found; run \`local-decider engine install\``,
       };
     },
-    args: (port) => serveArgs(config, port, device.resolved),
+    args: (port) =>
+      serveArgs(
+        config,
+        port,
+        device.resolved,
+        pinnedCheckpoint(hfCacheDir(tools?.env, process.env), config.model),
+      ),
     deviceInfo: () => device,
     maxLength: (body) => (typeof body['max_length'] === 'number' ? body['max_length'] : undefined),
   };

@@ -67,6 +67,8 @@ export interface ModelDescriptor<E extends string = string> {
   readonly source?: string;
   /** Engine-interpreted artifacts to download; strands uses Hugging Face repos, adapter first. */
   readonly artifacts?: readonly string[];
+  /** Pinned commit (full sha) per artifact repo; strands passes it as `hf download --revision`. */
+  readonly revisions?: Readonly<Record<string, string>>;
   /** Verified upstream base checkpoint; absent models have their own singleton family. */
   readonly baseModel?: string;
   /** Weight format short code used for display and quant selection. */
