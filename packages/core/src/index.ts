@@ -34,6 +34,8 @@ export { inputHash } from './hash.ts';
 export {
   ALLOW_THRESHOLD_FLOOR,
   evaluateRules,
+  guardTruncation,
+  mcpOpen,
   minMode,
   MODES,
   parsePolicy,
@@ -86,6 +88,8 @@ export {
   CHARS_PER_TOKEN,
   cutText,
   DEFAULT_STATE_TOKENS,
+  TRUNCATION_MARKER_RE,
+  type BuiltState,
   type KeepSide,
   type StateSection,
 } from './truncate.ts';

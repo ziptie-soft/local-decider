@@ -1,5 +1,6 @@
 import {
   HARNESSES,
+  mcpOpen,
   PERMISSION_MODES,
   policyRoutes,
   SCOPES,
@@ -576,7 +577,7 @@ function route(method: string, path: string): Handler | undefined {
           id: policy.id,
           mode,
           description: policy.description,
-          mcp: policy.mcp,
+          mcp: mcpOpen(policy),
           questions: policyInfo(policy).questions,
           inputKeys: policy.state.sections.map((s) => s.from),
           routes: policyRoutes(policy),

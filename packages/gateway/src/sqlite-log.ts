@@ -270,8 +270,8 @@ export class SqliteLog implements LogStore {
         id, ts, policy, variant, mode, scope, harness, session_id, call_id,
         permission_mode, subagent, input_hash, precedent_key, template_key,
         state_tokens, action, enforced, engine, model, latency_ms, queue_ms,
-        engine_ms, error, power, requested_model, routed_model, answers
-      ) VALUES (${Array.from({ length: 27 }, () => '?').join(', ')})`,
+        engine_ms, error, power, requested_model, routed_model, answers, truncated
+      ) VALUES (${Array.from({ length: 28 }, () => '?').join(', ')})`,
     ).run(
       record.decisionId,
       epoch(record.ts),
@@ -300,6 +300,7 @@ export class SqliteLog implements LogStore {
       nullable(record.requestedModel),
       nullable(record.routedModel),
       JSON.stringify(record.answers),
+      record.truncated === undefined ? null : JSON.stringify(record.truncated),
     );
   }
 
@@ -481,6 +482,7 @@ CREATE INDEX usage_decision ON usage(decision_id);
 `,
   'UPDATE decision SET precedent_key = NULL;',
   'ALTER TABLE outcome ADD COLUMN claimed_source TEXT;',
+  'ALTER TABLE decision ADD COLUMN truncated TEXT;',
 ];
 
 function loadDatabase(): DatabaseConstructor {
@@ -677,7 +679,9 @@ function decisionMetrics(row: Row): DecisionExtras {
   const templateKey = optionalText(row['template_key']);
   const queueMs = optionalNumber(row['queue_ms']);
   const engineMs = optionalNumber(row['engine_ms']);
+  const truncated = truncatedLabels(row['truncated']);
   return {
+    ...(truncated === undefined ? {} : { truncated }),
     ...(precedentKey === undefined ? {} : { precedentKey }),
     ...(stateTokens === undefined ? {} : { stateTokens }),
     ...(error === undefined ? {} : { error }),
@@ -687,6 +691,20 @@ function decisionMetrics(row: Row): DecisionExtras {
     ...(queueMs === undefined ? {} : { queueMs }),
     ...(engineMs === undefined ? {} : { engineMs }),
   };
+}
+
+function truncatedLabels(value: SqlValue | undefined): string[] | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) && parsed.every((label) => typeof label === 'string')
+      ? parsed
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function outcomeRecord(row: Row): OutcomeRecord {

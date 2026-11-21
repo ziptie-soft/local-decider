@@ -44,8 +44,7 @@
       "enum": ["high", "normal", "low"]
     },
     "mcp": {
-      "default": true,
-      "description": "Callable and listed through MCP; `false` for policies a harness hook enforces.",
+      "description": "Callable and listed through MCP (default true); `false` for policies a harness hook enforces. A variant inherits its base policy value when unset.",
       "type": "boolean"
     },
     "harnesses": {
@@ -74,7 +73,9 @@
               "label": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 80
+                "maxLength": 80,
+                "pattern": "^[^\\r\\n\\u2028\\u2029#]+$",
+                "description": "Section heading shown to the model; no line breaks or `#`."
               },
               "from": {
                 "type": "string",
@@ -83,9 +84,14 @@
               },
               "keep": {
                 "default": "tail",
-                "description": "Which part survives truncation.",
+                "description": "Which part survives truncation; `ends` keeps the start and the end.",
                 "type": "string",
-                "enum": ["head", "tail", "middle"]
+                "enum": ["head", "tail", "ends"]
+              },
+              "critical": {
+                "default": false,
+                "description": "A cut of this section downgrades allow, log and abstain to ask (deny is kept), because the decision may hinge on the lost part.",
+                "type": "boolean"
               }
             },
             "required": ["label", "from"],

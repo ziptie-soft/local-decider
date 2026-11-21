@@ -1,8 +1,10 @@
 import {
   buildState,
+  type BuiltState,
   canonicalJson,
   CHARS_PER_TOKEN,
   evaluateRules,
+  guardTruncation,
   inputHash,
   normaliseAnswers,
   type OutcomeRecord,
@@ -21,6 +23,7 @@ import {
   type Policy,
   type PolicyThreshold,
   type PrecedentTally,
+  type Questions,
   type Scope,
   type ShadowRecord,
   type SystemOneRequest,
@@ -468,15 +471,7 @@ export class Decider {
     }
     const input = redactDeep(request.input);
     const precedent = this.#precedentFor(policy, input, request.workspace?.cwd);
-    const modelInput = { ...input };
-    delete modelInput['subject'];
-    if (policy.precedent !== undefined) {
-      delete modelInput[policy.precedent.from];
-    }
-    const sections = policySections(policy, modelInput, renderValue);
-    const state = buildState(sections, policy.state.maxTokens);
-    const questions = sortKeysDeep(policyQuestions(policy));
-    const hash = inputHash({ id: policy.id, version: policy.version, state, questions });
+    const { state, questions, hash, truncated, criticalCut } = this.#state(policy, input);
     const admitted = admission(mode, policy, signal);
     const result = await this.#answers(
       { state, questions },
@@ -485,9 +480,11 @@ export class Decider {
       admitted.signal,
       admitted.priority,
     );
-    const match = evaluateRules(policy, result.answers, {
-      precedentAllows: precedent?.allows ?? false,
-    });
+    // Cached answers are stored without this: the guard runs on every call, hits included.
+    const match = guardTruncation(
+      evaluateRules(policy, result.answers, { precedentAllows: precedent?.allows ?? false }),
+      criticalCut,
+    );
     const enforced = mode === 'act' && result.error === undefined;
     const response: DecideResponse = {
       ...base,
@@ -501,6 +498,7 @@ export class Decider {
         ? {}
         : { precedentKey: precedent.key, precedent: precedent.tally }),
       ...(result.error === undefined ? {} : { error: result.error }),
+      ...(truncated.length === 0 ? {} : { truncated }),
     };
     this.#record(request, response, {
       hash,
@@ -513,6 +511,26 @@ export class Decider {
       answered: response.error === undefined,
     });
     return response;
+  }
+
+  /** What the model reads for `input` (redacted), the questions, their hash and what was cut. */
+  #state(
+    policy: Policy,
+    input: Readonly<Record<string, unknown>>,
+  ): BuiltState & { questions: Questions; hash: string; state: string } {
+    const modelInput = { ...input };
+    delete modelInput['subject'];
+    if (policy.precedent !== undefined) {
+      delete modelInput[policy.precedent.from];
+    }
+    const built = buildState(
+      policySections(policy, modelInput, renderValue),
+      policy.state.maxTokens,
+    );
+    const state = built.text;
+    const questions = sortKeysDeep(policyQuestions(policy));
+    const hash = inputHash({ id: policy.id, version: policy.version, state, questions });
+    return { ...built, state, questions, hash };
   }
 
   /** Index the decision under the request's call id, even if its HTTP caller is gone. */
@@ -761,6 +779,7 @@ export class Decider {
       model: response.model,
       latencyMs: Math.round(response.latencyMs),
       ...(response.error === undefined ? {} : { error: response.error }),
+      ...(response.truncated === undefined ? {} : { truncated: response.truncated }),
     };
     this.#log.append(record);
     this.#precedent.noteDecision(record);

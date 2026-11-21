@@ -11,7 +11,7 @@ import type {
 
 import { classifierAgreement, type ClassifierAgreement } from './classifier-agreement.ts';
 import { ENGINE_BENCHMARK_RUNNING_ERROR } from './engine-busy.ts';
-import { isProbeDecision } from './log-store.ts';
+import { isProbeDecision, isTruncatedDecision } from './log-store.ts';
 import { percentile, sortedLatencies, wilsonUpper } from './numbers.ts';
 import {
   comparableOutcome,
@@ -44,6 +44,8 @@ export interface PolicyStats {
   readonly decisions: number;
   readonly errors: number;
   readonly enforced: number;
+  /** Decisions whose state had a section cut, dropped or already truncated (see ShadowRecord). */
+  readonly truncated: number;
   readonly actions: Readonly<Record<string, number>>;
   readonly latencyP50Ms?: number;
   readonly latencyP95Ms?: number;
@@ -177,6 +179,7 @@ function samplesForRule(
     const cls = outcome === undefined ? 'other' : outcomeClass(outcome);
     if (
       decision.error === ENGINE_BENCHMARK_RUNNING_ERROR ||
+      isTruncatedDecision(decision) ||
       decision.action !== 'ask' ||
       (cls !== 'allow' && cls !== 'veto')
     ) {
@@ -277,6 +280,7 @@ function policyStats(
     decisions: decisions.length,
     errors: decisions.filter((d) => d.error !== undefined).length,
     enforced: decisions.filter((d) => d.enforced).length,
+    truncated: decisions.filter(isTruncatedDecision).length,
     actions: countActions(decisions),
     ...(p50 === undefined ? {} : { latencyP50Ms: p50 }),
     ...(p95 === undefined ? {} : { latencyP95Ms: p95 }),
@@ -428,6 +432,9 @@ export function formatStats(stats: readonly PolicyStats[]): string {
         .join(' ')}`,
       `  labelled ${String(s.labelled)}, agreement ${pct(s.agreement)}, brier ${s.brier?.toFixed(3) ?? '-'}`,
     );
+    if (s.truncated > 0) {
+      lines.push(`  truncated ${String(s.truncated)} (a state section was cut)`);
+    }
     if (s.unverifiedByClaimedSource !== undefined) {
       lines.push(
         `  unverified outcomes ${Object.entries(s.unverifiedByClaimedSource)

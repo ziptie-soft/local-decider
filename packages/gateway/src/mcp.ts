@@ -1,7 +1,12 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { DecideRequest, DecideResponse, Policy } from '@ziptie-soft/local-decider-core';
+import {
+  mcpOpen,
+  type DecideRequest,
+  type DecideResponse,
+  type Policy,
+} from '@ziptie-soft/local-decider-core';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 
@@ -35,7 +40,7 @@ export function policyInfo(policy: Policy): McpPolicyInfo {
   return {
     id: policy.id,
     description: policy.description,
-    mcp: policy.mcp,
+    mcp: mcpOpen(policy),
     questions: Object.fromEntries(
       Object.entries(policy.questions).map(([id, question]) => [
         id,

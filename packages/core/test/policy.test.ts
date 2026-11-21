@@ -281,6 +281,6 @@ describe('policySections', () => {
   it('renders input keys in policy order with their keep side', () => {
     const policy = parsePolicy(MINIMAL);
     const sections = policySections(policy, { text: 42 }, (v) => String(v));
-    assert.deepEqual(sections, [{ label: 'In', keep: 'tail', text: '42' }]);
+    assert.deepEqual(sections, [{ label: 'In', keep: 'tail', critical: false, text: '42' }]);
   });
 });

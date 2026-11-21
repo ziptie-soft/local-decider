@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { parsePolicy, type DecideResponse } from '@ziptie-soft/local-decider-core';
+import { mcpOpen, parsePolicy, type DecideResponse } from '@ziptie-soft/local-decider-core';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
@@ -94,8 +94,8 @@ describe('MCP tools', () => {
   });
 
   it('defaults mcp to true', () => {
-    assert.equal(policy('plain').mcp, true);
-    assert.equal(policy('closed', 'mcp: false').mcp, false);
+    assert.equal(mcpOpen(policy('plain')), true);
+    assert.equal(mcpOpen(policy('closed', 'mcp: false')), false);
   });
 
   it('fails closed when an older gateway omits the mcp flag', async () => {
