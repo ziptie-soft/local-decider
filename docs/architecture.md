@@ -129,6 +129,7 @@ Adapters change behaviour only when `enforced` is true, and only in ways their e
 | Claude Code, Codex | `PermissionRequest` → `permission` | `allow` only; abstains for outside-cwd, protected or risky targets |
 | Claude Code, Codex | `UserPromptSubmit` → `routing` | Add a hint that names the mapped model |
 | Claude Code, Codex | `Stop` → `turn-outcome` | Nothing: logged only, since Stop output would continue the turn |
+| Claude Code | `PostToolUse` on `Agent`/`Task` (argv event `SubagentResult`) → `turn-outcome` | In `act` mode, tell the parent when the subagent looks `stuck` or `needs_input`; notify only |
 
 In Claude Code auto mode the plugin's mod
 (`plugins/local-decider/hooks/local-decider-auto-mode.mjs`, built from `packages/hooks/src/mod/`)

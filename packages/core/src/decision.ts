@@ -28,7 +28,7 @@ export interface DecideCall {
   /** The harness's tool-use id (`^[\w-]{1,128}$`). */
   readonly id: string;
   readonly permissionMode?: PermissionMode;
-  /** True when a subagent made the call. */
+  /** True when a subagent made the call, or the call is a subagent's result (SubagentResult). */
   readonly agent?: boolean;
 }
 

@@ -805,11 +805,17 @@ other models. Verify cited lines before implementing; they come from a read-only
   needs upstream packaging or our own shim; `strandsRuntimeVersion` must not depend on torch
   metadata.
 
-### X5 Subagent supervision via `SubagentStop`
+### X5 Subagent supervision via `PostToolUse` on `Agent|Task`
 
 - **Harness:** Claude Code. **Priority:** P2. **Size:** M.
-- **What:** run `turn-outcome` on `SubagentStop` and tell the parent `stuck` or `needs_input`
-  through `systemMessage`; feeds F3. Notify only; never block or continue a turn.
+- **What:** run `turn-outcome` on the subagent's result and tell the parent `stuck` or
+  `needs_input` through `additionalContext`; feeds F3. Notify only; never block or continue a
+  turn.
+- **Status:** done (2026-11-21) — `SubagentStop` cannot reach the parent (`systemMessage` is
+  user-only; `block` and `additionalContext` keep the subagent running), so a synchronous
+  `PostToolUse` hook on `Agent|Task` runs the argv-only `SubagentResult` event
+  (`hooks/src/subagent.ts`). Shadow by default; `act` mode adds fixed text with no agent
+  quotes. Claude only: Codex has no equivalent event.
 
 ### X6 Verified deny labels from `PermissionDenied`
 
