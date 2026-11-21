@@ -246,18 +246,19 @@ verified, thresholded answer.
 ### R7 Paseo plugin robustness
 
 - **Priority:** P1. **Size:** M.
-- **Problem:** When the gateway returns null or the mode is off the permission handler returns
-  early and never clears `pending` (`packages/paseo-plugin/server/permission.ts:120-139`);
-  `tryAllow` swallows every error as "already resolved" (`:254-258`); the routing hook gives
-  `decide` the full 2 s again instead of the remainder (`routing.ts:65-71,209-212`) and only UI
-  polling marks the gateway down (`index.server.ts:125,162`); a Paseo `failed` turn is still
-  sent to the model (`turn.ts:71-73`); `pending`, `usage` links and `seen` are in-memory and lost
-  on restart (`permission.ts:80-81`, `usage.ts:5`, `turn.ts:48`).
-- **Direction:** clean `pending` on every exit; log and classify `tryAllow` errors; pass the
-  remaining budget; mark down on timeout or `ECONNREFUSED` in the hook; deterministic `failed`
-  row; persist usage links in the gateway keyed by agent id. Planned in:
-  `docs/research/paseo-plugin-api.md`.
-- **Open questions:** does Paseo replay `permission.before` after a daemon restart?
+- **Status:** done. `tryAllow` classifies `applied`, `timeout`, `answered` and `rejected` and logs
+  the last two failures (rejections once a minute); routing passes its remaining budget to
+  `decide` and skips it under 1 s; a routing budget timeout marks the gateway down; a `failed`
+  turn is skipped like `canceled`. Usage links stay in memory: reports stop for agents created
+  before a restart, so savings undercount (documented).
+- **Problem:** `pending` already drops on every exit (`permission.ts`, the `finally` in
+  `before`), so that part was stale. `tryAllow` swallowed every error as "already resolved"; the
+  routing hook gave `decide` the full 2 s again instead of the remainder and only UI polling
+  marked the gateway down (`index.server.ts`); a Paseo `failed` turn was still sent to the model
+  (`turn.ts`); `pending`, `usage` links and `seen` are in-memory and lost on restart.
+- **Direction:** log and classify `tryAllow` errors; pass the remaining budget; mark down on a
+  routing budget timeout; skip `failed` turns. Planned in: `docs/research/paseo-plugin-api.md`.
+- **Resolved question:** Paseo does not replay; a pending request stays with the user (fail open).
 
 ### R8 Server, shutdown and lock hardening
 

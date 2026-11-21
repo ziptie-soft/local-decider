@@ -253,7 +253,9 @@ flowchart LR
 - **Savings.** A routing request may carry `models: {requested, routes, profiles}`. The gateway
   fills missing routes from `config.yaml` presets and resolves a `profile` preset through
   `profiles`. With verified usage reported, stats sum the tokens of tasks routed to another model,
-  priced when `pricing` is set. Shadow savings are an upper bound.
+  priced when `pricing` is set. Shadow savings are an upper bound. The Paseo plugin keeps its
+  agent-to-decision links in memory, so reports stop for agents created before a daemon or plugin
+  restart and savings undercount.
 - **Prompt time.** For allow policies, stats show prompts you answered that the policy would have
   allowed, and how long they waited (capped at 10 minutes each).
 

@@ -67,8 +67,9 @@ async function handleTurn(
   event: TurnEvent,
   ctx: HookCtx,
 ): Promise<void> {
-  // A user cancel is its own answer; classify completed and failed turns.
-  if (event.outcome.kind === 'canceled') {
+  // A user cancel is its own answer and Paseo shows a failure as its own error item: classify
+  // completed turns only.
+  if (event.outcome.kind === 'canceled' || event.outcome.kind === 'failed') {
     return;
   }
   const settings = await deps.settings();
