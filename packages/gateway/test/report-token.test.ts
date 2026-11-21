@@ -89,11 +89,10 @@ describe('local token files', () => {
     assert.deepEqual(tokenFiles(paths), []);
   });
 
-  it('refuses empty and truncated token files without revealing their content', () => {
+  it('refuses truncated token files without revealing their content', () => {
     for (const [filename, content] of [
-      ['control-token', ''],
       ['control-token', 'TRUNCATEDsentinel'],
-      ['report-token', ''],
+      ['report-token', 'TRUNCATEDsentinel'],
     ] as const) {
       const paths = tempPaths();
       const file = join(paths.config, filename);
@@ -106,6 +105,26 @@ describe('local token files', () => {
         assert.equal(error.message.includes('TRUNCATEDsentinel'), false);
         return true;
       });
+    }
+  });
+
+  it('regenerates an empty or whitespace-only token file with mode 0600', () => {
+    for (const [filename, content] of [
+      ['control-token', ''],
+      ['report-token', ''],
+      ['report-token', ' \n\t\n'],
+    ] as const) {
+      const paths = tempPaths();
+      const file = join(paths.config, filename);
+      mkdirSync(paths.config, { recursive: true });
+      writeFileSync(file, content, { mode: 0o600 });
+      const ensure = filename === 'report-token' ? ensureReportToken : ensureControlToken;
+      const token = ensure(paths);
+      assert.match(token, /^[A-Za-z0-9_-]{43}$/);
+      assert.equal(readFileSync(file, 'utf8'), token);
+      if (process.platform !== 'win32') assert.equal(statSync(file).mode & 0o777, 0o600);
+      assert.equal(ensure(paths), token);
+      assert.deepEqual(tokenFiles(paths), []);
     }
   });
 

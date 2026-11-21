@@ -65,6 +65,7 @@ import {
   stopService,
   uninstallService,
 } from './service.ts';
+import { installShutdown } from './shutdown.ts';
 import { parseDays, runStatsFromFile } from './stats-job.ts';
 import { formatStats } from './stats.ts';
 import { probe, toolchain } from './toolchain.ts';
@@ -195,13 +196,12 @@ async function gatewayRun(ctx: Context): Promise<void> {
   console.log(
     `policies: ${[...gateway.decider.policies.values()].map((p) => `${p.policy.id}=${p.mode}`).join(' ')}`,
   );
-  const shutdown = (): void => {
-    void gateway.close().then(() => process.exit(0));
-  };
-  // Covers the process.exit paths (guards, signals) that skip gateway.close().
-  process.once('exit', () => gateway.flushLog());
-  process.once('SIGINT', shutdown);
-  process.once('SIGTERM', shutdown);
+  installShutdown({
+    proc: process,
+    gateway,
+    log: (line) => console.error(line),
+    exit: (code) => process.exit(code),
+  });
 }
 
 async function gatewayService(ctx: Context, action: string): Promise<void> {

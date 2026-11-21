@@ -345,6 +345,21 @@ describe('Decider', () => {
     assert.equal(res.error, 'boom');
   });
 
+  it('redacts secrets in an engine error message before it reaches decide().error', async () => {
+    const secret = `sk-${'a'.repeat(40)}`;
+    const engine = new FakeEngine();
+    engine.respond = () => {
+      throw new Error(`engine rejected key ${secret}`);
+    };
+    const res = await setup('act', engine).decider.decide('permission', req, signal());
+    assert.equal(res.action, 'ask');
+    assert.equal(res.enforced, false);
+    const message = res.error ?? '';
+    assert.ok(message.startsWith('engine rejected key '));
+    assert.ok(!message.includes(secret), 'the secret is redacted');
+    assert.match(message, /\[REDACTED/);
+  });
+
   it('never enforces or caches a default when the engine gives no usable answers', async () => {
     const invalid: SystemOneResponse[] = [
       { model: 'fake-model', answers: {} },

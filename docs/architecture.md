@@ -211,6 +211,13 @@ flowchart LR
     up to 5 s, logged at most once a minute; beyond 10 000 queued records the newest are dropped
     and counted. A row that violates a constraint is skipped. Loss window: up to 25 ms of
     records on SIGKILL, OOM or power loss; a normal or `process.exit` shutdown flushes.
+  - *Shutdown and lock.* SIGINT and SIGTERM call `gateway.close()`; a failure is logged and exits
+    1, and an unref'd 10 s timer exits regardless, so the `exit` hooks (log flush, engine
+    reaper) always run. The pid lock file holds the pid and the process start token
+    (`/proc/<pid>/stat` starttime on Linux, `ps -o lstart=` on macOS); a lock whose pid is alive
+    but whose start token differs is a recycled pid and is taken over. Elsewhere, and for older
+    locks without a token, pid liveness decides. The HTTP server's header and request timeouts
+    are the decision deadline plus 30 s.
   - *Chunked prune.* `prune` deletes at most 2 000 rows per transaction and yields to the event
     loop between steps, so queued appends flush meanwhile. Children go before their decisions;
     orphans and aged unverified rows are swept in one cursor pass. Freed pages are returned with

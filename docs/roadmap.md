@@ -263,6 +263,14 @@ verified, thresholded answer.
 ### R8 Server, shutdown and lock hardening
 
 - **Priority:** P2. **Size:** S.
+- **Status:** done. `createServer` sets `headersTimeout` and `requestTimeout` to
+  `decisionTimeoutMs` + 30 s and `keepAliveTimeout` to 10 s; SIGINT/SIGTERM close with `.catch`
+  (log, exit 1) and `.finally(exit)` plus an unref'd 10 s hard timer (`shutdown.ts`), and the
+  `exit` hooks still flush the log and reap engines; the pid lock records the process start token
+  (`/proc/<pid>/stat` on Linux, `ps -o lstart=` on macOS) so a recycled pid is stale, read through
+  one descriptor; a synchronous throw in the listener answers a generic 500 and logs a redacted
+  line; an empty or whitespace-only token file is regenerated atomically (rename), while a
+  non-empty invalid one is still refused.
 - **Problem:** No `headersTimeout`/`requestTimeout` on `createServer` (`server.ts:633`);
   `gateway.close()` has no timeout or catch (`runtime.ts:116-125`); the pid lock relies on pid
   liveness only (`sqlite-log.ts:457-498`); sync throws inside `route()` escape the listener

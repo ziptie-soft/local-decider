@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { PrecedentStore } from '../src/precedent.ts';
+import { parseProcStat, processStartToken } from '../src/process-start.ts';
 import { SqliteLog } from '../src/sqlite-log.ts';
 import { tempLog } from './helpers.ts';
 import { makeShadowRecord } from './records.ts';
@@ -539,6 +540,44 @@ describe('SqliteLog', () => {
       writer.close();
     }
     SqliteLog.open(file, { lockPath }).close();
+  });
+
+  it(
+    'treats a lock whose pid was recycled (start token differs) as stale',
+    { skip: processStartToken(process.pid) === undefined },
+    () => {
+      const dir = tempDir();
+      const file = join(dir, 'decider.db');
+      const lockPath = join(dir, 'db.lock');
+      const start = processStartToken(process.pid) as string;
+      writeFileSync(lockPath, `${String(process.pid)}\n${start}\n`, { mode: 0o600 });
+      assert.throws(() => SqliteLog.open(file, { lockPath }), /locked by another writer/);
+      writeFileSync(lockPath, `${String(process.pid)}\n${start}-recycled\n`, { mode: 0o600 });
+      const log = SqliteLog.open(file, { lockPath });
+      try {
+        const [pid, recorded] = readFileSync(lockPath, 'utf8').split('\n');
+        assert.equal(pid, String(process.pid));
+        assert.equal(recorded, start);
+      } finally {
+        log.close();
+      }
+    },
+  );
+
+  it('keeps a lock without a start token (older format) held while its pid runs', () => {
+    const dir = tempDir();
+    const lockPath = join(dir, 'db.lock');
+    writeFileSync(lockPath, `${String(process.pid)}\n`, { mode: 0o600 });
+    assert.throws(
+      () => SqliteLog.open(join(dir, 'decider.db'), { lockPath }),
+      /locked by another writer/,
+    );
+  });
+
+  it('parses the start time out of /proc stat even when comm has spaces and parentheses', () => {
+    const fields = Array.from({ length: 30 }, (_, i) => String(i + 3));
+    assert.equal(parseProcStat(`123 (we ) ird (x) ${fields.join(' ')}`), '22');
+    assert.equal(parseProcStat('garbage'), undefined);
   });
 
   it('refuses a read-only open of a missing database', () => {

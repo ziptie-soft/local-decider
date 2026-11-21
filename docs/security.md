@@ -87,7 +87,9 @@ full fail-open; it is for debugging, not for agents.
 ## Outcomes
 
 At startup the gateway creates `<config dir>/report-token` if needed, using 32 random bytes and
-file mode 0600. The Paseo plugin server reads it from the same config directory and sends it only
+file mode 0600. An empty or whitespace-only file is replaced atomically (temp file and rename,
+mode 0600); a non-empty file that is not a valid token is refused. The Paseo plugin server reads
+it from the same config directory and sends it only
 with outcome and usage reports, and only to loopback gateways. The Claude Code and Codex hooks do
 not read or send this token. Reports
 without a matching token are still logged as `source: unverified` and `verified: false`, but
@@ -143,7 +145,10 @@ data. It stores no state, subject or prompt text. The
 database is `~/.local/share/local-decider/decider.db`, mode 0600, in a mode 0700 data directory.
 SQLite does not encrypt data at rest; access is controlled by the operating system file
 permissions. WAL mode permits read-only handles while the gateway writes. The gateway holds a pid
-lock at `<run>/db.lock`, enforcing one writer per data directory. Statistics run in a worker
+lock at `<run>/db.lock`, enforcing one writer per data directory. The lock records the pid and
+the process start token (Linux `/proc/<pid>/stat`, macOS `ps` run without a shell on a validated
+integer pid), so a recycled pid does not keep a dead gateway's lock alive; the file is read
+through a single descriptor. Statistics run in a worker
 thread with its own read-only SQLite connection, keeping the synchronous database read off the
 gateway event loop. JSONL exports and SQLite backups contain the same sensitive metadata and
 should be protected accordingly. Before a schema migration the gateway writes a backup beside
