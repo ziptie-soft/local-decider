@@ -1,5 +1,7 @@
 import type { SystemOneRequest, SystemOneResponse } from '@ziptie-soft/local-decider-core';
 
+import type { EngineCounters } from '../counters.ts';
+
 export type EngineState = 'stopped' | 'starting' | 'ready' | 'failed';
 
 export interface EngineHealth {
@@ -29,6 +31,8 @@ export interface Engine {
   readonly concurrency?: number | undefined;
   /** Engines that load on demand: wait (bounded by `signal`) until they can answer. */
   ensureReady?(signal: AbortSignal): Promise<void>;
+  /** Restarts and hangs since this engine was created, for `/health`; absent = none tracked. */
+  counters?(): EngineCounters;
   stop(): Promise<void>;
 }
 

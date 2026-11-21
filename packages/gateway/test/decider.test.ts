@@ -1043,6 +1043,157 @@ describe('Decider under load', () => {
   });
 });
 
+const ZERO_COUNTERS = {
+  queueFull: 0,
+  busy: 0,
+  timeouts: 0,
+  errors: 0,
+  passThroughErrors: 0,
+  logWriteFailures: 0,
+  logDropped: 0,
+  engineRestarts: 0,
+  engineHangs: 0,
+};
+
+describe('Decider counters and error latency', () => {
+  it('starts at zero with empty error percentiles', () => {
+    const { decider } = setup('act');
+    assert.deepEqual(decider.counters(), ZERO_COUNTERS);
+    assert.equal(decider.errorLatency(50), undefined);
+  });
+
+  it('counts a decision deadline as a timeout, not as an error', async () => {
+    const engine = new FakeEngine();
+    engine.respond = async (_r, s) => {
+      await sleep(5000, undefined, { signal: s });
+      throw new Error('unreachable');
+    };
+    const decider = new Decider({
+      engine,
+      policies: policies('act'),
+      log: tempLog(),
+      decisionTimeoutMs: 40,
+    });
+    await decider.decide('permission', req, signal());
+    assert.deepEqual(decider.counters(), { ...ZERO_COUNTERS, timeouts: 1 });
+    assert.ok((decider.errorLatency(50) ?? 0) >= 30, 'the failed call is in the error window');
+    assert.equal(decider.latency(50), undefined, 'and not in the success window');
+  });
+
+  it('does not count a caller that hung up as a timeout or an error latency', async () => {
+    const engine = new FakeEngine({ allow: 1 });
+    engine.respond = async (_r, s) => {
+      await sleep(5000, undefined, { signal: s });
+      throw new Error('unreachable');
+    };
+    const { decider } = setup('act', engine);
+    const caller = new AbortController();
+    const pending = decider.decide('permission', req, caller.signal);
+    caller.abort();
+    await pending;
+    assert.deepEqual(decider.counters(), ZERO_COUNTERS);
+    assert.equal(decider.errorLatency(50), undefined);
+  });
+
+  it('counts other engine failures as errors and samples each once', async () => {
+    const engine = new FakeEngine();
+    engine.respond = () => {
+      throw new EngineError('boom');
+    };
+    const { decider } = setup('act', engine);
+    await decider.decide('permission', req, signal());
+    await decider.decide('permission', req, signal());
+    assert.deepEqual(decider.counters(), { ...ZERO_COUNTERS, errors: 2 });
+    assert.notEqual(decider.errorLatency(95), undefined);
+    assert.equal(decider.latency(95), undefined);
+  });
+
+  it('counts queue-full refusals', async () => {
+    const g = Promise.withResolvers<void>();
+    const { decider } = setup('act', gated(g.promise));
+    const all = Array.from({ length: QUEUE_MAX + 2 }, (_, i) =>
+      decider.decide('permission', toolReq(i), signal()),
+    );
+    g.resolve();
+    await Promise.all(all);
+    assert.equal(decider.counters().queueFull, 2);
+    assert.equal(decider.counters().errors, 0);
+    assert.equal(decider.errorLatency(50), undefined, 'a refusal is not an engine failure');
+  });
+
+  it('counts budget refusals as busy', async () => {
+    const engine = new FakeEngine({ allow: 1 });
+    const inner = engine.respond;
+    const g = Promise.withResolvers<void>();
+    let hold = false;
+    engine.respond = async (r, s) => {
+      await sleep(20);
+      if (hold) {
+        await g.promise;
+      }
+      return inner(r, s);
+    };
+    const { decider } = setup('act', engine);
+    await decider.decide('permission', toolReq(0), signal());
+    hold = true;
+    const running = decider.decide('permission', toolReq(1), signal());
+    await sleep(5);
+    const refused = await decider.decide('permission', { ...toolReq(2), budgetMs: 1 }, signal());
+    g.resolve();
+    await running;
+    assert.equal(refused.error, 'engine busy (503)');
+    assert.equal(decider.counters().busy, 1);
+    assert.equal(decider.counters().errors, 0);
+  });
+
+  it('counts pass-through failures and refusals separately', async () => {
+    const failed = new Decider({
+      engine: failing(new Error('boom')),
+      policies: policies('act'),
+      log: tempLog(),
+      decisionTimeoutMs: 2000,
+    });
+    await assert.rejects(failed.systemOne({ state: 's', questions: {} }, signal()));
+    assert.deepEqual(failed.counters(), { ...ZERO_COUNTERS, passThroughErrors: 1 });
+    assert.notEqual(failed.errorLatency(50), undefined);
+
+    const g = Promise.withResolvers<void>();
+    const { decider } = setup('shadow', gated(g.promise));
+    const all = Array.from({ length: QUEUE_MAX + 2 }, () =>
+      decider.systemOne({ state: 's', questions: {} }, signal()).catch(() => undefined),
+    );
+    g.resolve();
+    await Promise.all(all);
+    assert.equal(decider.counters().queueFull, 2);
+    assert.equal(decider.counters().passThroughErrors, 0);
+  });
+
+  it('reads log and engine counters, keeping the totals of a replaced engine', () => {
+    const engine = new FakeEngine();
+    engine.counters = () => ({ engineRestarts: 2, engineHangs: 1 });
+    const log = precedentLog();
+    log.counters = () => ({ logWriteFailures: 4, logDropped: 5 });
+    const decider = new Decider({
+      engine,
+      policies: policies('act'),
+      log,
+      decisionTimeoutMs: 2000,
+    });
+    assert.deepEqual(decider.counters(), {
+      ...ZERO_COUNTERS,
+      logWriteFailures: 4,
+      logDropped: 5,
+      engineRestarts: 2,
+      engineHangs: 1,
+    });
+    const next = new FakeEngine();
+    next.counters = () => ({ engineRestarts: 1, engineHangs: 0 });
+    decider.replaceEngine(next);
+    assert.equal(decider.counters().engineRestarts, 3, 'monotonic across an engine switch');
+    assert.equal(decider.counters().engineHangs, 1);
+  });
+});
+
 function toolReq(i: number): typeof req {
   return { harness: 'claude-code', input: { ...INPUT, tool: String(i) } };
 }

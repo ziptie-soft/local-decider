@@ -5,6 +5,7 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { setTimeout as timerSleep } from 'node:timers/promises';
 
+import type { EngineCounters } from '../counters.ts';
 import type { Paths } from '../paths.ts';
 import { engineChildEnv } from './child-env.ts';
 import { killChild, trackChild } from './child-reaper.ts';
@@ -132,6 +133,9 @@ export class SupervisedEngine implements Engine {
   /** Consecutive decision deadline expiries; any answer resets it. */
   #timeouts = 0;
   #probing = false;
+  /** Lifetime totals for `/health`; unlike `#restarts` they never reset. */
+  #totalRestarts = 0;
+  #totalHangs = 0;
 
   constructor(spec: ServerSpec, paths: Paths, deps?: SupervisorDeps) {
     this.#spec = spec;
@@ -155,6 +159,10 @@ export class SupervisedEngine implements Engine {
       return Promise.resolve();
     }
     return this.#track(this.#attempt());
+  }
+
+  counters(): EngineCounters {
+    return { engineRestarts: this.#totalRestarts, engineHangs: this.#totalHangs };
   }
 
   health(): EngineHealth {
@@ -227,9 +235,11 @@ export class SupervisedEngine implements Engine {
       return;
     }
     this.#timeouts = 0;
+    this.#totalHangs += 1;
     this.#state = 'starting';
     this.#detail = `engine hung (${String(count)} decision timeouts, no /health); restarting`;
     if (this.#spec.url !== undefined) {
+      this.#totalRestarts += 1;
       void this.#track(this.#attempt()); // attached: nothing to kill, wait for it again
       return;
     }
@@ -366,6 +376,7 @@ export class SupervisedEngine implements Engine {
       return;
     }
     this.#restarts += 1;
+    this.#totalRestarts += 1;
     this.#state = 'starting';
     this.#detail = `${reason}; restart ${String(this.#restarts)}`;
     this.#scheduleRestart(Math.min(RESTART_BASE_MS * 2 ** this.#restarts, RESTART_MAX_MS));

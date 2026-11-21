@@ -3,6 +3,7 @@ import {
   mcpOpen,
   PERMISSION_MODES,
   policyRoutes,
+  redactSecrets,
   SCOPES,
   type DecideCall,
   type DecideRequest,
@@ -388,6 +389,9 @@ function health(decider: Decider, engineControl?: EngineControl): Record<string,
     ...(engine.maxLength === undefined ? {} : { maxLength: engine.maxLength }),
     p50Ms: decider.latency(50),
     p95Ms: decider.latency(95),
+    errorP50Ms: decider.errorLatency(50),
+    errorP95Ms: decider.errorLatency(95),
+    counters: decider.counters(),
     queueDepth: decider.queueDepth,
     benchmark: engineControl?.benchmark.progress() ?? null,
   };
@@ -733,8 +737,18 @@ function sendError(res: ServerResponse, error: unknown, report?: (line: string) 
     }
     send(res, 500, { error: error.message });
   } else {
-    send(res, 502, { error: error instanceof Error ? error.message : 'engine error' });
+    // The detail may echo engine output that contains request state: log it redacted, never send it.
+    report?.(`engine error: ${loggableDetail(error)}`);
+    send(res, 502, { error: 'engine error' });
   }
+}
+
+const MAX_LOGGED_ERROR_CHARS = 500;
+
+/** First line of an error's message, secrets redacted and cut to a log-sized length. */
+function loggableDetail(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  return redactSecrets(raw.split('\n', 1)[0] ?? '').text.slice(0, MAX_LOGGED_ERROR_CHARS);
 }
 
 /** The request path, or null for a target `URL` cannot parse (it would throw in the listener). */

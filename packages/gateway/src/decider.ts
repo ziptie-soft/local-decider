@@ -12,6 +12,7 @@ import {
   policySections,
   policyThresholds,
   redactDeep,
+  redactSecrets,
   withThresholds,
   sortKeysDeep,
   type Answers,
@@ -33,6 +34,14 @@ import {
 import { randomUUID } from 'node:crypto';
 
 import { CallStore, type CallDecision } from './call-store.ts';
+import {
+  addEngineCounters,
+  DecisionCounters,
+  NO_ENGINE_COUNTERS,
+  type DecisionCounter,
+  type EngineCounters,
+  type HealthCounters,
+} from './counters.ts';
 import { EngineBusyError } from './engine-busy.ts';
 import { ENGINE_BUSY_ERROR, isEngineBusy, type Engine } from './engines/types.ts';
 import type { LogStore } from './log-store.ts';
@@ -62,6 +71,14 @@ const QUEUE_HIGH_RESERVE = 2;
 /** Queue limits for an engine running `slots` jobs at once: the same 7 waiting places beyond them. */
 function queueLimits(slots: number): QueueLimits {
   return { max: QUEUE_MAX - 1 + slots, highReserve: QUEUE_HIGH_RESERVE };
+}
+
+const QUEUE_FULL_ERROR = 'engine queue full';
+const TIMEOUT_ERROR = 'decision timed out';
+
+/** The counter an error decision belongs to: a typed `counter` marks refusals and deadlines. */
+function counterFor(result: EngineResult): DecisionCounter {
+  return result.counter ?? 'errors';
 }
 
 /** Pass-through jobs wait behind decisions. */
@@ -140,6 +157,8 @@ interface EngineResult {
   readonly latencyMs: number;
   readonly cached: boolean;
   readonly error?: string;
+  /** Which counter `error` belongs to when it is not a plain engine error. */
+  readonly counter?: DecisionCounter;
   /** Admission to slot start, including any model load wait; absent unless the engine ran. */
   readonly queueMs?: number;
   /** The engine call's duration; absent unless the engine ran. */
@@ -198,6 +217,11 @@ export class Decider {
   /** Bumped by hold and replaceEngine: answers computed before it must not enter the cache. */
   #generation = 0;
   readonly #latency = new LatencyWindow();
+  /** Time to failure of engine calls that failed (not refusals or caller aborts). */
+  readonly #errorLatency = new LatencyWindow();
+  readonly #counters = new DecisionCounters();
+  /** Restarts and hangs of engines replaced since start, so the totals never go down. */
+  #retiredEngine: EngineCounters = NO_ENGINE_COUNTERS;
   /** Time inside the engine call only (no queue wait), for `budgetMs` admission. */
   readonly #service = new LatencyWindow(SERVICE_WINDOW);
   readonly #cache = new Map<string, CacheEntry>();
@@ -446,6 +470,10 @@ export class Decider {
    */
   replaceEngine(next: Engine): Engine {
     const previous = this.#engine;
+    this.#retiredEngine = addEngineCounters(
+      this.#retiredEngine,
+      previous.counters?.() ?? NO_ENGINE_COUNTERS,
+    );
     this.#engine = next;
     this.#queue.setConcurrency(next.concurrency);
     this.#service.clear();
@@ -467,6 +495,21 @@ export class Decider {
 
   latency(p: number): number | undefined {
     return this.#latency.percentile(p);
+  }
+
+  /** Percentile of the time failed engine calls took; the success window is `latency`. */
+  errorLatency(p: number): number | undefined {
+    return this.#errorLatency.percentile(p);
+  }
+
+  /** Monotonic counters since gateway start: decisions, log store and engine restarts. */
+  counters(): HealthCounters {
+    const engine = addEngineCounters(
+      this.#retiredEngine,
+      this.#engine.counters?.() ?? NO_ENGINE_COUNTERS,
+    );
+    const log = this.#log.counters?.() ?? { logWriteFailures: 0, logDropped: 0 };
+    return { ...this.#counters.snapshot(), ...log, ...engine };
   }
 
   /**
@@ -496,16 +539,23 @@ export class Decider {
       this.#successHandler?.(engine);
       return response;
     } catch (error) {
-      throw this.#passThroughFailure(error, engine, signal);
+      throw this.#passThroughFailure(error, engine, started, signal);
     }
   }
 
   /** Map a pass-through error: queue full and busy become 503s, others reach the handler. */
-  #passThroughFailure(error: unknown, engine: Engine, caller: AbortSignal): unknown {
+  #passThroughFailure(
+    error: unknown,
+    engine: Engine,
+    started: number,
+    caller: AbortSignal,
+  ): unknown {
     if (error instanceof QueueFullError) {
-      return new EngineBusyError('engine queue full');
+      this.#counters.inc('queueFull');
+      return new EngineBusyError(QUEUE_FULL_ERROR);
     }
     if (isEngineBusy(error)) {
+      this.#counters.inc('busy');
       return new EngineBusyError(ENGINE_BUSY_ERROR);
     }
     if (error instanceof EngineBusyError) {
@@ -514,6 +564,8 @@ export class Decider {
     if (!caller.aborted) {
       // A caller that hung up is not an engine failure (a timeout is: it fires `bounded` only).
       this.#failureHandler?.(engine);
+      this.#counters.inc('passThroughErrors');
+      this.#errorLatency.add(performance.now() - started);
     }
     return error;
   }
@@ -561,6 +613,7 @@ export class Decider {
       policy.cache.ttlSeconds,
       admitted,
     );
+    this.#countError(result, signal);
     // Cached answers are stored without this: the guard runs on every call, hits included.
     const match = guardTruncation(
       evaluateRules(policy, result.answers, { precedentAllows: precedent?.allows ?? false }),
@@ -594,6 +647,13 @@ export class Decider {
       answered: response.error === undefined,
     });
     return response;
+  }
+
+  /** A caller that hung up also reads as a timeout; only the decision deadline counts. */
+  #countError(result: EngineResult, caller: AbortSignal): void {
+    if (result.error !== undefined && !(caller.aborted && result.counter === 'timeouts')) {
+      this.#counters.inc(counterFor(result));
+    }
   }
 
   /** What the model reads for `input` (redacted), the questions, their hash and what was cut. */
@@ -699,7 +759,7 @@ export class Decider {
     }
     const wait = estimateWaitMs(this.queueDepth, this.slots, this.#service.mean());
     return wait > budgetMs
-      ? { answers: {}, latencyMs: 0, cached: false, error: ENGINE_BUSY_ERROR }
+      ? { answers: {}, latencyMs: 0, cached: false, error: ENGINE_BUSY_ERROR, counter: 'busy' }
       : undefined;
   }
 
@@ -722,6 +782,7 @@ export class Decider {
           latencyMs: 0,
           cached: false,
           error: errorMessage(signal.reason),
+          ...timeoutCounter(signal.reason),
         });
       };
       if (signal.aborted) {
@@ -860,7 +921,13 @@ export class Decider {
    */
   #failed(error: unknown, engine: Engine, started: number, caller: AbortSignal): EngineResult {
     if (error instanceof QueueFullError) {
-      return { answers: {}, latencyMs: 0, cached: false, error: 'engine queue full' };
+      return {
+        answers: {},
+        latencyMs: 0,
+        cached: false,
+        error: QUEUE_FULL_ERROR,
+        counter: 'queueFull',
+      };
     }
     if (isEngineBusy(error)) {
       // Transient load (the engine's queue timeout): fail open, but not an engine failure.
@@ -869,17 +936,20 @@ export class Decider {
         latencyMs: performance.now() - started,
         cached: false,
         error: ENGINE_BUSY_ERROR,
+        counter: 'busy',
       };
     }
     if (!caller.aborted) {
       // A caller that hung up is not an engine failure; a decision timeout (bounded signal) is.
       this.#failureHandler?.(engine);
+      this.#errorLatency.add(performance.now() - started);
     }
     return {
       answers: {},
       latencyMs: performance.now() - started,
       cached: false,
       error: errorMessage(error),
+      ...timeoutCounter(error),
     };
   }
 
@@ -991,9 +1061,18 @@ function modelFields(
   };
 }
 
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
+}
+
+function timeoutCounter(error: unknown): { counter?: DecisionCounter } {
+  return isTimeout(error) ? { counter: 'timeouts' } : {};
+}
+
 function errorMessage(error: unknown): string {
-  if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
-    return 'decision timed out';
+  if (isTimeout(error)) {
+    return TIMEOUT_ERROR;
   }
-  return error instanceof Error ? error.message : String(error);
+  // The text may echo engine output (HTTP error bodies) and reaches responses and the log.
+  return redactSecrets(error instanceof Error ? error.message : String(error)).text;
 }

@@ -135,6 +135,8 @@ describe('SqliteLog write queue', () => {
       mock.timers.tick(50);
       mock.timers.tick(100);
       assert.equal(errors.mock.callCount(), 1, 'a run of failures logs one line');
+      assert.equal(log.counters().logWriteFailures, 3, 'every failed flush is counted');
+      assert.equal(log.counters().logDropped, 0);
       assert.match(String(errors.mock.calls[0]?.arguments[0]), /write failed, 2 records queued/);
       assert.equal(count(saboteur, 'decision'), 0, 'the rolled-back batch left nothing behind');
       assert.equal(log.findDecision('retried')?.decisionId, 'retried');
@@ -177,6 +179,8 @@ describe('SqliteLog write queue', () => {
       }
       mock.timers.tick(0);
       assert.match(String(errors.mock.calls[0]?.arguments[0]), /dropped 3 records/);
+      assert.equal(log.counters().logDropped, 3);
+      assert.ok(log.counters().logWriteFailures >= 1);
       saboteur.exec('ALTER TABLE outcome_away RENAME TO outcome');
       mock.timers.tick(5000);
       assert.equal(count(saboteur, 'outcome'), 10_000);

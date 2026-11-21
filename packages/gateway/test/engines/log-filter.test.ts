@@ -34,6 +34,17 @@ describe('engine output filter', () => {
     assert.equal(filterEngineLine('x'.repeat(500))?.length, 500);
   });
 
+  it('redacts secrets in the lines it keeps and before matching', async () => {
+    const secret = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789';
+    const kept = filterEngineLine(`loading with key ${secret}`);
+    assert.ok(kept !== undefined && kept.startsWith('loading with key '));
+    assert.ok(!kept.includes(secret));
+    assert.equal(filterEngineLine(`{"state":"${secret}"}`), undefined);
+    const streamed = await filterChunks([`token=${secret.slice(0, 20)}`, `${secret.slice(20)}\n`]);
+    assert.ok(!streamed.includes(secret));
+    assert.ok(streamed.startsWith('token='));
+  });
+
   it('filters complete lines across arbitrary child stream chunks', async () => {
     const result = await filterChunks([
       'server ready\n{"sta',
