@@ -18,8 +18,9 @@ workspace refuses versions younger than 3 days (`minimumReleaseAge`).
 - `packages/core` — types, `/v1/systemone` client, policy schema and loader, redaction,
   truncation, decision cache. No runtime I/O beyond `fetch`.
 - `packages/gateway` — the local service, engine adapters, MCP server, `local-decider` CLI.
-- `packages/paseo-plugin`, `packages/claude-plugin`, `packages/codex-plugin` — thin clients of
-  the gateway. They never run models in-process.
+- `packages/hooks` — the Claude Code and Codex hook handlers, thin clients of the gateway.
+- `packages/paseo-plugin` — the Paseo plugin, a thin client of the gateway. Clients never run
+  models in-process.
 - `policies/` — default policy YAMLs. `docs/` — human-facing docs and ADRs.
   Research notes and reviews stay local in the git-ignored `docs/research/` and `docs/review/`.
 

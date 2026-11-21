@@ -122,7 +122,7 @@ Adapters change behaviour only when `enforced` is true, and only in ways their e
 |---|---|---|
 | Paseo | `agent.turn.after` → `turn-outcome` | Highlight `notify` in the chat row; never sends a prompt |
 | Paseo | `agent.permission.before` → `permission` | Auto-allow a tool request; never denies |
-| Paseo | `agent.create.before` → `routing` | Switch provider, model, mode and thinking, or start from a profile (~2 s budget) |
+| Paseo | `agent.create.before` → `routing` | Switch provider, model, mode and thinking, or start from a profile (2 s client timeout, `DEFAULT_TIMEOUT_MS` in `paseo-plugin/shared/gateway.ts`) |
 | Claude Code | `PreToolUse` → guard, write guard, then `command-risk` | `deny` or `ask`; in auto mode `ask` prints nothing |
 | Claude Code, auto mode | mod `tool.check` → `permission` (scope `claude-auto`) | `allow` of a plain ask, in `act` only |
 | Codex | `PreToolUse` → guard, write guard (incl. `apply_patch`), then `command-risk` | `deny` only |

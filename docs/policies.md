@@ -257,7 +257,8 @@ local-decider policies check ~/.config/local-decider/policies/routing-mine.yaml
 
 `eval` decides each case with harness `cli` and prints the expected action, the returned action
 and the selected answer's probability. It reports differences and does not fail on them. `check`
-validates one file without the gateway.
+validates one file without the gateway. A policy in `off` mode abstains without calling the
+engine, so `eval` reports `action=abstain` for every case.
 
 ## Writing your own with an AI assistant
 
