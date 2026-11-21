@@ -431,7 +431,9 @@ describe('SupervisedEngine hang probe', () => {
     await release(h, 2000);
     assert.equal(h.children.length, 2);
     assert.equal(h.engine.health().state, 'ready');
+    assert.deepEqual(h.engine.counters(), { engineRestarts: 1, engineHangs: 1 });
     await h.engine.stop();
+    assert.deepEqual(h.engine.counters(), { engineRestarts: 1, engineHangs: 1 }, 'stop keeps them');
   });
 
   it('does not restart when /health answers, and resets the counter', async () => {
@@ -443,6 +445,7 @@ describe('SupervisedEngine hang probe', () => {
     assert.deepEqual(h.children[0]?.signals, []);
     assert.equal(h.engine.health().state, 'ready');
     assert.match(h.engine.health().detail ?? '', /slow: 3 consecutive decision timeouts/);
+    assert.deepEqual(h.engine.counters(), { engineRestarts: 0, engineHangs: 0 });
     await decide(h, 'timeout');
     await decide(h, 'timeout');
     assert.equal(h.health.probes, 1);

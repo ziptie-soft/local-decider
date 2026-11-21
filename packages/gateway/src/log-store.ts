@@ -1,5 +1,7 @@
 import type { LogRecord, Scope, ShadowRecord } from '@ziptie-soft/local-decider-core';
 
+import type { LogCounters } from './counters.ts';
+
 /**
  * Decisions asked through MCP or the CLI are probes, not harness tool calls: they may be logged
  * but never feed agreement, savings, calibration or precedent.
@@ -35,5 +37,7 @@ export interface LogStore {
   readVerifiedPrecedent(maxAgeDays: number, now?: number): LogRecord[];
   /** Chunked and cooperative; resolves to the number of decisions deleted. */
   prune(retainDays: number, now?: number): Promise<number>;
+  /** Failed flushes and records dropped over the queue limit since opening, for `/health`. */
+  counters?(): LogCounters;
   close(): void;
 }

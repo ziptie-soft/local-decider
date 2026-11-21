@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { parseConfig, type GatewayConfig } from '../src/config.ts';
+import type { EngineCounters } from '../src/counters.ts';
 import type { HostCapabilities } from '../src/engines/host-capabilities.ts';
 import type { Engine, EngineHealth, EngineState } from '../src/engines/types.ts';
 import type { Paths } from '../src/paths.ts';
@@ -50,6 +51,8 @@ export class FakeEngine implements Engine {
   /** Requests answered at once, as an engine with `--max-concurrency` reports. */
   concurrency: number | undefined = undefined;
   respond: Responder;
+  /** Replaced in tests that need restart and hang totals. */
+  counters: () => EngineCounters = () => ({ engineRestarts: 0, engineHangs: 0 });
 
   constructor(probs: Record<string, number> = {}) {
     this.respond = (request) => choiceResponse(request, probs);

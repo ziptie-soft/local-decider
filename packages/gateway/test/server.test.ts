@@ -36,6 +36,100 @@ function directorySnapshot(directory: string): readonly (readonly [string, strin
     .map((name) => [name, readFileSync(join(directory, name), 'base64')] as const);
 }
 
+describe('error hygiene and /health counters', () => {
+  const SECRET = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789';
+
+  it('returns a fixed 502 body and logs the redacted detail server-side', async () => {
+    const engine = new FakeEngine();
+    engine.respond = () => {
+      throw new Error(`engine crashed on state ${SECRET}\nsecond line`);
+    };
+    const lines: string[] = [];
+    const gw = await startGateway({
+      config: testConfig(),
+      paths: tempPaths(),
+      engine,
+      env: {},
+      log: (line) => lines.push(line),
+    });
+    try {
+      const res = await fetch(`${gw.url}/v1/systemone`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          state: 's',
+          questions: { q: { type: 'choice', instructions: 'i', criteria: { done: 'd' } } },
+        }),
+      });
+      assert.equal(res.status, 502);
+      assert.deepEqual(await res.json(), { error: 'engine error' });
+      assert.equal(lines.length, 1);
+      assert.match(lines[0] ?? '', /^engine error: engine crashed on state /);
+      assert.ok(!(lines[0] ?? '').includes(SECRET), 'secrets are redacted in the log');
+      assert.ok(!(lines[0] ?? '').includes('second line'), 'only the first line is logged');
+      const health = await json(await fetch(`${gw.url}/health`));
+      const counters = health['counters'] as Record<string, number>;
+      assert.equal(counters['passThroughErrors'], 1);
+      assert.equal(typeof health['errorP50Ms'], 'number');
+      assert.equal(typeof health['errorP95Ms'], 'number');
+    } finally {
+      await gw.close();
+    }
+  });
+
+  it('keeps the specific statuses and messages', async () => {
+    const gw = await startGateway({
+      config: testConfig(),
+      paths: tempPaths(),
+      engine: new FakeEngine(),
+      env: {},
+    });
+    try {
+      const unknown = await fetch(`${gw.url}/v1/decide/nope`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ harness: 'mcp', input: {} }),
+      });
+      assert.equal(unknown.status, 404);
+      assert.match(String((await json(unknown))['error']), /unknown policy/);
+      const bad = await fetch(`${gw.url}/v1/decide/permission`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{',
+      });
+      assert.equal(bad.status, 400);
+    } finally {
+      await gw.close();
+    }
+  });
+
+  it('reports every counter as zero on a fresh gateway', async () => {
+    const gw = await startGateway({
+      config: testConfig(),
+      paths: tempPaths(),
+      engine: new FakeEngine(),
+      env: {},
+    });
+    try {
+      const health = await json(await fetch(`${gw.url}/health`));
+      assert.deepEqual(health['counters'], {
+        queueFull: 0,
+        busy: 0,
+        timeouts: 0,
+        errors: 0,
+        passThroughErrors: 0,
+        logWriteFailures: 0,
+        logDropped: 0,
+        engineRestarts: 0,
+        engineHangs: 0,
+      });
+      assert.equal(health['errorP50Ms'], undefined, 'no failures yet: no percentile');
+    } finally {
+      await gw.close();
+    }
+  });
+});
+
 describe('routing presets per harness', () => {
   it('attaches the harness target of a routing action and fills models for savings', async () => {
     const paths = tempPaths();

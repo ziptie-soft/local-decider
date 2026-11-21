@@ -22,6 +22,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
+import type { LogCounters } from './counters.ts';
 import type { LogStore } from './log-store.ts';
 import { ALLOW_VETO_REPLAY_MS } from './outcome-labels.ts';
 import type { Paths } from './paths.ts';
@@ -101,6 +102,9 @@ export class SqliteLog implements LogStore {
   #timer: NodeJS.Timeout | undefined;
   #retries = 0;
   #dropped = 0;
+  /** Lifetime totals for `/health`; `#dropped` is reset whenever it is reported. */
+  #droppedTotal = 0;
+  #writeFailures = 0;
   #lastErrorLog: number | undefined;
   #pruning: Promise<number> | undefined;
   #closed = false;
@@ -131,6 +135,7 @@ export class SqliteLog implements LogStore {
     }
     if (this.#pending.length >= PENDING_MAX) {
       this.#dropped += 1;
+      this.#droppedTotal += 1;
       return;
     }
     this.#pending.push(write);
@@ -408,7 +413,12 @@ export class SqliteLog implements LogStore {
     }
   }
 
+  counters(): LogCounters {
+    return { logWriteFailures: this.#writeFailures, logDropped: this.#droppedTotal };
+  }
+
   #flushFailed(error: unknown): void {
+    this.#writeFailures += 1;
     const now = Date.now();
     if (
       this.#lastErrorLog !== undefined &&

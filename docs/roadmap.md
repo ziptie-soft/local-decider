@@ -214,6 +214,11 @@ verified, thresholded answer.
 ### R5 Observability and error hygiene
 
 - **Priority:** P1. **Size:** S.
+- **Status:** done. `/health` gains `counters`, `errorP50Ms` and `errorP95Ms`; unknown errors
+  answer a fixed 502 `{ "error": "engine error" }` with the redacted, truncated detail sent to
+  the gateway log; engine log lines are redacted before they are matched and stored. See
+  `docs/architecture.md`. Notes: `busy` counts budget refusals and engine 503s; a caller that
+  hung up counts as neither a timeout nor an error.
 - **Problem:** `/health` has only p50/p95 and `queueDepth` (`server.ts:321-342`); no counters
   for queue-full refusals, timeouts, error decisions, DB write failures or engine restarts. The
   latency window excludes failures (`decider.ts:494`). Unknown errors return `error.message`
@@ -221,7 +226,7 @@ verified, thresholded answer.
   is an unredacted substring match (`engines/log-filter.ts:7-9`).
 - **Direction:** add counters to `/health` (or `GET /metrics`), track error latency separately,
   return a generic 502 body and log detail server-side, run `redactDeep` on engine log lines.
-- **Open questions:** Prometheus text format or JSON only?
+- **Resolved question:** JSON only in `/health`; Prometheus later if asked.
 
 ### R6 Hook runner budgets and client hardening
 

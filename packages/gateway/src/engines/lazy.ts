@@ -1,6 +1,7 @@
 import type { SystemOneRequest, SystemOneResponse } from '@ziptie-soft/local-decider-core';
 import { setTimeout as sleep } from 'node:timers/promises';
 
+import { NO_ENGINE_COUNTERS, type EngineCounters } from '../counters.ts';
 import { EngineError, type Engine, type EngineHealth } from './types.ts';
 
 /** How long a switch or unload waits for running decisions (the default decision timeout). */
@@ -45,6 +46,10 @@ export class ManagedEngine implements Engine {
 
   get concurrency(): number | undefined {
     return this.#inner.concurrency;
+  }
+
+  counters(): EngineCounters {
+    return this.#inner.counters?.() ?? NO_ENGINE_COUNTERS;
   }
 
   get lifecycle(): LifecycleOptions {

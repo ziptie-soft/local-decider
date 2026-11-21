@@ -1,13 +1,20 @@
+import { redactSecrets } from '@ziptie-soft/local-decider-core';
 import { Transform, type TransformCallback } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 
 const MAX_LINE_LENGTH = 500;
 
-/** Drop engine output that may contain request state or unusually large payloads. */
+/**
+ * Drop engine output that may contain request state or unusually large payloads, and redact
+ * secrets in what is kept. Redaction runs first so a secret cannot hide a marker or survive it.
+ */
 export function filterEngineLine(line: string): string | undefined {
-  return line.length > MAX_LINE_LENGTH || line.includes('"state"') || line.includes('"questions"')
+  const clean = redactSecrets(line).text;
+  return clean.length > MAX_LINE_LENGTH ||
+    clean.includes('"state"') ||
+    clean.includes('"questions"')
     ? undefined
-    : line;
+    : clean;
 }
 
 /** Convert arbitrary stdout/stderr chunks into filtered, newline terminated log lines. */

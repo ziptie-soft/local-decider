@@ -183,7 +183,7 @@ export class SerialQueue {
     Promise.try(job).then(resolve, reject).finally(release);
   }
 
-  /** Logged once per queue; never includes request data. A counter for `/health` is R5's. */
+  /** Logged once per queue; never includes request data. */
   #noteAbandoned(): void {
     if (!this.#warned) {
       this.#warned = true;
