@@ -244,8 +244,22 @@ describe('busy stats', () => {
       makeShadowRecord('busy', { error: ENGINE_BUSY_ERROR, answers }),
       makeShadowRecord('boom', { error: 'boom' }),
       makeShadowRecord('ok', { answers }),
-      { kind: 'outcome', ts: 't', decisionId: 'busy', outcome: 'allow', source: 'user' },
-      { kind: 'outcome', ts: 't', decisionId: 'ok', outcome: 'allow', source: 'user' },
+      {
+        kind: 'outcome',
+        ts: 't',
+        decisionId: 'busy',
+        outcome: 'allow',
+        source: 'user',
+        verified: true,
+      },
+      {
+        kind: 'outcome',
+        ts: 't',
+        decisionId: 'ok',
+        outcome: 'allow',
+        source: 'user',
+        verified: true,
+      },
     ]);
     assert.equal(stats?.busy, 1);
     assert.equal(stats.errors, 2);

@@ -63,6 +63,8 @@ describe('SqliteLog', () => {
       `CREATE TABLE decision(action TEXT, precedent_key TEXT, ts INTEGER);
        INSERT INTO decision VALUES ('ask', 'old-format-key', 1);
        CREATE TABLE outcome(source TEXT, verified INTEGER);
+       CREATE TABLE usage(decision_id TEXT, ts INTEGER);
+       INSERT INTO usage VALUES ('legacy', 1);
        PRAGMA user_version = 1`,
     );
     old.close();
@@ -70,6 +72,11 @@ describe('SqliteLog', () => {
     try {
       const db = new (sqlite().DatabaseSync)(file, { allowExtension: false, readOnly: true });
       try {
+        assert.equal(
+          db.prepare("SELECT verified FROM usage WHERE decision_id = 'legacy'").get()?.['verified'],
+          1,
+          'rows from before gating stay verified',
+        );
         const columns = db
           .prepare('PRAGMA table_info(decision)')
           .all()
@@ -87,7 +94,7 @@ describe('SqliteLog', () => {
           .all()
           .map((row) => row['name']);
         assert.ok(outcomeColumns.includes('claimed_source'));
-        assert.equal(pragma(file, 'user_version'), 4);
+        assert.equal(pragma(file, 'user_version'), 5);
       } finally {
         db.close();
       }
@@ -111,11 +118,15 @@ describe('SqliteLog', () => {
         cachedInputTokens: 2,
         outputTokens: 3,
         costUsd: 0.01,
+        verified: true,
       };
-      for (const record of [decision, verified, usage]) {
+      const unverifiedUsage: LogRecord = { ...usage, turnId: 'turn-2', verified: false };
+      for (const record of [decision, verified, usage, unverifiedUsage]) {
         log.append(record);
       }
-      assert.deepEqual(log.read(), [decision, verified, usage]);
+      assert.deepEqual(log.read(), [decision, verified, usage, unverifiedUsage]);
+      assert.equal(log.findDecision(decision.decisionId)?.decisionId, decision.decisionId);
+      assert.equal(log.findDecision('missing'), undefined);
     } finally {
       log.close();
     }
@@ -404,6 +415,50 @@ describe('SqliteLog', () => {
     }
   });
 
+  it('prunes orphans and unverified rows older than the unverified window', () => {
+    const log = tempLog();
+    try {
+      const now = Date.parse('2026-11-21T12:00:00.000Z');
+      const decision = makeShadowRecord('kept', { ts: '2026-11-20T12:00:00.000Z' });
+      log.append(decision);
+      const row = (id: string, ts: string, verified: boolean): LogRecord[] => [
+        outcome(id, { ts, verified, outcome: id }),
+        {
+          kind: 'usage',
+          ts,
+          decisionId: id,
+          inputTokens: 1,
+          cachedInputTokens: 0,
+          outputTokens: 1,
+          verified,
+        },
+      ];
+      const old = '2026-09-01T12:00:00.000Z';
+      const recent = '2026-11-20T13:00:00.000Z';
+      for (const record of [
+        ...row('kept', old, false),
+        ...row('kept', old, true),
+        ...row('kept', recent, false),
+        ...row('gone', recent, true),
+      ]) {
+        log.append(record);
+      }
+      log.prune(365, now);
+      const left = log
+        .read()
+        .filter((r) => r.kind !== 'decision')
+        .map((r) => `${r.kind}:${r.decisionId}:${r.ts.slice(0, 10)}:${String(r.verified)}`);
+      assert.deepEqual(left.toSorted(), [
+        'outcome:kept:2026-09-01:true',
+        'outcome:kept:2026-11-20:false',
+        'usage:kept:2026-09-01:true',
+        'usage:kept:2026-11-20:false',
+      ]);
+    } finally {
+      log.close();
+    }
+  });
+
   it('returns outcomes in append sequence even if timestamps move backwards', () => {
     const log = tempLog();
     try {
@@ -497,9 +552,9 @@ describe('SqliteLog', () => {
     new (sqlite().DatabaseSync)(file, { allowExtension: false }).close();
     assert.equal(pragma(file, 'user_version'), 0);
     SqliteLog.open(file).close();
-    assert.equal(pragma(file, 'user_version'), 4);
+    assert.equal(pragma(file, 'user_version'), 5);
     SqliteLog.open(file).close();
-    assert.equal(pragma(file, 'user_version'), 4);
+    assert.equal(pragma(file, 'user_version'), 5);
     const database = new (sqlite().DatabaseSync)(file, { allowExtension: false, readOnly: true });
     try {
       const names = database

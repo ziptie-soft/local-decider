@@ -32,6 +32,7 @@ import {
   type EngineControl,
 } from './engine-control.ts';
 import { allModels } from './engines/registry.ts';
+import { TokenBucket, UNVERIFIED_BURST, UNVERIFIED_PER_MINUTE, validOutcome } from './ingest.ts';
 import type { LogStore } from './log-store.ts';
 import { handleMcpHttp, policyInfo } from './mcp.ts';
 import { modelFits } from './models.ts';
@@ -606,27 +607,10 @@ function route(method: string, path: string): Handler | undefined {
     };
   }
   if (key === 'POST /v1/usage') {
-    return async (req, res, { log }) => {
-      log.append(parseUsage(await readJson(req)));
-      send(res, 200, { ok: true });
-    };
+    return usageHandler;
   }
   if (key === 'POST /v1/outcomes') {
-    return async (req, res, { decider, log, reportToken }) => {
-      const parsed = parseOutcome(await readJson(req));
-      const verified = validReportToken(req, reportToken);
-      const outcome: OutcomeRecord = verified
-        ? { ...parsed, verified: true }
-        : {
-            ...parsed,
-            source: 'unverified',
-            claimedSource: parsed.source,
-            verified: false,
-          };
-      log.append(outcome);
-      decider.noteOutcome(outcome);
-      send(res, 200, { ok: true });
-    };
+    return outcomeHandler;
   }
   const read = readRoute(key, path);
   if (read !== undefined) {
@@ -655,6 +639,63 @@ function route(method: string, path: string): Handler | undefined {
   }
   return undefined;
 }
+
+const limiters = new WeakMap<ServerOptions, Map<string, TokenBucket>>();
+
+/** Unverified posts share one bucket per route and gateway; verified posts are never limited. */
+function admitted(options: ServerOptions, routeName: string, verified: boolean): boolean {
+  if (verified) {
+    return true;
+  }
+  const buckets = limiters.get(options) ?? new Map<string, TokenBucket>();
+  limiters.set(options, buckets);
+  const bucket = buckets.get(routeName) ?? new TokenBucket(UNVERIFIED_PER_MINUTE, UNVERIFIED_BURST);
+  buckets.set(routeName, bucket);
+  return bucket.take();
+}
+
+function tooMany(res: ServerResponse): void {
+  res.setHeader('retry-after', '1');
+  send(res, 429, { error: 'too many unverified reports' });
+}
+
+/** `POST /v1/usage`: only for known decisions; rows are tagged by the report token. */
+const usageHandler: Handler = async (req, res, options) => {
+  const verified = validReportToken(req, options.reportToken);
+  if (!admitted(options, 'usage', verified)) {
+    tooMany(res);
+    return;
+  }
+  const usage = parseUsage(await readJson(req));
+  if (options.log.findDecision(usage.decisionId) === undefined) {
+    throw new HttpError(404, 'unknown decision');
+  }
+  options.log.append({ ...usage, verified });
+  send(res, 200, { ok: true });
+};
+
+/** `POST /v1/outcomes`: only for known decisions and valid labels; unverified ones are demoted. */
+const outcomeHandler: Handler = async (req, res, options) => {
+  const verified = validReportToken(req, options.reportToken);
+  if (!admitted(options, 'outcomes', verified)) {
+    tooMany(res);
+    return;
+  }
+  const parsed = parseOutcome(await readJson(req));
+  const decision = options.log.findDecision(parsed.decisionId);
+  if (decision === undefined) {
+    throw new HttpError(404, 'unknown decision');
+  }
+  if (!validOutcome(decision, parsed.outcome)) {
+    throw new HttpError(400, 'unknown outcome value for this decision');
+  }
+  const outcome: OutcomeRecord = verified
+    ? { ...parsed, verified: true }
+    : { ...parsed, source: 'unverified', claimedSource: parsed.source, verified: false };
+  options.log.append(outcome);
+  options.decider.noteOutcome(outcome);
+  send(res, 200, { ok: true });
+};
 
 function validReportToken(req: IncomingMessage, token: string | undefined): boolean {
   const supplied = req.headers['x-local-decider-report'];

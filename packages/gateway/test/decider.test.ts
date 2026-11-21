@@ -71,6 +71,7 @@ function precedentLog(records: LogRecord[] = []): PrecedentLog {
     records,
     windows,
     append: (record) => records.push(record),
+    findDecision: () => undefined,
     read: () => records,
     readRecent: (days) => {
       windows.push(days);

@@ -97,10 +97,15 @@ describe('decide call and scope fields', () => {
       env: {},
     });
     try {
+      const decision = await post(gw, '/v1/decide/permission', {
+        harness: 'claude-code',
+        input,
+        scope: 'claude-auto',
+      });
       await post(
         gw,
         '/v1/outcomes',
-        { decisionId: 'd1', outcome: 'allow', source: 'classifier' },
+        { decisionId: decision['decisionId'], outcome: 'allow', source: 'classifier' },
         { 'x-local-decider-report': readFileSync(join(paths.config, 'report-token'), 'utf8') },
       );
       const outcome = readLog(paths).find((r) => r.kind === 'outcome');

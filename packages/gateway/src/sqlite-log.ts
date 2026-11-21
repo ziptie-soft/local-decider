@@ -26,6 +26,9 @@ import type { Paths } from './paths.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Unverified outcome and usage rows are dropped at prune after this many days at most. */
+const UNVERIFIED_RETAIN_DAYS = 30;
+
 type SqlValue = null | number | bigint | string | NodeJS.ArrayBufferView;
 type Row = Record<string, SqlValue>;
 
@@ -100,6 +103,11 @@ export class SqliteLog implements LogStore {
     }
   }
 
+  findDecision(decisionId: string): ShadowRecord | undefined {
+    const row = this.#statement('SELECT * FROM decision WHERE id = ?').get(decisionId);
+    return row === undefined ? undefined : decisionRecord(row);
+  }
+
   read(): LogRecord[] {
     return this.#readRows(undefined);
   }
@@ -158,24 +166,26 @@ export class SqliteLog implements LogStore {
 
   prune(retainDays: number, now = Date.now()): number {
     const cutoff = utcDateStart(now - retainDays * DAY_MS);
+    const unverifiedCutoff = utcDateStart(
+      now - Math.min(retainDays, UNVERIFIED_RETAIN_DAYS) * DAY_MS,
+    );
+    // Orphans (their decision is gone) and aged unverified rows go whatever the retention.
     const removeUsage = this.#statement(
       `DELETE FROM usage WHERE decision_id IN (SELECT id FROM decision WHERE ts < ?)
-       OR (usage.ts < ? AND NOT EXISTS (
-         SELECT 1 FROM decision d WHERE d.id = usage.decision_id
-       ))`,
+       OR (verified = 0 AND ts < ?)
+       OR NOT EXISTS (SELECT 1 FROM decision d WHERE d.id = usage.decision_id)`,
     );
     const removeOutcomes = this.#statement(
       `DELETE FROM outcome WHERE decision_id IN (SELECT id FROM decision WHERE ts < ?)
-       OR (outcome.ts < ? AND NOT EXISTS (
-         SELECT 1 FROM decision d WHERE d.id = outcome.decision_id
-       ))`,
+       OR (verified = 0 AND ts < ?)
+       OR NOT EXISTS (SELECT 1 FROM decision d WHERE d.id = outcome.decision_id)`,
     );
     const removeDecisions = this.#statement('DELETE FROM decision WHERE ts < ?');
     this.#database.exec('BEGIN IMMEDIATE');
     let deleted: number;
     try {
-      removeUsage.run(cutoff, cutoff);
-      removeOutcomes.run(cutoff, cutoff);
+      removeUsage.run(cutoff, unverifiedCutoff);
+      removeOutcomes.run(cutoff, unverifiedCutoff);
       deleted = Number(removeDecisions.run(cutoff).changes);
       this.#database.exec('COMMIT');
     } catch (error) {
@@ -322,8 +332,8 @@ export class SqliteLog implements LogStore {
     this.#statement(
       `INSERT INTO usage (
         decision_id, ts, turn_id, model, input_tokens, cached_input_tokens,
-        output_tokens, cost_usd
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        output_tokens, cost_usd, verified
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       record.decisionId,
       epoch(record.ts),
@@ -333,6 +343,7 @@ export class SqliteLog implements LogStore {
       record.cachedInputTokens,
       record.outputTokens,
       nullable(record.costUsd),
+      record.verified === true ? 1 : 0,
     );
   }
 }
@@ -483,6 +494,8 @@ CREATE INDEX usage_decision ON usage(decision_id);
   'UPDATE decision SET precedent_key = NULL;',
   'ALTER TABLE outcome ADD COLUMN claimed_source TEXT;',
   'ALTER TABLE decision ADD COLUMN truncated TEXT;',
+  // Rows written before report-token gating of usage cannot be told apart: keep them verified.
+  'ALTER TABLE usage ADD COLUMN verified INTEGER NOT NULL DEFAULT 1;',
 ];
 
 function loadDatabase(): DatabaseConstructor {
@@ -750,6 +763,7 @@ function usageRecord(row: Row): UsageRecord {
     inputTokens: Number(row['input_tokens']),
     cachedInputTokens: Number(row['cached_input_tokens']),
     outputTokens: Number(row['output_tokens']),
+    verified: Number(row['verified']) === 1,
     ...(turnId === undefined ? {} : { turnId }),
     ...(model === undefined ? {} : { model }),
     ...(costUsd === undefined ? {} : { costUsd }),

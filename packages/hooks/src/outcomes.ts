@@ -2,7 +2,8 @@
  * Claude Code permission outcomes. A `PermissionRequest` the user answers (not our own enforced
  * allow, not auto mode's classifier) leaves a pending entry; the `PostToolUse` of the same session
  * and subject proves the approval and posts outcome `allow`. The gateway stores these as
- * unverified (no report token): they count toward labelled/agreement stats, never precedent.
+ * unverified (no report token): counted apart as `unverified` in stats, never in agreement or
+ * precedent.
  * Denials are not recorded: `decline`/`interrupted` are neutral for agreement anyway.
  * Every failure is swallowed; nothing here prints to stdout.
  */

@@ -108,6 +108,10 @@ verified, thresholded answer.
 ### S6 Harden outcome and usage ingestion
 
 - **Priority:** P1. **Size:** S.
+- **Status:** done (2026-11-21) — usage gated by report token and tagged verified; unknown ids
+  404; outcome whitelist; unverified rate limit and 30-day prune; stats count unverified apart.
+  Claude Code hook outcomes have no report token, so they stay unverified and show only in the
+  `unverified` counts; a per-harness verified channel is future work.
 - **Problem:** `POST /v1/usage` is not gated by the report token and `decisionId` is not checked
   (`packages/gateway/src/server.ts:542-547`). Unverified outcomes are stored without cap or rate
   limit (`:548-558`, `sqlite-log.ts:279-290`), outcome values are free strings, and orphans

@@ -191,11 +191,15 @@ flowchart LR
 - **Records.** `decision` records hold the input hash, canonical precedent key, answers, action,
   model and latency. `outcome` and `usage` records join them by `decisionId`. Only token-verified
   `user` and `supervised` outcomes add allow evidence or feed calibration; configured unverified
-  veto sources can only add a veto. Every outcome remains in agreement and reliability stats,
-  except that `decline` and `interrupted` are not labels of the model's answer. Corrections (a
+  veto sources can only add a veto. Agreement and reliability stats use verified outcomes only,
+  and `decline` and `interrupted` are not labels of the model's answer. Unverified outcomes and
+  usage are counted apart as `unverified: {outcomes, usage}` in `/v1/stats`; only the auto-mode
+  classifier comparison reads unverified `classifier` reports. Corrections (a
   neutral outcome upgraded to `unsafe`) are appended outcome rows. No state text is
   logged. They live in a SQLite database at `~/.local/share/local-decider/decider.db`, pruned
-  after `logs.retainDays` (default 365; range 90–3650 days). It is hash-only, uses WAL for
+  after `logs.retainDays` (default 365; range 90–3650 days). Prune also drops outcome and usage
+  rows whose decision is gone, and unverified rows older than 30 days. Usage rows from before
+  the report-token gate stay verified. It is hash-only, uses WAL for
   concurrent reads, stores hashes and structured decision metadata rather than state text, and
   has no encryption at rest. `local-decider logs backup <file>` uses
   `VACUUM INTO`; `local-decider logs export [--since YYYY-MM-DD] <dir>` writes JSONL portability
@@ -221,8 +225,8 @@ flowchart LR
   before and after, plus allow-threshold suggestions when data is sufficient. It writes no config.
 - **Savings.** A routing request may carry `models: {requested, routes, profiles}`. The gateway
   fills missing routes from `config.yaml` presets and resolves a `profile` preset through
-  `profiles`. With usage reported, stats sum the tokens of tasks routed to another model, priced
-  when `pricing` is set. Shadow savings are an upper bound.
+  `profiles`. With verified usage reported, stats sum the tokens of tasks routed to another model,
+  priced when `pricing` is set. Shadow savings are an upper bound.
 - **Prompt time.** For allow policies, stats show prompts you answered that the policy would have
   allowed, and how long they waited (capped at 10 minutes each).
 
@@ -258,7 +262,7 @@ how to add an engine or a model, and the macOS notes
 |---|---|---|
 | `POST /v1/decide/:policy` | Open | Run a policy on harness input |
 | `POST /v1/systemone`, `POST /invocations` | Open | Pass-through to the active engine (keys sorted, secrets redacted) |
-| `POST /v1/outcomes`, `POST /v1/usage` | Report / open | Report what happened, and token usage, for a decision |
+| `POST /v1/outcomes`, `POST /v1/usage` | Report / open | Report what happened, and token usage, for a decision. Both return 404 for an unknown `decisionId`; an outcome must be `allow`, `deny`, `unsafe`, `decline`, `interrupted` or an answer label of the decision, else 400. Without the report token the rows are stored unverified and limited to 60 per minute per route (burst 30, then 429) |
 | `GET /v1/calls/:id` | Open | What each policy decided for a harness tool call (`call.id` of a decide request), its permission mode and the effective mode per scope; kept in memory for 10 minutes, 404 when unknown |
 | `GET /health`, `GET /ping`, `GET /v1/stats?days=N` | Open | Engine state and latency; stats as JSON (30-day default, bounded by retention) |
 | `GET /models` | Open | Model catalogue |

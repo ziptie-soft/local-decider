@@ -88,20 +88,25 @@ full fail-open; it is for debugging, not for agents.
 
 At startup the gateway creates `<config dir>/report-token` if needed, using 32 random bytes and
 file mode 0600. The Paseo plugin server reads it from the same config directory and sends it only
-with outcome reports, and only to loopback gateways. The Claude Code and Codex hooks do not
-read or send this token. Reports
-without a matching token are still logged as `source: unverified` and `verified: false`, and still
-count in agreement and reliability statistics; only verified outcomes can update precedent or
-calibration hints.
+with outcome and usage reports, and only to loopback gateways. The Claude Code and Codex hooks do
+not read or send this token. Reports
+without a matching token are still logged as `source: unverified` and `verified: false`, but
+count only in the separate `unverified` stats counts; only verified outcomes feed agreement,
+reliability, precedent or calibration hints, and only verified usage feeds savings. Both routes
+reject unknown decision ids (404) and unknown outcome values (400). Unverified posts are
+limited to 60 per minute per route (burst 30; 429), and unverified rows are pruned after 30
+days at most.
 
 The Claude Code hooks post such unverified reports for approvals only: a permission prompt the
-user answered (not in auto mode, not one the plugin allowed) whose tool call then ran. They count
-toward labelled and agreement stats only. Between the prompt and the tool call the hook keeps a
-pending file under `<data dir>/hooks/pending/` (directory 0700, file 0600). It holds only the
-decision id; its name holds truncated SHA-256 hashes of the session id and subject, never the tool
-input. A new prompt for the same session and subject replaces the older pending file, the tool
-call claims the newest one, and pending files expire unposted after 10 minutes, so an earlier
-denied prompt is not reported as approved.
+user answered (not in auto mode, not one the plugin allowed) whose tool call then ran. They are
+counted in the separate `unverified` stats and feed no agreement, precedent or prompt-time
+figure; hooks get no token because any agent running as the user could read it (a per-harness
+verified channel is future work). Between the prompt and the tool call the hook keeps a pending file
+under `<data dir>/hooks/pending/` (directory 0700, file 0600). It holds only the decision id; its
+name holds truncated SHA-256 hashes of the session id and subject, never the tool input. A new
+prompt for the same session and subject replaces the older pending file, the tool call claims the
+newest one, and pending files expire unposted after 10 minutes, so an earlier denied prompt is not
+reported as approved.
 
 Claude Code does not tell a hook who answered a prompt. An approval by another `PermissionRequest`
 hook is recorded as a user approval; such outcomes are unverified.

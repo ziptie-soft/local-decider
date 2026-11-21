@@ -50,7 +50,14 @@ describe('computeStats', () => {
     const records: LogRecord[] = [
       decision('mcp-call', 'allow', 0.9, { harness: 'mcp' }),
       decision('cli-call', 'allow', 0.9, { harness: 'cli' }),
-      { kind: 'outcome', ts: 't', decisionId: 'mcp-call', outcome: 'allow', source: 'user' },
+      {
+        kind: 'outcome',
+        ts: 't',
+        decisionId: 'mcp-call',
+        outcome: 'allow',
+        source: 'user',
+        verified: true,
+      },
     ];
     assert.deepEqual(computeStats(records), []);
     const [stats] = computeStats([...records, decision('real', 'allow', 0.9)]);
@@ -92,10 +99,31 @@ describe('computeStats', () => {
       decision('a', 'allow', 0.99),
       decision('b', 'allow', 0.6),
       decision('c', 'ask', 0.9, { error: 'boom', latencyMs: 5 }),
-      { kind: 'outcome', ts: 't', decisionId: 'a', outcome: 'allow', source: 'user' },
-      { kind: 'outcome', ts: 't', decisionId: 'b', outcome: 'ask', source: 'user' },
-      { kind: 'outcome', ts: 't', decisionId: 'b', outcome: 'allow', source: 'user' },
-      { kind: 'outcome', ts: 't', decisionId: 'zzz', outcome: 'allow', source: 'user' },
+      {
+        kind: 'outcome',
+        ts: 't',
+        decisionId: 'a',
+        outcome: 'allow',
+        source: 'user',
+        verified: true,
+      },
+      { kind: 'outcome', ts: 't', decisionId: 'b', outcome: 'ask', source: 'user', verified: true },
+      {
+        kind: 'outcome',
+        ts: 't',
+        decisionId: 'b',
+        outcome: 'allow',
+        source: 'user',
+        verified: true,
+      },
+      {
+        kind: 'outcome',
+        ts: 't',
+        decisionId: 'zzz',
+        outcome: 'allow',
+        source: 'user',
+        verified: true,
+      },
     ];
     const [s] = computeStats(records);
     assert.ok(s);
@@ -121,6 +149,7 @@ describe('computeStats', () => {
         decisionId: 'child-decision',
         outcome: 'allow',
         source: 'supervised',
+        verified: true,
       },
     ]);
     assert.equal(stats?.labelled, 1);
@@ -140,8 +169,22 @@ describe('computeStats', () => {
     const [stats] = computeStats([
       decision('ok', 'allow', 0.9),
       busy,
-      { kind: 'outcome', ts: 't', decisionId: 'ok', outcome: 'allow', source: 'user' },
-      { kind: 'outcome', ts: 't', decisionId: 'busy', outcome: 'deny', source: 'user' },
+      {
+        kind: 'outcome',
+        ts: 't',
+        decisionId: 'ok',
+        outcome: 'allow',
+        source: 'user',
+        verified: true,
+      },
+      {
+        kind: 'outcome',
+        ts: 't',
+        decisionId: 'busy',
+        outcome: 'deny',
+        source: 'user',
+        verified: true,
+      },
     ]);
     assert.equal(stats?.decisions, 2);
     assert.equal(stats?.errors, 1);
@@ -222,7 +265,7 @@ describe('calibration hints', () => {
     records[1] = { ...outcome, verified: false };
     const [stats] = computeStats(records, {}, policies);
     assert.deepEqual(stats?.calibrationHints, [{ rule: 'verdict.allow', n: 0, denies: 0 }]);
-    assert.equal(stats?.labelled, 1, 'agreement and reliability still use every outcome');
+    assert.equal(stats?.labelled, 0, 'agreement and reliability use verified outcomes only');
   });
 });
 
@@ -235,6 +278,7 @@ function usage(decisionId: string, turnId: string, extra: Partial<UsageRecord> =
     inputTokens: 1_000_000,
     cachedInputTokens: 0,
     outputTokens: 100_000,
+    verified: true,
     ...extra,
   };
 }
@@ -293,6 +337,7 @@ describe('savings', () => {
         decisionId: 'p',
         outcome: 'allow',
         source: 'user',
+        verified: true,
       },
       {
         kind: 'outcome',
@@ -300,6 +345,7 @@ describe('savings', () => {
         decisionId: 'q',
         outcome: 'deny',
         source: 'user',
+        verified: true,
       },
       {
         kind: 'outcome',
@@ -307,6 +353,7 @@ describe('savings', () => {
         decisionId: 'r',
         outcome: 'allow',
         source: 'user',
+        verified: true,
       },
     ]);
     assert.deepEqual(s?.promptTime, {

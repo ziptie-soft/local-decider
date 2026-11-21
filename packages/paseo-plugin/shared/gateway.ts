@@ -242,7 +242,11 @@ export function createGateway(options: GatewayOptions = {}): Gateway | null {
     if (token !== undefined && token !== '') {
       headers['authorization'] = `Bearer ${token}`;
     }
-    if (path === '/v1/outcomes' && reportToken !== undefined && reportToken !== '') {
+    if (
+      (path === '/v1/outcomes' || path === '/v1/usage') &&
+      reportToken !== undefined &&
+      reportToken !== ''
+    ) {
       headers[REPORT_HEADER] = reportToken;
     }
     if (controlToken !== undefined && controlToken !== '') {
