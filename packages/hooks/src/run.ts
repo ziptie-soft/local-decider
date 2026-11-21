@@ -3,6 +3,7 @@
  * here; `main.ts` wires stdin/stdout/env. Every failure path returns empty stdout and exit 0.
  */
 import {
+  budgetFor,
   commandOf,
   isShellTool,
   str,
@@ -107,11 +108,13 @@ interface Context {
 function requestOf(ctx: Context, call: ReturnType<typeof mapEvent>): DecideRequest {
   const sessionId = str(ctx.hook['session_id']);
   const toolCall = callOf(ctx.harness, ctx.event, ctx.hook);
+  const budget = budgetFor(timeoutOf(ctx.env));
   return {
     harness: ctx.harness === 'claude' ? 'claude-code' : 'codex',
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(toolCall === undefined ? {} : { call: toolCall }),
     ...(call.workspace === undefined ? {} : { workspace: call.workspace }),
+    ...(budget === undefined ? {} : { budgetMs: budget }),
     input: call.input,
   };
 }

@@ -793,6 +793,8 @@ other models. Verify cited lines before implementing; they come from a read-only
 - **Harness:** Paseo multi-agent, Claude Code subagent bursts. **Priority:** P2. **Size:** M.
 - **What:** scale queue slots with `maxConcurrency`, add `budgetMs` admission so hooks fail open
   early instead of timing out, and treat the new 503 (queue timeout) as busy. Needs N6 first.
+- **Status:** done — queue slots follow `maxConcurrency`; `budgetMs` admission fails open as busy;
+  stats count `busy`.
 
 ### X4 Lighter install through the torch-free core
 
@@ -815,6 +817,10 @@ other models. Verify cited lines before implementing; they come from a read-only
 - **What:** pair `PermissionDenied` with the `PermissionRequest` decision by `tool_use_id` and post
   `deny` with the report token, replacing the subject-keyed pairing in `hooks/src/pending.ts`. The
   first verified labels outside Paseo (unblocks F5).
+- **Status:** not feasible as written (2026-11-21). Per the hooks reference, `PermissionRequest`
+  carries no `tool_use_id`, and `PermissionDenied` fires only for auto-mode classifier denials,
+  never for a manual deny. Subject-keyed pairing in `pending.ts` stays. A classifier denial could
+  feed a separate, unverified "external judge" agreement metric; not planned.
 
 ### X7 Codex parity: path guard and `apply_patch`
 

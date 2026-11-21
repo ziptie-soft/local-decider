@@ -331,6 +331,18 @@ describe('gateway HTTP', () => {
     assert.equal(body['enforced'], false);
   });
 
+  it('drops an out-of-range budgetMs instead of rejecting or applying it', async () => {
+    for (const budgetMs of [0, -5, 1.5, 600_001, '100', null]) {
+      const res = await post('/v1/decide/turn-outcome', {
+        harness: 'paseo',
+        input: { lastMessage: 'done' },
+        budgetMs,
+      });
+      assert.equal(res.status, 200);
+      assert.equal((await json(res))['error'], undefined);
+    }
+  });
+
   it('validates requests', async () => {
     assert.equal(
       (await post('/v1/decide/turn-outcome', { harness: 'evil', input: {} })).status,

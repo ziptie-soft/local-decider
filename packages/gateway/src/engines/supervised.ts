@@ -50,6 +50,8 @@ export interface ServerSpec {
     readonly resolved: string | undefined;
     readonly backend: string | undefined;
   };
+  /** Requests the server answers at once (its `--max-concurrency`); unset = one. */
+  readonly concurrency?: number | undefined;
   /** Context window from the readiness body, when the server reports one. */
   maxLength?(body: Record<string, unknown>): number | undefined;
 }
@@ -79,6 +81,10 @@ export class SupervisedEngine implements Engine {
     this.id = spec.id;
     this.model = spec.model;
     this.#url = spec.url;
+  }
+
+  get concurrency(): number | undefined {
+    return this.#spec.concurrency;
   }
 
   async start(): Promise<void> {

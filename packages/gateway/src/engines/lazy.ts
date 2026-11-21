@@ -43,6 +43,10 @@ export class ManagedEngine implements Engine {
     return this.#inner.model;
   }
 
+  get concurrency(): number | undefined {
+    return this.#inner.concurrency;
+  }
+
   get lifecycle(): LifecycleOptions {
     return this.#options;
   }

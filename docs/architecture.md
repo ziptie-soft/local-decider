@@ -19,7 +19,7 @@ flowchart LR
     HTTP["HTTP routes + MCP server"]
     DEC["Decider: redact, state, cache, rules, precedent"]
     POL["Policies (YAML) + config.yaml (live reload)"]
-    Q["Engine queue (one at a time, by priority)"]
+    Q["Engine queue (by priority, one slot per engine request)"]
     LOG[("SQLite decision store")]
     ST["Stats: agreement, calibration, savings"]
   end
@@ -89,14 +89,28 @@ Step by step:
    are rendered in policy order, objects as key-sorted JSON, and trimmed to `state.maxTokens`
    (`core/truncate.ts`).
 3. **Engine.** Answers are cached by input hash for the policy's `cache.ttlSeconds`. Otherwise the
-   request joins the engine queue: one request at a time, `high` priority policies first; shadow
-   decisions run at `low`. At most 8 decisions wait or run; `normal` ones are refused from 6, and a
-   `high` one arriving at 8 evicts the oldest waiting `low` one. While a managed engine loads,
+   request joins the engine queue: one request at a time (as many as the engine's
+   `maxConcurrency` for `strands-decider`), `high` priority policies first; shadow decisions run
+   at `low`. At most 8 decisions wait or run (7 waiting places beyond the slots); `normal` ones
+   are refused from 6, and a `high` one arriving at the maximum evicts the oldest waiting `low`
+   one. While a managed engine loads,
    `normal` and `low` decisions are refused once 6/8 are waiting (counting the load); `high` ones
    are not. A caller that gives up leaves the queue at once; a managed engine loads before its
    request takes the queue; a job that ignores its deadline loses the engine 1 s later. A full
    queue, an engine error or the deadline (`decisionTimeoutMs`, 30 s) returns an `error` with the
    policy default and `enforced: false`.
+
+   **`budgetMs` admission.** A `POST /v1/decide/:policy` body may carry `budgetMs`, the time the
+   caller will wait in milliseconds. The gateway estimates the queue wait as the full waves of
+   jobs ahead (`depth / slots`, rounded down) times the rolling mean engine call time (the last 50
+   calls, queue wait excluded). When that exceeds `budgetMs` it answers at once, without queuing,
+   with `error: "engine busy (503)"`, the policy default and `enforced: false`: the shape of an
+   engine 503. A free slot or a cold average always admits, a cache hit or a join of a running
+   identical call skips the check, and shadow decisions are never refused. The hooks, the Claude
+   Code mod and the Paseo plugin send their timeout minus 500 ms
+   (`LOCAL_DECIDER_TIMEOUT_MS`, default 1500 ms); a timeout of 500 ms or less sends none. Busy
+   answers count under `busy` in `/v1/stats` (also part of `errors`) and never enter calibration
+   or agreement. A busy engine is not an engine failure.
 4. **Rules.** The first matching rule wins. A precedent rule also needs enough recent allows of
    the exact subject and no veto ([policies.md](policies.md#precedent)).
 5. **Log and answer.** `enforced = mode is act and no error`. A shadow decision keeps running

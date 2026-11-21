@@ -147,6 +147,11 @@ describe('check in act mode', () => {
     assert.match(input['subject'] ?? '', /^shell: pnpm add left-pad/);
   });
 
+  it('sends budgetMs from the hook timeout minus a 500 ms margin', async () => {
+    const { api } = await run(world({ env: { LOCAL_DECIDER_TIMEOUT_MS: '2000' } }));
+    assert.equal(api.posts[0]?.body?.['budgetMs'], 1500);
+  });
+
   it('returns the ask when the decider says ask, deny or is not enforced', async () => {
     for (const answer of [
       { ...ALLOW, action: 'ask' as const },

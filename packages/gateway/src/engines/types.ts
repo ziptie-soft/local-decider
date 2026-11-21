@@ -25,6 +25,8 @@ export interface Engine {
   start(): Promise<void>;
   health(): EngineHealth;
   decide(request: SystemOneRequest, signal: AbortSignal): Promise<SystemOneResponse>;
+  /** Requests the engine answers at once; the decider runs this many jobs. Absent = 1. */
+  readonly concurrency?: number | undefined;
   /** Engines that load on demand: wait (bounded by `signal`) until they can answer. */
   ensureReady?(signal: AbortSignal): Promise<void>;
   stop(): Promise<void>;

@@ -10,7 +10,8 @@ import type {
 } from '@ziptie-soft/local-decider-core';
 
 import { classifierAgreement, type ClassifierAgreement } from './classifier-agreement.ts';
-import { ENGINE_BENCHMARK_RUNNING_ERROR } from './engine-busy.ts';
+import { isUnjudged } from './engine-busy.ts';
+import { ENGINE_BUSY_ERROR } from './engines/types.ts';
 import { isProbeDecision, isTruncatedDecision } from './log-store.ts';
 import { percentile, sortedLatencies, wilsonUpper } from './numbers.ts';
 import {
@@ -43,6 +44,8 @@ export interface PolicyStats {
   readonly policy: string;
   readonly decisions: number;
   readonly errors: number;
+  /** Of `errors`, decisions refused as busy (engine 503 or `budgetMs` admission): fail open, uncounted for calibration. */
+  readonly busy: number;
   readonly enforced: number;
   /** Decisions whose state had a section cut, dropped or already truncated (see ShadowRecord). */
   readonly truncated: number;
@@ -178,7 +181,7 @@ function samplesForRule(
     const outcome = verified.get(decision.decisionId);
     const cls = outcome === undefined ? 'other' : outcomeClass(outcome);
     if (
-      decision.error === ENGINE_BENCHMARK_RUNNING_ERROR ||
+      isUnjudged(decision.error) ||
       isTruncatedDecision(decision) ||
       decision.action !== 'ask' ||
       (cls !== 'allow' && cls !== 'veto')
@@ -250,7 +253,7 @@ function labelledDecisions(
 ): Labelled[] {
   const labelled: Labelled[] = [];
   for (const d of decisions) {
-    if (d.error === ENGINE_BENCHMARK_RUNNING_ERROR) {
+    if (isUnjudged(d.error)) {
       continue;
     }
     const record = outcomes.get(d.decisionId);
@@ -279,6 +282,7 @@ function policyStats(
     policy,
     decisions: decisions.length,
     errors: decisions.filter((d) => d.error !== undefined).length,
+    busy: decisions.filter((d) => d.error === ENGINE_BUSY_ERROR).length,
     enforced: decisions.filter((d) => d.enforced).length,
     truncated: decisions.filter(isTruncatedDecision).length,
     actions: countActions(decisions),

@@ -217,6 +217,17 @@ describe('event → policy mapping', () => {
     );
     assert.deepEqual(calls[2]?.request.workspace, { cwd: '/work/my-app' });
   });
+
+  it('sends budgetMs as the hook timeout minus a 500 ms margin', async () => {
+    const { decide, calls } = fake('abstain', false);
+    const hook = JSON.stringify(HOOKS.PreToolUse);
+    await run('claude', 'PreToolUse', hook, {}, { decide });
+    assert.equal(calls[0]?.request.budgetMs, 1000, 'default 1500 ms timeout');
+    await run('codex', 'PreToolUse', hook, { LOCAL_DECIDER_TIMEOUT_MS: '3000' }, { decide });
+    assert.equal(calls[1]?.request.budgetMs, 2500);
+    await run('claude', 'PreToolUse', hook, { LOCAL_DECIDER_TIMEOUT_MS: '400' }, { decide });
+    assert.equal(calls[2]?.request.budgetMs, undefined, 'no budget left after the margin');
+  });
 });
 
 /** A PermissionRequest for `tool`; the gateway says an enforced allow (or shadow when asked). */

@@ -121,6 +121,7 @@ function parseDecideRequest(body: unknown): DecideRequest {
   const call = parseCall(body['call']);
   const scope = parseScope(body['scope']);
   const workspace = parseWorkspace(body['workspace']);
+  const budgetMs = parseBudget(body['budgetMs']);
   return {
     harness: harness as DecideRequest['harness'],
     input: body['input'],
@@ -129,7 +130,15 @@ function parseDecideRequest(body: unknown): DecideRequest {
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(models === undefined ? {} : { models }),
     ...(workspace === undefined ? {} : { workspace }),
+    ...(budgetMs === undefined ? {} : { budgetMs }),
   };
+}
+
+/** Tolerant like `call`: a `budgetMs` that is not an integer from 1 to 600000 is dropped. */
+function parseBudget(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 600_000
+    ? value
+    : undefined;
 }
 
 function parseWorkspace(value: unknown): DecideRequest['workspace'] {
