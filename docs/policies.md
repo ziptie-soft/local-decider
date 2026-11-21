@@ -72,9 +72,9 @@ allowed, so setting the policy to `act` does not change Claude Code's auto mode.
 ## Schema
 
 Policies live in `policies/*.yaml` (defaults), any `policyDirs`, and
-`~/.config/local-decider/policies/*.yaml` (yours). A later file with the same `id` replaces an
-earlier one. The schema is `policySchema` in `packages/core/src/policy.ts`, also published as
-`schemas/policy.schema.json`.
+`~/.config/local-decider/policies/*.yaml` (yours). A later directory's file with the same `id`
+replaces an earlier one's. The schema is `policySchema` in `packages/core/src/policy.ts`, also
+published as `schemas/policy.schema.json`.
 
 ```yaml
 # yaml-language-server: $schema=../schemas/policy.schema.json
@@ -84,7 +84,7 @@ description: What this decides.
 variantOf: permission     # optional: can stand in for another policy (see Variants)
 mode: shadow              # off | shadow | act
 priority: high            # engine queue order: high (a hook waits), normal, low
-harnesses: []             # empty = every harness
+harnesses: []             # empty = every harness; else paseo, claude-code, codex, mcp, cli
 mcp: true                 # false: not callable or listed through MCP (hook-enforced policies);
                           # unset: open, but a variant inherits its base policy's value
 cache: { ttlSeconds: 0 }  # reuse answers for identical state
@@ -135,7 +135,22 @@ default: ask              # when no rule matches or the engine failed
   exact-match precedent must agree; precedent rules may only use `allow` or `ask`.
 - A policy's `default` cannot be `allow`. Use a thresholded rule so a missing answer or no rule
   match falls back to a non-allow action.
-- Actions: `allow`, `ask`, `deny`, `log`, `notify`, `abstain`, `route:<preset>`.
+- Actions: `allow`, `ask`, `deny`, `log`, `notify`, `abstain`, `route:<preset>` (the `Action`
+  type in `policy.ts`; anything else is rejected).
+- File rules, enforced when a file is loaded (`local-decider policies check` runs the same
+  checks):
+  - `id` must equal the file name without `.yaml` or `.yml`, and one directory cannot hold
+    `x.yaml` and `x.yml`.
+  - Two non-precedent rules cannot share a `<question>.<answer>` pair, because
+    [config.yaml thresholds](#thresholds) are keyed by it. The error names both rules
+    (`rules.2 (ask) repeats the threshold key "pick.a" of rules.0 (allow)`). A
+    `precedent: allow` rule may repeat the key of a plain rule, as `permission` does.
+  - `harnesses` entries are `paseo`, `claude-code`, `codex`, `mcp` or `cli`; other ids are
+    rejected.
+  - `answer` may be an unquoted `true`, `false` or number: YAML reads those as non-strings, so
+    they become the strings `"true"`, `"false"` and `"3"` before the answer-space check. Quote
+    an answer that must keep its exact text, such as `"1.0"`; `null`, lists and maps are
+    rejected with a message saying so.
 - Write criteria as short, mutually exclusive descriptions with concrete examples. On the 2B
   model, `command-risk`'s "exposes secrets" scored an `~/.ssh` exfiltration p = 0.25 dangerous;
   "sends credentials, keys or private files (such as ~/.ssh, ~/.aws or .env) off the machine"

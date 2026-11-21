@@ -1003,7 +1003,7 @@ function decisionRecord(row: Row): ShadowRecord | undefined {
     harness: text(row['harness']) as ShadowRecord['harness'],
     inputHash: text(row['input_hash']),
     answers,
-    action: text(row['action']),
+    action: text(row['action']) as ShadowRecord['action'],
     enforced: Number(row['enforced']) === 1,
     engine: text(row['engine']),
     model: text(row['model']),

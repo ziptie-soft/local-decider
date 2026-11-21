@@ -6,12 +6,15 @@ import { describe, it } from 'node:test';
 import {
   ALLOW_THRESHOLD_FLOOR,
   evaluateRules,
+  HARNESSES,
   parsePolicy,
+  parsePolicyFile,
   PolicyError,
   policyRoutes,
   policySections,
   policyThresholds,
   withThresholds,
+  type Action,
   type Answer,
   type Policy,
 } from '../src/index.ts';
@@ -123,6 +126,149 @@ describe('parsePolicy', () => {
       () => parsePolicy(precedent.replace('action: allow', 'action: deny')),
       /precedent rules may only use allow or ask/,
     );
+  });
+});
+
+const NOUL = `
+id: demo
+version: 1
+description: demo
+state: { sections: [{ label: In, from: text }] }
+questions:
+  flag: { type: noul, instructions: Is it? }
+  level: { type: score, instructions: Rate., criteria: ['1', '2', '3'] }
+rules:
+  - when: { question: flag, answer: true, minConfidence: 0.9 }
+    action: deny
+  - when: { question: flag, answer: false, minConfidence: 0.9 }
+    action: notify
+  - when: { question: level, answer: 3, minProbability: 0.6 }
+    action: ask
+`;
+
+describe('threshold keys', () => {
+  it('rejects two rules with one <question>.<answer>, naming both', () => {
+    const dup = MINIMAL.replace(
+      'default: ask',
+      '  - when: { question: pick, answer: a, minConfidence: 0.5 }\n    action: ask\ndefault: ask',
+    );
+    assert.throws(
+      () => parsePolicy(dup, 'dup.yaml'),
+      (error: unknown) => {
+        assert.ok(error instanceof PolicyError);
+        assert.match(error.message, /rules\.2 \(ask\) repeats the threshold key "pick\.a"/);
+        assert.match(error.message, /of rules\.0 \(allow\)/);
+        return true;
+      },
+    );
+  });
+
+  it('allows a precedent rule next to a plain rule with the same key', () => {
+    const shipped = parsePolicy(readFileSync(join(POLICY_DIR, 'permission.yaml'), 'utf8'));
+    assert.equal(shipped.rules.filter((rule) => rule.when.answer === 'allow').length, 2);
+    const dupPrecedent = MINIMAL.replace(
+      'description: demo',
+      'description: demo\nprecedent: { from: subject }',
+    ).replace(
+      'rules:',
+      'rules:\n  - when: { question: pick, answer: a, minProbability: 0.6, precedent: allow }\n    action: allow',
+    );
+    assert.doesNotThrow(() => parsePolicy(dupPrecedent));
+  });
+});
+
+describe('rule answers', () => {
+  it('coerces boolean and number answers to strings', () => {
+    const policy = parsePolicy(NOUL);
+    assert.deepEqual(
+      policy.rules.map((rule) => rule.when.answer),
+      ['true', 'false', '3'],
+    );
+    const flag: Answer = {
+      type: 'noul',
+      answer: 'true',
+      probabilities: { true: 1, false: 0 },
+      confidence: 1,
+    };
+    assert.equal(evaluateRules(policy, { flag }).action, 'deny');
+  });
+
+  it('still checks the coerced answer against the question', () => {
+    assert.throws(
+      () => parsePolicy(NOUL.replace('answer: 3', 'answer: 4')),
+      /"4" is not one of 1, 2, 3/,
+    );
+    assert.throws(
+      () => parsePolicy(NOUL.replace('answer: false', 'answer: true')),
+      /repeats the threshold key "flag\.true"/,
+    );
+  });
+
+  it('rejects answers that are not scalars with a precise message', () => {
+    for (const bad of ['null', '[a]', '{ a: b }']) {
+      assert.throws(
+        () => parsePolicy(NOUL.replace('answer: 3', `answer: ${bad}`)),
+        /answer must be a non-empty string, boolean or number/,
+        bad,
+      );
+    }
+    assert.throws(() => parsePolicy(NOUL.replace('answer: 3', "answer: ''")), />=1 characters/);
+  });
+});
+
+describe('harness ids', () => {
+  it('accepts every known harness and rejects other ids', () => {
+    for (const harness of HARNESSES) {
+      const policy = parsePolicy(`${MINIMAL}harnesses: [${harness}]\n`);
+      assert.deepEqual(policy.harnesses, [harness]);
+    }
+    assert.throws(() => parsePolicy(`${MINIMAL}harnesses: [claude]\n`), /harnesses\.0/);
+  });
+});
+
+describe('actions', () => {
+  it('accepts the plain verbs and route:<preset>', () => {
+    for (const action of ['ask', 'deny', 'log', 'abstain', 'notify', 'route:fast-2']) {
+      assert.doesNotThrow(() => parsePolicy(MINIMAL.replace('default: ask', `default: ${action}`)));
+    }
+  });
+
+  it('rejects other forms', () => {
+    for (const action of ['block', 'route:', 'route:Big', 'Allow', 'allow ']) {
+      assert.throws(
+        () => parsePolicy(MINIMAL.replace('default: ask', `default: '${action}'`)),
+        PolicyError,
+        action,
+      );
+    }
+  });
+
+  it('types the matched action', () => {
+    const action: Action = evaluateRules(parsePolicy(MINIMAL), {}).action;
+    assert.equal(action, 'ask');
+  });
+});
+
+describe('parsePolicyFile', () => {
+  it('requires the id to equal the file name without its extension', () => {
+    assert.equal(parsePolicyFile(MINIMAL, '/etc/policies/demo.yaml').id, 'demo');
+    assert.equal(parsePolicyFile(MINIMAL, 'C:\\policies\\demo.yml').id, 'demo');
+    assert.throws(
+      () => parsePolicyFile(MINIMAL, '/etc/policies/other.yaml'),
+      /policy id "demo" must equal the file name "other"/,
+    );
+  });
+
+  it('still runs the schema checks', () => {
+    assert.throws(() => parsePolicyFile('id: demo', 'demo.yaml'), /invalid policy/);
+  });
+
+  it('loads every shipped default policy', () => {
+    for (const file of readdirSync(POLICY_DIR).filter((f) => f.endsWith('.yaml'))) {
+      assert.doesNotThrow(() =>
+        parsePolicyFile(readFileSync(join(POLICY_DIR, file), 'utf8'), file),
+      );
+    }
   });
 });
 
@@ -244,7 +390,10 @@ describe('thresholds', () => {
     assert.deepEqual(tuned.rules[1]?.when, { question: 'pick', answer: 'b', minProbability: 0.9 });
     assert.equal(policy.rules[0]?.when.minConfidence, 0.9, 'the loaded policy is untouched');
     assert.equal(withThresholds(policy, {}), policy);
-    const bare = { ...policy, rules: [{ when: { question: 'pick', answer: 'a' }, action: 'log' }] };
+    const bare: Policy = {
+      ...policy,
+      rules: [{ when: { question: 'pick', answer: 'a' }, action: 'log' }],
+    };
     assert.equal(policyThresholds(bare)[0]?.default, null);
     assert.equal(withThresholds(bare, { 'pick.a': 0.3 }).rules[0]?.when.minConfidence, 0.3);
   });

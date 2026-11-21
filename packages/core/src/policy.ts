@@ -5,6 +5,7 @@
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 
+import { HARNESSES } from './decision.ts';
 import type { Answers, Questions } from './systemone.ts';
 import type { StateSection } from './truncate.ts';
 
@@ -21,11 +22,35 @@ export function minMode(a: Mode, b: Mode): Mode {
  * surface the decision; `route:<preset>` names a routing preset.
  */
 const ACTION_PATTERN = /^(?:allow|ask|deny|log|abstain|notify|route:[a-z0-9][a-z0-9_.-]*)$/;
-export type Action = string;
 const ROUTE_PREFIX = 'route:';
+export type Action =
+  | 'allow'
+  | 'ask'
+  | 'deny'
+  | 'log'
+  | 'abstain'
+  | 'notify'
+  | `${typeof ROUTE_PREFIX}${string}`;
+
+function isAction(value: string): value is Action {
+  return ACTION_PATTERN.test(value);
+}
+
+const actionSchema = z.string().regex(ACTION_PATTERN).refine(isAction);
 
 const ID_PATTERN = /^[a-z][a-z0-9_-]*$/;
 const sentence = z.string().trim().min(1).max(600);
+
+/**
+ * A rule's answer. YAML reads an unquoted `true` or `1` as a boolean or number, so those become
+ * their string form (`answer: true` means the answer "true"); the engine's answers are strings.
+ * Whether the string is a real answer is checked against the question's answer space.
+ */
+const answerSchema = z
+  .union([z.string().min(1), z.boolean(), z.number()], {
+    error: 'answer must be a non-empty string, boolean or number',
+  })
+  .transform((value) => String(value));
 
 const noulSchema = z.strictObject({
   type: z.literal('noul'),
@@ -101,7 +126,7 @@ const precedentSchema = z.strictObject({
 const ruleSchema = z.strictObject({
   when: z.strictObject({
     question: z.string().regex(ID_PATTERN),
-    answer: z.string().min(1),
+    answer: answerSchema,
     minConfidence: z
       .number()
       .min(0)
@@ -116,10 +141,7 @@ const ruleSchema = z.strictObject({
       .describe('Probability of the named answer.'),
     precedent: z.literal('allow').optional(),
   }),
-  action: z
-    .string()
-    .regex(ACTION_PATTERN)
-    .describe('allow, ask, deny, log, notify, abstain, or route:<preset>.'),
+  action: actionSchema.describe('allow, ask, deny, log, notify, abstain, or route:<preset>.'),
 });
 
 export const policySchema = z
@@ -160,7 +182,7 @@ export const policySchema = z
         'Callable and listed through MCP (default true); `false` for policies a harness hook enforces. A variant inherits its base policy value when unset.',
       ),
     /** Harness ids this policy applies to; empty = all. */
-    harnesses: z.array(z.string().regex(ID_PATTERN)).default([]),
+    harnesses: z.array(z.enum(HARNESSES)).default([]),
     state: z
       .strictObject({
         maxTokens: z.number().int().min(128).max(32_000).default(3000),
@@ -178,9 +200,7 @@ export const policySchema = z
     /** First matching rule wins. */
     rules: z.array(ruleSchema).default([]).describe('Checked in order; the first match wins.'),
     /** Action when no rule matches or the engine gave no answer. */
-    default: z
-      .string()
-      .regex(ACTION_PATTERN)
+    default: actionSchema
       .default('abstain')
       .describe('Action when no rule matches or the engine failed.'),
     cache: z
@@ -225,6 +245,31 @@ type PolicyShape = z.infer<typeof policySchema>;
 function validateRules(policy: PolicyShape, ctx: z.RefinementCtx): void {
   for (const [i, rule] of policy.rules.entries()) {
     validateRule(policy, rule, i, ctx);
+  }
+  validateThresholdKeys(policy, ctx);
+}
+
+/**
+ * config.yaml names a rule threshold `<question>.<answer>`, so two rules with the same key would
+ * both take one override while only the first is listed. Precedent rules have no threshold key.
+ */
+function validateThresholdKeys(policy: PolicyShape, ctx: z.RefinementCtx): void {
+  const first = new Map<string, number>();
+  for (const [index, rule] of policy.rules.entries()) {
+    if (rule.when.precedent !== undefined) {
+      continue;
+    }
+    const key = thresholdKey(rule);
+    const earlier = first.get(key);
+    if (earlier === undefined) {
+      first.set(key, index);
+      continue;
+    }
+    ctx.addIssue({
+      code: 'custom',
+      path: ['rules', index, 'when'],
+      message: `rules.${String(index)} (${rule.action}) repeats the threshold key "${key}" of rules.${String(earlier)} (${policy.rules[earlier]?.action ?? '?'}); merge them or use a different answer`,
+    });
   }
 }
 
@@ -310,6 +355,27 @@ export function parsePolicy(source: string, origin = '<policy>'): Policy {
     throw new PolicyError(`${origin}: invalid policy\n${issues}`);
   }
   return result.data;
+}
+
+/** `permission` for `/x/policies/permission.yaml` (or `.yml`). */
+function policyFileStem(file: string): string {
+  const name = file.slice(Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\')) + 1);
+  return name.replace(/\.ya?ml$/, '');
+}
+
+/**
+ * {@link parsePolicy} for the contents of the file `file`: the policy id must equal the file name
+ * without its extension, so a policy is found under the name it declares.
+ */
+export function parsePolicyFile(source: string, file: string): Policy {
+  const policy = parsePolicy(source, file);
+  const stem = policyFileStem(file);
+  if (policy.id !== stem) {
+    throw new PolicyError(
+      `${file}: policy id "${policy.id}" must equal the file name "${stem}"; rename the file or the id`,
+    );
+  }
+  return policy;
 }
 
 /** The questions in wire form (criteria nulls kept, as the API allows them). */

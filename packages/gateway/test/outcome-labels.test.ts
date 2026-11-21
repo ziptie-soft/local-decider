@@ -1,4 +1,4 @@
-import type { LogRecord, OutcomeSource, Policy } from '@ziptie-soft/local-decider-core';
+import type { Action, LogRecord, OutcomeSource, Policy } from '@ziptie-soft/local-decider-core';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
@@ -30,7 +30,7 @@ function store(): PrecedentStore {
   );
 }
 
-function decision(id: string, key: string, action: string, agoMs: number): LogRecord {
+function decision(id: string, key: string, action: Action, agoMs: number): LogRecord {
   return makeShadowRecord(id, {
     precedentKey: key,
     action,

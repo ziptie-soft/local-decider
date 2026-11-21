@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { DecideResponse } from '../shared/decision.ts';
+import type { Action, DecideResponse } from '../shared/decision.ts';
 import { DECIDE_USAGE, manualInput, parseDecideArgs } from '../shared/manual.ts';
 import { compactModel, shortModel } from '../shared/models.ts';
 import {
@@ -29,7 +29,7 @@ import {
 } from '../shared/row.ts';
 import { response } from './fakes.ts';
 
-function permission(confidence: number, action: string, mode: 'act' | 'shadow'): DecideResponse {
+function permission(confidence: number, action: Action, mode: 'act' | 'shadow'): DecideResponse {
   return response({
     policy: 'permission',
     action,
