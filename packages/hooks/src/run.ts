@@ -12,6 +12,7 @@ import {
   type HookInput,
 } from '@ziptie-soft/local-decider-core';
 
+import { deterministicBlock } from './block.ts';
 import { gatewayClient, type Env } from './gateway-config.ts';
 import { guardCommand } from './guard.ts';
 import {
@@ -27,10 +28,11 @@ import {
   type ReadTranscript,
 } from './mapping.ts';
 import { postToolUse, purgePending, rememberPermission, type OutcomeDeps } from './outcomes.ts';
-import { guardDeny, translate } from './output.ts';
+import { guardDeny, guardOutput, translate } from './output.ts';
 import { mayAutoAllow } from './permission-tools.ts';
 import { healthFromEnv, sessionStart, type Health } from './session-start.ts';
 import { readSlice } from './transcript.ts';
+import { writeGuard } from './write-guard.ts';
 
 export type { Env } from './gateway-config.ts';
 export type Decide = (policy: string, request: DecideRequest) => Promise<DecideResponse | null>;
@@ -87,13 +89,24 @@ function hostRuns(env: Env, policy: string): boolean {
   return (env[HOST_POLICIES_ENV] ?? '').split(',').some((p) => p.trim() === policy);
 }
 
-function guardOutput(hook: HookInput, env: Env): string {
-  if (env['LOCAL_DECIDER_GUARD'] === 'off' || !isShellTool(hook)) {
+function shellGuard(hook: HookInput): string {
+  if (!isShellTool(hook)) {
     return '';
   }
   const command = commandOf(hook);
   const hit = command === undefined ? null : guardCommand(command);
   return hit === null ? '' : guardDeny(hit);
+}
+
+function writeGuardOutput(harness: HookHarness, hook: HookInput): string {
+  const hit = writeGuard(str(hook['tool_name']) ?? '', hook['tool_input'], str(hook['cwd']) ?? '');
+  return hit === null ? '' : guardOutput(harness, hit, hook['permission_mode'] === 'auto');
+}
+
+function guardResult(ctx: Context): string {
+  return ctx.env['LOCAL_DECIDER_GUARD'] === 'off'
+    ? ''
+    : shellGuard(ctx.hook) || writeGuardOutput(ctx.harness, ctx.hook);
 }
 
 interface Context {
@@ -119,11 +132,25 @@ function requestOf(ctx: Context, call: ReturnType<typeof mapEvent>): DecideReque
   };
 }
 
+/** Why a model must not be asked to allow this call (outside cwd, protected, risky), or null. */
+function permissionBlock(ctx: Context, tool: string | undefined): string | null {
+  const cwd = str(ctx.hook['cwd']);
+  if (cwd === undefined) {
+    return 'no working directory';
+  }
+  return deterministicBlock(tool ?? '', ctx.hook['tool_input'], cwd);
+}
+
 async function decideAndTranslate(ctx: Context): Promise<string> {
   const tool = str(ctx.hook['tool_name']);
   if (ctx.event === 'PermissionRequest' && !mayAutoAllow(ctx.harness, tool)) {
     // Not a tool the hook may allow: no engine call, the harness shows its normal prompt.
     ctx.log(`permission: ${tool ?? 'unnamed tool'} is not auto-allowable; abstaining`);
+    return '';
+  }
+  const blocked = ctx.event === 'PermissionRequest' ? permissionBlock(ctx, tool) : null;
+  if (blocked !== null) {
+    ctx.log(`permission: ${blocked}; abstaining`);
     return '';
   }
   const call = mapEvent(ctx.event, ctx.hook, ctx.deps.readTranscript ?? readSlice);
@@ -152,7 +179,7 @@ async function decideAndTranslate(ctx: Context): Promise<string> {
 
 async function handle(ctx: Context): Promise<string> {
   if (ctx.event === 'PreToolUse') {
-    const denied = guardOutput(ctx.hook, ctx.env);
+    const denied = guardResult(ctx);
     if (denied !== '') {
       ctx.log('guard deny');
       return denied;

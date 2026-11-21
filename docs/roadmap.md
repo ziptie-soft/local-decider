@@ -824,6 +824,9 @@ other models. Verify cited lines before implementing; they come from a read-only
 
 ### X7 Codex parity: path guard and `apply_patch`
 
+- **Status:** done (2026-11-21) — `write-guard.ts` denies `.git`/`.ssh` writes (workflows ask on
+  Claude, deny on Codex) and `PermissionRequest` abstains on outside-cwd or protected targets;
+  input over 4 MiB still skips the guard (see S7).
 - **Harness:** Codex. **Priority:** P2. **Size:** M.
 - **What:** port the mod's `deterministicBlock` and `insideCwd` checks to the Codex `PreToolUse`
   path and guard `apply_patch` targets (`.git`, `.github/workflows`, `.ssh`).

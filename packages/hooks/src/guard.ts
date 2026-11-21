@@ -8,6 +8,8 @@ import { baseName, commandWords, splitShell, type Segment } from './shell.ts';
 export interface GuardHit {
   readonly rule: string;
   readonly reason: string;
+  /** The harness should ask rather than deny (Codex cannot ask: it denies). */
+  readonly ask?: true;
 }
 
 const SYSTEM_DIRS = [

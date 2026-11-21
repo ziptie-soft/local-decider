@@ -237,7 +237,13 @@ async function permissionFor(
   shadow = false,
 ): Promise<{ stdout: string; calls: number }> {
   const { decide, calls } = fake('allow', !shadow);
-  const hook = { ...HOOKS.PermissionRequest, tool_name: tool };
+  const toolInput =
+    tool === 'apply_patch'
+      ? { command: '*** Begin Patch\n*** Update File: src/a.ts\n*** End Patch' }
+      : tool === 'Bash'
+        ? HOOKS.PermissionRequest.tool_input
+        : { file_path: 'src/a.ts', command: 'npm test' };
+  const hook = { ...HOOKS.PermissionRequest, tool_name: tool, tool_input: toolInput };
   const res = await run(
     harness,
     'PermissionRequest',
@@ -579,6 +585,136 @@ describe('guard', () => {
     const { decide } = fake('abstain', false);
     const res = await run('claude', 'PermissionRequest', JSON.stringify(rmRoot), {}, { decide });
     assert.equal(res.stdout, '');
+  });
+});
+
+const patch = (target: string): string =>
+  `*** Begin Patch\n*** Update File: ${target}\n*** End Patch`;
+const codex = (target: string): object => ({
+  ...BASE,
+  tool_name: 'apply_patch',
+  tool_input: { command: patch(target) },
+});
+const edit = (path: string, mode?: string): object => ({
+  ...BASE,
+  tool_name: 'Edit',
+  tool_input: { file_path: path },
+  ...(mode === undefined ? {} : { permission_mode: mode }),
+});
+const decisionOf = (stdout: string): string =>
+  (parsed(stdout) as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput
+    .permissionDecision;
+
+describe('write guard', () => {
+  it('denies a Codex patch into .git without calling the gateway', async () => {
+    const { decide, calls } = fake('abstain', false);
+    const res = await run(
+      'codex',
+      'PreToolUse',
+      JSON.stringify(codex('.git/hooks/x')),
+      {},
+      { decide },
+    );
+    assert.equal(decisionOf(res.stdout), 'deny');
+    assert.match(res.stdout, /write-git/);
+    assert.equal(calls.length, 0);
+  });
+
+  it('denies a Codex workflow patch, and a Claude Edit of .git or .ssh', async () => {
+    const { decide, calls } = fake('abstain', false);
+    const wf = await run(
+      'codex',
+      'PreToolUse',
+      JSON.stringify(codex('.github/workflows/a.yml')),
+      {},
+      { decide },
+    );
+    assert.equal(decisionOf(wf.stdout), 'deny');
+    for (const path of ['/work/my-app/.git/config', '/home/u/.ssh/id']) {
+      const res = await run('claude', 'PreToolUse', JSON.stringify(edit(path)), {}, { decide });
+      assert.equal(decisionOf(res.stdout), 'deny', path);
+    }
+    assert.equal(calls.length, 0);
+  });
+
+  it('asks for a Claude workflow edit, and stays silent in auto mode', async () => {
+    const path = '/work/my-app/.github/workflows/ci.yml';
+    const { decide } = fake('abstain', false);
+    const ask = await run('claude', 'PreToolUse', JSON.stringify(edit(path)), {}, { decide });
+    assert.equal(decisionOf(ask.stdout), 'ask');
+    const auto = await run(
+      'claude',
+      'PreToolUse',
+      JSON.stringify(edit(path, 'auto')),
+      {},
+      { decide },
+    );
+    assert.equal(auto.stdout, '');
+  });
+
+  it('passes ordinary writes and honours LOCAL_DECIDER_GUARD=off', async () => {
+    const { decide } = fake('abstain', false);
+    const ok = await run(
+      'claude',
+      'PreToolUse',
+      JSON.stringify(edit('/work/my-app/src/a.ts')),
+      {},
+      { decide },
+    );
+    assert.equal(ok.stdout, '');
+    const env = { LOCAL_DECIDER_GUARD: 'off' };
+    const off = await run('codex', 'PreToolUse', JSON.stringify(codex('.git/x')), env, { decide });
+    assert.equal(off.stdout, '');
+  });
+
+  it('sanitises control characters in the quoted path', async () => {
+    const { decide } = fake('abstain', false);
+    const res = await run(
+      'codex',
+      'PreToolUse',
+      JSON.stringify(codex('.git/a\u001b[31mb')),
+      {},
+      { decide },
+    );
+    const reason = (
+      parsed(res.stdout) as { hookSpecificOutput: { permissionDecisionReason: string } }
+    ).hookSpecificOutput.permissionDecisionReason;
+    assert.ok(!Array.from(reason).some((c) => c.charCodeAt(0) < 32));
+    assert.match(reason, /write-git/);
+  });
+
+  it('abstains on PermissionRequest when the target is outside cwd or protected', async () => {
+    const cases: [string, object][] = [
+      ['codex', { ...codex('/etc/hosts') }],
+      ['claude', { ...BASE, tool_name: 'Write', tool_input: { file_path: '.claude/x' } }],
+      ['claude', { ...BASE, tool_name: 'Bash', tool_input: { command: 'curl x.dev' } }],
+      ['claude', { session_id: 's', tool_name: 'Write', tool_input: { file_path: 'a' } }],
+    ];
+    for (const [harness, hook] of cases) {
+      const { decide, calls } = fake('allow', true);
+      const res = await run(
+        harness,
+        'PermissionRequest',
+        JSON.stringify(hook),
+        {},
+        { decide, readTranscript: readPermissionContext },
+      );
+      assert.equal(res.stdout, '');
+      assert.equal(calls.length, 0);
+    }
+  });
+
+  it('still decides an in-cwd patch on PermissionRequest', async () => {
+    const { decide, calls } = fake('allow', true);
+    const res = await run(
+      'codex',
+      'PermissionRequest',
+      JSON.stringify(codex('src/a.ts')),
+      {},
+      { decide, readTranscript: readPermissionContext },
+    );
+    assert.equal(calls.length, 1);
+    assert.match(res.stdout, /allow/);
   });
 });
 

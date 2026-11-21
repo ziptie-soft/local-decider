@@ -7,10 +7,10 @@
  */
 import { budgetFor, isEnforcedAllow, type DecideResponse } from '@ziptie-soft/local-decider-core';
 
+import { deterministicBlock } from '../block.ts';
 import {
   callAllows,
   classifierVerdict,
-  deterministicBlock,
   isPlainAsk,
   mayAct,
   reasonOf,

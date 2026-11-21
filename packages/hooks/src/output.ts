@@ -36,7 +36,22 @@ function preToolUse(decision: 'deny' | 'ask', reason: string): string {
 }
 
 export function guardDeny(hit: GuardHit): string {
-  return preToolUse('deny', `${PREFIX} guard (${hit.rule}): ${hit.reason}.`);
+  return preToolUse('deny', guardReason(hit));
+}
+
+function guardReason(hit: GuardHit): string {
+  return `${PREFIX} guard (${hit.rule}): ${safeReasonDetail(hit.reason)}.`;
+}
+
+/**
+ * A write-guard hit as PreToolUse output. Codex cannot ask, so it always denies; Claude denies,
+ * except an `ask` hit, which asks outside auto mode and stays silent in it (the classifier decides).
+ */
+export function guardOutput(harness: HookHarness, hit: GuardHit, autoMode: boolean): string {
+  if (hit.ask !== true || harness === 'codex') {
+    return guardDeny(hit);
+  }
+  return autoMode ? '' : preToolUse('ask', guardReason(hit));
 }
 
 function permissionAllow(): string {
