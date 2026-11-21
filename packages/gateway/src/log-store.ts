@@ -19,6 +19,8 @@ export function isTruncatedDecision(record: ShadowRecord): boolean {
 /** Durable decision, outcome and usage storage; precedent and calibration are rebuilt from it. */
 export interface LogStore {
   append(record: LogRecord): void;
+  /** The recorded decision with this id, if it is still stored. */
+  findDecision(decisionId: string): ShadowRecord | undefined;
   read(): LogRecord[];
   readRecent(maxAgeDays: number, now?: number): LogRecord[];
   /** Precedent evidence: keyed decisions, verified labels and configured unverified vetoes. */

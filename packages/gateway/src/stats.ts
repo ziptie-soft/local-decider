@@ -69,6 +69,8 @@ export interface PolicyStats {
   readonly classifierAgreement?: ClassifierAgreement;
   /** Unverified reports grouped by the caller's claimed source. */
   readonly unverifiedByClaimedSource?: Readonly<Record<string, number>>;
+  /** Unverified outcome and usage reports for these decisions; in no other statistic. */
+  readonly unverified?: { readonly outcomes: number; readonly usage: number };
 }
 
 export interface CalibrationHint {
@@ -129,6 +131,7 @@ function countActions(decisions: readonly ShadowRecord[]): Record<string, number
 interface Joined {
   readonly outcomes: ReadonlyMap<string, OutcomeRecord>;
   readonly unverified: readonly OutcomeRecord[];
+  readonly unverifiedUsage: readonly UsageRecord[];
   /** The effective verified outcome per decision (first wins; neutral may become a veto). */
   readonly verified: ReadonlyMap<string, string>;
   /** The latest outcome per decision that the auto-mode classifier reported. */
@@ -276,6 +279,7 @@ function policyStats(
   const latencies = sortedLatencies(decisions);
   const labelled = labelledDecisions(decisions, joined.outcomes);
   const unverified = countUnverified(decisions, joined.unverified);
+  const unverifiedTotals = unverifiedCounts(decisions, joined, unverified);
   const p50 = percentile(latencies, 50);
   const p95 = percentile(latencies, 95);
   return {
@@ -297,9 +301,21 @@ function policyStats(
         }),
     reliability: reliability(labelled),
     ...(Object.keys(unverified).length === 0 ? {} : { unverifiedByClaimedSource: unverified }),
+    ...(unverifiedTotals === undefined ? {} : { unverified: unverifiedTotals }),
     ...(hints.length === 0 ? {} : { calibrationHints: hints }),
     ...extras(decisions, joined),
   };
+}
+
+function unverifiedCounts(
+  decisions: readonly ShadowRecord[],
+  joined: Joined,
+  byClaimedSource: Readonly<Record<string, number>>,
+): { outcomes: number; usage: number } | undefined {
+  const ids = new Set(decisions.map((decision) => decision.decisionId));
+  const outcomes = Object.values(byClaimedSource).reduce((sum, n) => sum + n, 0);
+  const usage = joined.unverifiedUsage.filter((u) => ids.has(u.decisionId)).length;
+  return outcomes + usage === 0 ? undefined : { outcomes, usage };
 }
 
 function countUnverified(
@@ -329,9 +345,8 @@ function noteOutcomeRecord(
   classifier: Map<string, OutcomeRecord>,
   verified: Map<string, string>,
 ): void {
-  const held = outcomes.get(record.decisionId);
-  // A verified outcome is never replaced by an unverified one, whatever the arrival order.
-  if (held === undefined || isVerifiedOutcome(record) || !isVerifiedOutcome(held)) {
+  // Unverified reports never reach agreement, calibration or prompt time (they are counted).
+  if (isVerifiedOutcome(record)) {
     outcomes.set(record.decisionId, record);
   }
   if (record.source === 'classifier' || record.claimedSource === 'classifier') {
@@ -351,6 +366,8 @@ interface JoinedRecords {
   readonly classifier: Map<string, OutcomeRecord>;
   readonly verified: Map<string, string>;
   readonly usage: UsageRecord[];
+  /** Usage reports the report token did not verify; excluded from savings. */
+  readonly unverifiedUsage: UsageRecord[];
   readonly byPolicy: Map<string, ShadowRecord[]>;
 }
 
@@ -360,13 +377,14 @@ function joinRecords(records: readonly LogRecord[], options: StatsOptions): Join
   const classifier = new Map<string, OutcomeRecord>();
   const verified = new Map<string, string>();
   const usage: UsageRecord[] = [];
+  const unverifiedUsage: UsageRecord[] = [];
   const byPolicy = new Map<string, ShadowRecord[]>();
   for (const record of records) {
     if (record.kind === 'outcome') {
       noteOutcomeRecord(record, outcomes, classifier, verified);
       if (record.source === 'unverified') unverified.push(record);
     } else if (record.kind === 'usage') {
-      usage.push(record);
+      (record.verified === true ? usage : unverifiedUsage).push(record);
     } else if (
       !isProbeDecision(record) &&
       (options.scope === undefined || record.scope === options.scope)
@@ -376,7 +394,7 @@ function joinRecords(records: readonly LogRecord[], options: StatsOptions): Join
       byPolicy.set(record.policy, list);
     }
   }
-  return { outcomes, unverified, classifier, verified, usage, byPolicy };
+  return { outcomes, unverified, classifier, verified, usage, unverifiedUsage, byPolicy };
 }
 
 /**
@@ -390,16 +408,15 @@ export function computeStats(
   policies?: ReadonlyMap<string, LoadedPolicy>,
   options: StatsOptions = {},
 ): PolicyStats[] {
-  const { outcomes, unverified, classifier, verified, usage, byPolicy } = joinRecords(
-    records,
-    options,
-  );
+  const { outcomes, unverified, classifier, verified, usage, unverifiedUsage, byPolicy } =
+    joinRecords(records, options);
   return [...byPolicy.entries()]
     .toSorted(([a], [b]) => a.localeCompare(b))
     .map(([policy, decisions]) =>
       policyStats(policy, policies?.get(policy)?.policy, decisions, {
         outcomes,
         unverified,
+        unverifiedUsage,
         verified,
         classifier,
         scope: options.scope ?? DEFAULT_SCOPE,

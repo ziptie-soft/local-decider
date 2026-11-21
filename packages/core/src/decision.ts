@@ -198,6 +198,8 @@ export interface UsageRecord {
   readonly outputTokens: number;
   /** The harness's own cost figure for the turn, when it has one. */
   readonly costUsd?: number;
+  /** True only when the gateway's private report token authenticated the reporter. */
+  readonly verified?: boolean;
 }
 
 export type LogRecord = ShadowRecord | OutcomeRecord | UsageRecord;

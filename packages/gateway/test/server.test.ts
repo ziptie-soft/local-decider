@@ -164,7 +164,7 @@ describe('gateway precedent', () => {
       );
       assert.equal(forgedRecord?.kind === 'outcome' ? forgedRecord.verified : undefined, false);
       for (const source of ['classifier', 'harness', 'user'] as const) {
-        for (let index = 0; index < 20; index += 1) {
+        for (let index = 0; index < 9; index += 1) {
           const result = await decide();
           assert.equal(result['action'], 'ask');
           assert.deepEqual(result['precedent'], { allows: 0, denies: 0 });
@@ -262,6 +262,10 @@ describe('gateway HTTP', () => {
       headers: { 'content-type': 'application/json', ...controlHeaders(logPaths), ...headers },
       body: typeof body === 'string' ? body : JSON.stringify(body),
     });
+
+  const readStats = async (): Promise<
+    { policy: string; labelled: number; unverified?: { outcomes: number; usage: number } }[]
+  > => (await (await fetch(`${gw.url}/v1/stats`)).json()) as never;
 
   it('GET /health and /ping report the engine', async () => {
     for (const path of ['/health', '/ping']) {
@@ -412,10 +416,23 @@ describe('gateway HTTP', () => {
     assert.equal(outcome?.kind === 'outcome' ? outcome.source : undefined, 'unverified');
     assert.equal(outcome?.kind === 'outcome' ? outcome.verified : undefined, false);
     assert.equal((await post('/v1/outcomes', { outcome: 'done' })).status, 400);
-    const stats = (await (await fetch(`${gw.url}/v1/stats`)).json()) as {
-      policy: string;
-      labelled: number;
-    }[];
+    const first = (await readStats()).find((s) => s.policy === 'turn-outcome');
+    assert.equal(first?.labelled, 0, 'unverified outcomes are not agreement labels');
+    assert.equal(first.unverified?.outcomes, 1);
+    const reportHeader = {
+      'x-local-decider-report': readFileSync(join(configDir, 'report-token'), 'utf8'),
+    };
+    assert.equal(
+      (
+        await post(
+          '/v1/outcomes',
+          { decisionId: decision['decisionId'], outcome: 'done', source: 'user' },
+          reportHeader,
+        )
+      ).status,
+      200,
+    );
+    const stats = await readStats();
     assert.equal(stats.find((s) => s.policy === 'turn-outcome')?.labelled, 1);
     const reportToken = readFileSync(join(configDir, 'report-token'), 'utf8');
     assert.equal(JSON.stringify(readLog(logPaths)).includes(reportToken), false);
@@ -440,8 +457,24 @@ describe('gateway HTTP', () => {
       cachedInputTokens: 5000,
       outputTokens: 200,
     };
+    const reportHeader = {
+      'x-local-decider-report': readFileSync(join(configDir, 'report-token'), 'utf8'),
+    };
     assert.equal((await post('/v1/usage', usage)).status, 200);
-    assert.equal((await post('/v1/usage', usage)).status, 200, 'a repeated turn counts once');
+    const unverifiedStats = (await (await fetch(`${gw.url}/v1/stats`)).json()) as {
+      policy: string;
+      savings?: { potential: { moved: number } };
+      unverified?: { usage: number };
+    }[];
+    const unverifiedPolicy = unverifiedStats.find((s) => s.policy === 'turn-outcome');
+    assert.equal(unverifiedPolicy?.savings?.potential.moved, 0, 'unverified usage saves nothing');
+    assert.ok((unverifiedPolicy?.unverified?.usage ?? 0) >= 1);
+    assert.equal((await post('/v1/usage', usage, reportHeader)).status, 200);
+    assert.equal(
+      (await post('/v1/usage', usage, reportHeader)).status,
+      200,
+      'a repeated turn counts once',
+    );
     assert.equal((await post('/v1/usage', { ...usage, inputTokens: -1 })).status, 400);
     const stats = (await (await fetch(`${gw.url}/v1/stats`)).json()) as {
       policy: string;
@@ -453,6 +486,37 @@ describe('gateway HTTP', () => {
     assert.equal(potential?.moved, 1);
     assert.equal(potential.tokens.input, 1000);
     assert.equal(potential.moves[0]?.from, 'claude/claude-opus-4-6[1m]');
+  });
+
+  it('rejects unknown decisions and outcome values, and rate-limits unverified posts', async () => {
+    const decision = await json(
+      await post('/v1/decide/turn-outcome', {
+        harness: 'claude-code',
+        input: { lastMessage: 'ok' },
+      }),
+    );
+    const reportHeader = {
+      'x-local-decider-report': readFileSync(join(configDir, 'report-token'), 'utf8'),
+    };
+    const usage = { decisionId: 'nope', inputTokens: 1, outputTokens: 1 };
+    assert.equal((await post('/v1/usage', usage)).status, 404);
+    assert.equal((await post('/v1/usage', usage, reportHeader)).status, 404);
+    const unknown = { decisionId: 'nope', outcome: 'allow' };
+    assert.equal((await post('/v1/outcomes', unknown)).status, 404);
+    const bad = { decisionId: decision['decisionId'], outcome: 'whatever' };
+    assert.equal((await post('/v1/outcomes', bad)).status, 400);
+    assert.equal((await post('/v1/outcomes', bad, reportHeader)).status, 400);
+    const good = { decisionId: decision['decisionId'], outcome: 'stuck' };
+    assert.equal((await post('/v1/outcomes', good)).status, 200, 'an answer label is valid');
+
+    const statuses: number[] = [];
+    for (let index = 0; index < 40; index += 1) {
+      statuses.push((await post('/v1/outcomes', good)).status);
+    }
+    assert.ok(statuses.includes(429), 'unverified posts are limited');
+    for (let index = 0; index < 40; index += 1) {
+      assert.equal((await post('/v1/outcomes', good, reportHeader)).status, 200);
+    }
   });
 
   it('serves MCP tools/list and decide', async () => {
