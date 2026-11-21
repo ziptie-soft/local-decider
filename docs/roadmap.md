@@ -475,9 +475,9 @@ verified, thresholded answer.
 - **Direction:** one pass fixing each, plus `readOnlyHint: false`, required input keys in the
   MCP `policies` output, and bench default 3800.
 - **Open questions:** none.
-- **Status:** done (2026-11-21) — docs only: README retention 365 days, `AGENTS.md`
-  layout, 2 s routing timeout constant, `policies eval` on `off`; the `mcp.ts` hint and
-  calibration wording remain code changes.
+- **Status:** done (2026-11-21) — README retention 365 days, `AGENTS.md` layout, 2 s routing
+  timeout constant, `policies eval` on `off`; `mcp.ts` now sets `readOnlyHint: false` on `decide`,
+  words confidence per engine, and lists input keys in `policies`.
 
 ### D2 Skills and onboarding
 

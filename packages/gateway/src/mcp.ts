@@ -25,6 +25,8 @@ export interface McpPolicyInfo {
   readonly description: string;
   /** False for policies a harness hook enforces; MCP neither lists nor runs them. */
   readonly mcp: boolean;
+  /** Input keys the policy reads (its `state.sections[].from`), in order, without duplicates. */
+  readonly inputKeys: readonly string[];
   readonly questions: Readonly<Record<string, McpQuestionInfo>>;
 }
 
@@ -41,6 +43,7 @@ export function policyInfo(policy: Policy): McpPolicyInfo {
     id: policy.id,
     description: policy.description,
     mcp: mcpOpen(policy),
+    inputKeys: [...new Set(policy.state.sections.map((s) => s.from))],
     questions: Object.fromEntries(
       Object.entries(policy.questions).map(([id, question]) => [
         id,
@@ -69,6 +72,9 @@ export function parseMcpPolicies(body: unknown): McpPolicyInfo[] {
         id: e['id'],
         description: e['description'],
         mcp: e['mcp'] === true,
+        inputKeys: Array.isArray(e['inputKeys'])
+          ? e['inputKeys'].filter((k): k is string => typeof k === 'string')
+          : [],
         questions:
           typeof questions === 'object' && questions !== null
             ? (questions as Record<string, McpQuestionInfo>)
@@ -117,7 +123,8 @@ export function createMcpServer(backend: McpBackend): McpServer {
       title: 'Local decision model',
       description:
         'Ask the local decision model a fixed-choice question through a policy. Returns the action, ' +
-        'per-option probabilities and a calibrated confidence. Fast and local; no free text.',
+        'per-option probabilities and a confidence from the configured engine (calibrated only ' +
+        'when that engine reports calibrated probabilities). Fast and local; no free text.',
       inputSchema: {
         policy: z
           .string()
@@ -128,7 +135,13 @@ export function createMcpServer(backend: McpBackend): McpServer {
             "Structured input; keys follow the policy's state sections (see the policies tool)",
           ),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      // Not read-only: every call is written to the shadow log.
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ policy, input }, extra) => {
       await assertMcpPolicy(backend, policy);
@@ -141,14 +154,20 @@ export function createMcpServer(backend: McpBackend): McpServer {
     {
       title: 'List decision policies',
       description:
-        'List the policies you can call: id, description, and each question with its options.',
+        'List the policies you can call: id, description, the input keys each one reads (pass them ' +
+        'in the decide input), and each question with its options.',
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async () =>
       toolResult(
         (await backend.listPolicies())
           .filter((p) => p.mcp)
-          .map(({ id, description, questions }) => ({ id, description, questions })),
+          .map(({ id, description, inputKeys, questions }) => ({
+            id,
+            description,
+            inputKeys,
+            questions,
+          })),
       ),
   );
   return server;

@@ -267,6 +267,6 @@ how to add an engine or a model, and the macOS notes
 | `GET /v1/policies` | Open | Policy list and variants |
 | `POST /v1/policies/:id/mode`, `/variant`, `/thresholds`, `/v1/policies/reload` | Control | Policy settings, written to `config.yaml` |
 | `GET /v1/policies/:id/prompt`, `GET /v1/config`, `POST /v1/config/reload`, `/v1/config/engine`, `/v1/routing/presets` | Control | Authoring prompt, config view and reload, engine connection and preset mapping |
-| `POST /mcp` | Open | MCP over streamable HTTP with `decide` and `policies` tools; `local-decider mcp` is the stdio form. Policies with `mcp: false` (`permission`, `command-risk`) are refused and unlisted; `policies` shows only id, description, questions and options. MCP and CLI decisions are logged but excluded from stats, savings, calibration and precedent |
+| `POST /mcp` | Open | MCP over streamable HTTP with `decide` and `policies` tools; `local-decider mcp` is the stdio form. Policies with `mcp: false` (`permission`, `command-risk`) are refused and unlisted; `policies` shows only id, description, input keys, questions and options; `decide` is not read-only (it writes the log) and its confidence is calibrated only for engines that report it. MCP and CLI decisions are logged but excluded from stats, savings, calibration and precedent |
 
 Security controls on these routes are in [security.md](security.md).
