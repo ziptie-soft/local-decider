@@ -153,7 +153,8 @@ reason, `auto` never resolves to MLX and the selector offers them on CUDA, MPS a
 E2B v2 is on Hugging Face (2026-11-21), pinned together with the upstream-recorded base revision,
 and it is not recommended by default. `serve` queues requests and answers 503 after
 `--queue-timeout`; the gateway reports that as `engine busy (503)`, fails open and does not count
-it as an engine failure or restart.
+it as an engine failure or restart. The same holds for `systemone-remote` and
+`openai-compatible`: busy and other HTTP errors never flip them to `failed`.
 
 ## 5. macOS and Linux defaults
 
@@ -200,6 +201,12 @@ candidate:
 - The failed candidate cools down for 30 s, doubling per repeated failure up to 15 min. A
   candidate that stayed healthy for 5 min starts again from 30 s. When the cooldown ends the
   gateway retries the higher-ranked engine, so it recovers without flapping.
+- A hung engine (alive, but three decisions in a row hit the timeout and `/health` is silent)
+  restarts first, through the normal crash budget. Fallback starts only once that budget runs
+  out and the engine is `failed`; outside `auto` nothing falls back.
+- `systemone-remote` retries a transport error or HTTP 500/502/504 twice (250 ms, 500 ms) and
+  flips to `failed` only when `/health` is also silent; `openai-compatible` retries transport
+  errors only (never a 5xx) and flips only when they persist.
 - `GET /v1/engines` reports `active.selectionMode` (`auto` or `manual`) and, while a fallback is
   in effect, `active.fallback` with the `reason` and `retryAt`.
 

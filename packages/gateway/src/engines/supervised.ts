@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import { setTimeout as sleep } from 'node:timers/promises';
+import { setTimeout as timerSleep } from 'node:timers/promises';
 
 import type { Paths } from '../paths.ts';
 import { engineChildEnv } from './child-env.ts';
@@ -16,6 +16,18 @@ const MAX_RESTARTS = 5;
 /** Healthy this long before exiting, and the next crash starts a new restart budget. */
 const STABLE_MS = 5 * 60_000;
 const MAX_ENGINE_LOG_BYTES = 10 * 1024 * 1024;
+/** Restart backoff is `RESTART_BASE_MS * 2 ** n` for the n-th restart, capped. */
+const RESTART_BASE_MS = 1000;
+const RESTART_MAX_MS = 60_000;
+/** SIGTERM to SIGKILL. */
+const STOP_GRACE_MS = 10_000;
+/** A failed engine is not relaunched by a decision sooner than this after it failed. */
+const FAILED_RETRY_COOLDOWN_MS = 60_000;
+const HEALTH_POLL_MS = 500;
+const HEALTH_PROBE_TIMEOUT_MS = 3000;
+/** Consecutive decision timeouts before `/health` is probed for a hang. */
+const HANG_TIMEOUTS = 3;
+const HANG_PROBE_TIMEOUT_MS = 3000;
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -28,6 +40,36 @@ async function freePort(): Promise<number> {
       server.close(() => resolve(port));
     });
   });
+}
+
+/** Test seam: every side effect of the supervisor. Production uses the defaults. */
+export interface SupervisorDeps {
+  readonly spawn?: typeof spawn;
+  readonly freePort?: () => Promise<number>;
+  readonly fetch?: typeof fetch;
+  readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  readonly now?: () => number;
+}
+
+interface ResolvedDeps {
+  readonly spawn: typeof spawn;
+  readonly freePort: () => Promise<number>;
+  readonly fetch: typeof fetch;
+  readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+  readonly now: () => number;
+}
+
+function resolveDeps(deps: SupervisorDeps | undefined): ResolvedDeps {
+  return {
+    spawn: deps?.spawn ?? spawn,
+    freePort: deps?.freePort ?? freePort,
+    fetch: deps?.fetch ?? globalThis.fetch,
+    sleep:
+      deps?.sleep ??
+      ((ms, signal) =>
+        timerSleep(ms, undefined, { ref: false, ...(signal === undefined ? {} : { signal }) })),
+    now: deps?.now ?? Date.now,
+  };
 }
 
 /** How to launch and probe one kind of `/v1/systemone` server. */
@@ -56,15 +98,24 @@ export interface ServerSpec {
   maxLength?(body: Record<string, unknown>): number | undefined;
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * A `/v1/systemone` server spawned on a free loopback port and supervised with restart backoff
  * (or attached to `spec.url`). Output goes to `logs/engine-<id>.log`.
+ *
+ * `#gen` is bumped by `stop()`, `#fail` and every launch. Exit and error handlers, health-poll
+ * iterations and backoff timers each capture it and return when it moved on, so a stale one
+ * never touches the current attempt.
  */
 export class SupervisedEngine implements Engine {
   readonly id: string;
   readonly model: string;
   readonly #spec: ServerSpec;
   readonly #paths: Paths;
+  readonly #deps: ResolvedDeps;
   #url: string | undefined;
   #child: ChildProcess | undefined;
   #state: EngineState = 'stopped';
@@ -73,11 +124,19 @@ export class SupervisedEngine implements Engine {
   #restarts = 0;
   /** When the engine last became ready; a long healthy run resets the restart budget. */
   #readyAt: number | undefined;
-  #stopping = false;
+  #failedAt: number | undefined;
+  #gen = 0;
+  /** The attempt or scheduled restart in flight; `start()` joins it. */
+  #starting: Promise<void> | undefined;
+  #backoff: AbortController | undefined;
+  /** Consecutive decision deadline expiries; any answer resets it. */
+  #timeouts = 0;
+  #probing = false;
 
-  constructor(spec: ServerSpec, paths: Paths) {
+  constructor(spec: ServerSpec, paths: Paths, deps?: SupervisorDeps) {
     this.#spec = spec;
     this.#paths = paths;
+    this.#deps = resolveDeps(deps);
     this.id = spec.id;
     this.model = spec.model;
     this.#url = spec.url;
@@ -87,16 +146,15 @@ export class SupervisedEngine implements Engine {
     return this.#spec.concurrency;
   }
 
-  async start(): Promise<void> {
-    this.#stopping = false;
-    this.#state = 'starting';
-    if (this.#spec.url === undefined) {
-      const spawned = await this.#spawn();
-      if (!spawned) {
-        return;
-      }
+  /** Idempotent and never rejects; failures end in `failed` with a detail. */
+  start(): Promise<void> {
+    if (this.#starting !== undefined) {
+      return this.#starting;
     }
-    await this.#waitHealthy();
+    if (this.#state === 'ready' || this.#inCooldown()) {
+      return Promise.resolve();
+    }
+    return this.#track(this.#attempt());
   }
 
   health(): EngineHealth {
@@ -116,74 +174,190 @@ export class SupervisedEngine implements Engine {
     if (this.#state !== 'ready' || this.#url === undefined) {
       throw new EngineError(`engine ${this.#state}`);
     }
-    return postSystemOne({ baseUrl: this.#url }, request, signal);
+    try {
+      const answer = await postSystemOne(
+        { baseUrl: this.#url, fetch: this.#deps.fetch },
+        request,
+        signal,
+      );
+      this.#timeouts = 0;
+      return answer;
+    } catch (error) {
+      // Only the decision deadline counts; a caller abort, busy 503 or HTTP error is neutral.
+      if (
+        signal.aborted &&
+        (signal.reason as { name?: string } | undefined)?.name === 'TimeoutError'
+      ) {
+        this.#noteTimeout();
+      }
+      throw error;
+    }
+  }
+
+  /** Counts consecutive decision timeouts; at the threshold, probes `/health` once at a time. */
+  #noteTimeout(): void {
+    this.#timeouts += 1;
+    if (this.#timeouts < HANG_TIMEOUTS || this.#probing) {
+      return;
+    }
+    this.#probing = true;
+    void this.#probeHang(this.#gen).finally(() => {
+      this.#probing = false;
+    });
+  }
+
+  async #probeHang(gen: number): Promise<void> {
+    const url = this.#url;
+    if (url === undefined) {
+      return;
+    }
+    const count = this.#timeouts;
+    const body = await getHealth(
+      url,
+      HANG_PROBE_TIMEOUT_MS,
+      this.#spec.healthPath,
+      this.#deps.fetch,
+    );
+    if (gen !== this.#gen || this.#state !== 'ready') {
+      return; // stopped, failed or restarted meanwhile: the verdict is stale
+    }
+    if (body !== null) {
+      this.#timeouts = 0;
+      this.#detail = `slow: ${String(count)} consecutive decision timeouts`;
+      return;
+    }
+    this.#timeouts = 0;
+    this.#state = 'starting';
+    this.#detail = `engine hung (${String(count)} decision timeouts, no /health); restarting`;
+    if (this.#spec.url !== undefined) {
+      void this.#track(this.#attempt()); // attached: nothing to kill, wait for it again
+      return;
+    }
+    // The child's exit takes the normal #onExit path: backoff and the crash budget.
+    void this.#terminate(this.#child);
   }
 
   async stop(): Promise<void> {
-    this.#stopping = true;
+    this.#gen += 1;
+    this.#cancelBackoff();
+    this.#starting = undefined;
     this.#state = 'stopped';
+    this.#restarts = 0;
+    this.#readyAt = undefined;
     const child = this.#child;
     this.#child = undefined;
-    if (child === undefined || child.exitCode !== null) {
-      return;
-    }
-    killChild(child, 'SIGTERM');
-    const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
-    const timer = sleep(10_000).then(() => killChild(child, 'SIGKILL'));
-    await Promise.race([exited, timer]);
+    await this.#terminate(child);
   }
 
-  async #spawn(): Promise<boolean> {
+  #inCooldown(): boolean {
+    return (
+      this.#state === 'failed' &&
+      this.#failedAt !== undefined &&
+      this.#deps.now() - this.#failedAt < FAILED_RETRY_COOLDOWN_MS
+    );
+  }
+
+  #track(promise: Promise<void>): Promise<void> {
+    const tracked: Promise<void> = promise.finally(() => {
+      if (this.#starting === tracked) {
+        this.#starting = undefined;
+      }
+    });
+    this.#starting = tracked;
+    return tracked;
+  }
+
+  #cancelBackoff(): void {
+    this.#backoff?.abort();
+    this.#backoff = undefined;
+  }
+
+  /** One launch (or attach) plus the wait for health. Never rejects. */
+  async #attempt(): Promise<void> {
+    this.#gen += 1;
+    const gen = this.#gen;
+    this.#cancelBackoff();
+    const stale = this.#child;
+    this.#child = undefined;
+    void this.#terminate(stale);
+    this.#state = 'starting';
+    try {
+      if (this.#spec.url === undefined && !(await this.#spawn(gen))) {
+        return;
+      }
+      await this.#waitHealthy(gen);
+    } catch (error) {
+      if (gen === this.#gen) {
+        this.#fail(`engine failed to start: ${errorMessage(error)}`);
+      }
+    }
+  }
+
+  /** Whether the launch went ahead; false when it failed or was superseded. */
+  async #spawn(gen: number): Promise<boolean> {
     const binary = this.#spec.binary();
     if (binary.path === undefined || !existsSync(binary.path)) {
       this.#fail(binary.missing ?? `${String(binary.path)} not found`);
       return false;
     }
-    const port = await freePort();
+    const port = await this.#deps.freePort();
+    if (gen !== this.#gen) {
+      return false;
+    }
     this.#url = `http://127.0.0.1:${String(port)}`;
     mkdirSync(this.#paths.logs, { recursive: true });
     const logPath = join(this.#paths.logs, `engine-${this.id}.log`);
     rotateEngineLog(logPath);
     const log = createWriteStream(logPath, { flags: 'a' });
-    const child = spawn(binary.path, this.#spec.args(port), {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: engineChildEnv(process.env, this.#spec.env),
-      // Its own process group, so stop and the exit hook reach any grandchildren too.
-      detached: process.platform !== 'win32',
-    });
+    let child: ChildProcess;
+    try {
+      child = this.#deps.spawn(binary.path, this.#spec.args(port), {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: engineChildEnv(process.env, this.#spec.env),
+        // Its own process group, so stop and the exit hook reach any grandchildren too.
+        detached: process.platform !== 'win32',
+      });
+    } catch (error) {
+      log.destroy();
+      throw error;
+    }
     child.stdout?.pipe(createEngineLogFilter()).pipe(log, { end: false });
     child.stderr?.pipe(createEngineLogFilter()).pipe(log, { end: false });
     child.once('exit', (code, signal) => {
       log.end();
-      this.#onExit(code, signal);
+      this.#onExit(child, gen, code, signal);
     });
     // ENOENT or EACCES: no 'exit' follows, so fail here instead of crashing on an unhandled event.
     child.once('error', (error) => {
       log.end();
-      this.#onSpawnError(child, error);
+      this.#onSpawnError(child, gen, error);
     });
     trackChild(child);
     this.#child = child;
     return true;
   }
 
-  #onSpawnError(child: ChildProcess, error: Error): void {
-    if (this.#stopping || this.#child !== child) {
+  #onSpawnError(child: ChildProcess, gen: number, error: Error): void {
+    if (gen !== this.#gen || this.#child !== child) {
       return;
     }
-    this.#child = undefined;
     this.#readyAt = undefined;
     this.#fail(`engine failed to start: ${error.message}`);
   }
 
-  #onExit(code: number | null, signal: NodeJS.Signals | null): void {
-    if (this.#stopping) {
-      return;
+  #onExit(
+    child: ChildProcess,
+    gen: number,
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): void {
+    if (gen !== this.#gen || this.#child !== child) {
+      return; // stopped, failed or replaced: this exit is an orphan's
     }
     this.#child = undefined;
     const reason = `engine exited (${signal ?? `code ${String(code)}`})`;
     // A crash after a long healthy run is a fresh failure, not part of a crash loop.
-    if (this.#readyAt !== undefined && Date.now() - this.#readyAt >= STABLE_MS) {
+    if (this.#readyAt !== undefined && this.#deps.now() - this.#readyAt >= STABLE_MS) {
       this.#restarts = 0;
     }
     this.#readyAt = undefined;
@@ -194,18 +368,35 @@ export class SupervisedEngine implements Engine {
     this.#restarts += 1;
     this.#state = 'starting';
     this.#detail = `${reason}; restart ${String(this.#restarts)}`;
-    void sleep(1000 * 2 ** this.#restarts).then(async () => {
-      if (!this.#stopping) {
-        await this.start();
-      }
-    });
+    this.#scheduleRestart(Math.min(RESTART_BASE_MS * 2 ** this.#restarts, RESTART_MAX_MS));
   }
 
-  async #waitHealthy(): Promise<void> {
-    const deadline = Date.now() + this.#spec.startTimeoutSeconds * 1000;
-    while (!this.#stopping && Date.now() < deadline) {
+  #scheduleRestart(delayMs: number): void {
+    const gen = this.#gen;
+    const controller = new AbortController();
+    this.#backoff = controller;
+    const restart = this.#deps
+      .sleep(delayMs, controller.signal)
+      .then(() => (gen === this.#gen ? this.#attempt() : undefined))
+      .catch((error: unknown) => {
+        if (gen === this.#gen) {
+          this.#fail(`engine restart failed: ${errorMessage(error)}`);
+        }
+      });
+    void this.#track(restart);
+  }
+
+  async #waitHealthy(gen: number): Promise<void> {
+    const deadline = this.#deps.now() + this.#spec.startTimeoutSeconds * 1000;
+    while (gen === this.#gen && this.#deps.now() < deadline) {
       const url = this.#url;
-      const body = url === undefined ? null : await getHealth(url, 3000, this.#spec.healthPath);
+      const body =
+        url === undefined
+          ? null
+          : await getHealth(url, HEALTH_PROBE_TIMEOUT_MS, this.#spec.healthPath, this.#deps.fetch);
+      if (gen !== this.#gen) {
+        return;
+      }
       if (body !== null) {
         this.#ready(body);
         return;
@@ -213,23 +404,51 @@ export class SupervisedEngine implements Engine {
       if (this.#spec.url === undefined && this.#child === undefined) {
         return; // exited; #onExit owns the next step
       }
-      await sleep(500);
+      await this.#deps.sleep(HEALTH_POLL_MS);
     }
-    if (!this.#stopping && this.#state === 'starting') {
+    if (gen === this.#gen && this.#state === 'starting') {
       this.#fail('engine did not become healthy in time');
     }
   }
 
   #ready(body: Record<string, unknown>): void {
     this.#state = 'ready';
-    this.#readyAt = Date.now();
+    this.#timeouts = 0;
+    this.#readyAt = this.#deps.now();
     this.#detail = undefined;
     this.#maxLength = this.#spec.maxLength?.(body);
   }
 
+  /** Marks the engine failed and kills its child; a pending restart or health wait is dropped. */
   #fail(detail: string): void {
+    this.#gen += 1;
+    this.#cancelBackoff();
     this.#state = 'failed';
     this.#detail = detail;
+    this.#failedAt = this.#deps.now();
+    const child = this.#child;
+    this.#child = undefined;
+    void this.#terminate(child);
+  }
+
+  /** SIGTERM, then SIGKILL after the grace; resolves once the child exited or was killed. */
+  async #terminate(child: ChildProcess | undefined): Promise<void> {
+    if (child === undefined || child.exitCode !== null || child.signalCode !== null) {
+      return;
+    }
+    const timer = new AbortController();
+    const exited = new Promise<void>((resolve) => {
+      child.once('exit', () => {
+        timer.abort();
+        resolve();
+      });
+    });
+    killChild(child, 'SIGTERM');
+    const killed = this.#deps
+      .sleep(STOP_GRACE_MS, timer.signal)
+      .then(() => killChild(child, 'SIGKILL'))
+      .catch(() => undefined);
+    await Promise.race([exited, killed]);
   }
 }
 

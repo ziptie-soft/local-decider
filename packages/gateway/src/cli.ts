@@ -55,6 +55,7 @@ import { installLlamaModel } from './llama-install.ts';
 import { parseMcpPolicies, serveMcpStdio, type McpBackend } from './mcp.ts';
 import { resolvePaths, type Paths } from './paths.ts';
 import { loadPolicies, policyDirs } from './policies.ts';
+import { installProcessGuards } from './process-guards.ts';
 import { readControlToken } from './report-token.ts';
 import { startGateway } from './runtime.ts';
 import {
@@ -170,6 +171,11 @@ async function gatewayRun(ctx: Context): Promise<void> {
   const { values } = parseArgs({
     args: [...ctx.args],
     options: { host: { type: 'string' }, port: { type: 'string' } },
+  });
+  installProcessGuards({
+    proc: process,
+    log: (line) => console.error(line),
+    exit: (code) => process.exit(code),
   });
   const store = ConfigFile.open(ctx.paths);
   const config: GatewayConfig = {

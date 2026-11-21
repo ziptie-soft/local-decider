@@ -247,7 +247,15 @@ how to add an engine or a model, and the macOS notes
 - **Supervision.** A spawned engine runs on a free loopback port and logs filtered stdout/stderr
   to `logs/engine-<id>.log`. Lines containing request `state` or `questions`, and lines over 500
   characters, are discarded. Logs over 10 MiB rotate to one `.1` file. After a crash the engine
-  restarts with exponential backoff, at most 5 times; a 5-minute healthy run resets that budget.
+  restarts with exponential backoff (2 s doubling to 32 s), at most 5 times; a 5-minute healthy
+  run resets that budget. An engine that never becomes healthy, or exhausts the budget, is
+  killed (SIGTERM, then SIGKILL after 10 s) and marked `failed`; a decision then starts it again
+  at most once per 60 s, and concurrent starts share one attempt, so a crash loop never piles up
+  children. Three consecutive decision timeouts trigger a `/health` probe: no answer restarts the
+  engine, an answer only logs "slow". `systemone-remote` retries transport errors and HTTP
+  500/502/504 twice and flips to `failed` only if `/health` is silent too;
+  `openai-compatible` retries transport errors only. The gateway process logs and survives
+  unhandled rejections and exits on an uncaught exception, so the service manager restarts it.
 - **Lifecycle.** `lazy` (default) loads the model on the first decision and unloads it after
   `idleUnloadMinutes` (15). `eager` loads it at start. A decision that arrives while the model
   loads waits for it.
