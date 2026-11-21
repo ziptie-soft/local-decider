@@ -58,6 +58,7 @@ export interface FakeGateway extends Gateway {
     policy: string;
     input: Readonly<Record<string, unknown>>;
     sessionId?: string;
+    timeoutMs?: number;
   }[];
   readonly outcomes: { decisionId: string; outcome: string; source: string }[];
   readonly usage: UsageReport[];
@@ -85,13 +86,25 @@ export function fakeGateway(
     outcomes,
     usage,
     posts,
-    async decide(policy, request) {
+    async decide(policy, request, options) {
       calls.push({
         policy,
         input: request.input,
         ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
+        ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
       });
-      return decide(policy);
+      const signal = options?.signal;
+      if (signal === undefined) {
+        return decide(policy);
+      }
+      // Like the real client: an abort ends the call with null.
+      const aborted = new Promise<null>((resolve) => {
+        if (signal.aborted) {
+          resolve(null);
+        }
+        signal.addEventListener('abort', () => resolve(null), { once: true });
+      });
+      return Promise.race([Promise.resolve(decide(policy)), aborted]);
     },
     async reportOutcome(decisionId, outcome, source) {
       outcomes.push({ decisionId, outcome, source });

@@ -6,6 +6,7 @@
  * `decline` / `interrupted`) as the ground-truth outcome, redraws the row with it, and registers
  * the row for label chips, which can later report `unsafe` (`labels.ts`). Paseo does not await `before`, so the user can answer
  * before, while or after the decision lands; `settleUser` handles each order exactly once.
+ * Paseo does not replay `before`, so a request pending at plugin start stays with the user.
  */
 import type { PluginHookAgent } from '@getpaseo/plugin/server';
 import type {
@@ -153,6 +154,7 @@ interface PermissionState {
   readonly firstRequests: BoundedMap<string>;
   readonly labels: LabelRegistry;
   readonly now: () => number;
+  readonly logAllow: (result: AllowResult, error: unknown) => void;
 }
 
 export function createPermissionHandlers(
@@ -163,11 +165,13 @@ export function createPermissionHandlers(
   before: (event: PermissionEvent, ctx: HookCtx) => Promise<void>;
   after: (event: PermissionResolvedEvent) => Promise<void>;
 } {
+  const now = options.now ?? Date.now;
   const state: PermissionState = {
     pending: new BoundedMap<Pending>(500),
     firstRequests: new BoundedMap<string>(500),
     labels: options.labels ?? new LabelRegistry(),
-    now: options.now ?? Date.now,
+    now,
+    logAllow: createAllowLogger(now, (m) => deps.log(m)),
   };
 
   // Returns at once: the request stays pending for the user while the decision runs detached.
@@ -305,7 +309,7 @@ async function autoAllow(
     return;
   }
   entry.autoAllowed = true;
-  entry.applied = await tryAllow(entry.agent, request, response);
+  entry.applied = (await tryAllow(entry, request, response, state.logAllow)) === 'applied';
   if (entry.applied) {
     entry.answeredAt = state.now();
   } else if (entry.resolution !== null && entry.resolution !== 'allow') {
@@ -419,28 +423,67 @@ async function decidePermission(
   );
 }
 
+type AllowResult = 'applied' | 'timeout' | 'answered' | 'rejected';
+
+const TIMED_OUT = 'respondToPermission timed out';
+
 /**
- * True when the daemon confirmed our allow. A throw or a timeout is ambiguous (it may have been
- * applied, or the user answered first): false, and the caller keeps the outcome as ours.
+ * `applied` when the daemon confirmed our allow. Anything else is ambiguous (it may have been
+ * applied, or the user answered first): the caller keeps the outcome as ours. `answered` is a
+ * rejection after the user's answer, which is benign.
  */
 async function tryAllow(
-  agent: AgentRef,
+  entry: Pending,
   request: AgentPermissionRequest,
   response: AgentPermissionResponse,
-): Promise<boolean> {
+  onFail: (result: AllowResult, error: unknown) => void,
+): Promise<AllowResult> {
   let timer: NodeJS.Timeout | undefined;
   const expired = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error('respondToPermission timed out')),
-      RESPOND_TIMEOUT_MS,
-    );
+    timer = setTimeout(() => reject(new Error(TIMED_OUT)), RESPOND_TIMEOUT_MS);
   });
   try {
-    await Promise.race([agent.respondToPermission({ requestId: request.id, response }), expired]);
-    return true;
-  } catch {
-    return false;
+    await Promise.race([
+      entry.agent.respondToPermission({ requestId: request.id, response }),
+      expired,
+    ]);
+    return 'applied';
+  } catch (error) {
+    const result: AllowResult =
+      entry.resolution !== null
+        ? 'answered'
+        : error instanceof Error && error.message === TIMED_OUT
+          ? 'timeout'
+          : 'rejected';
+    onFail(result, error);
+    return result;
   } finally {
     clearTimeout(timer);
   }
+}
+
+const REJECT_LOG_INTERVAL_MS = 60_000;
+
+/** Logs a failed allow; rejections are rate limited, with a count of the suppressed lines. */
+function createAllowLogger(
+  now: () => number,
+  log: (m: string) => void,
+): (result: AllowResult, error: unknown) => void {
+  let lastAt = Number.NEGATIVE_INFINITY;
+  let suppressed = 0;
+  return (result, error) => {
+    if (result === 'timeout') {
+      log('permission allow timed out');
+    } else if (result === 'rejected') {
+      if (now() - lastAt < REJECT_LOG_INTERVAL_MS) {
+        suppressed += 1;
+        return;
+      }
+      lastAt = now();
+      const extra = suppressed > 0 ? ` (${suppressed} similar suppressed)` : '';
+      suppressed = 0;
+      const line = errorText(error).split('\n')[0]?.slice(0, 200) ?? '';
+      log(`permission allow not applied: ${line}${extra}`);
+    }
+  };
 }

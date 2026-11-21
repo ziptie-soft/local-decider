@@ -112,6 +112,9 @@ function createDeps(server: PluginServerContext): {
     },
     log,
     gatewayKnownDown: () => lastDownAt !== null && Date.now() - lastDownAt < DOWN_TTL_MS,
+    markGatewayDown: () => {
+      lastDownAt = Date.now();
+    },
   };
   return {
     deps,

@@ -22,6 +22,8 @@ import type { UsageLinks } from './usage.ts';
 
 const ROUTING_POLICY = 'routing';
 const ROUTING_BUDGET_MS = 2000;
+/** Below this much budget left, the gateway call is skipped; it would get at least 500 ms. */
+const MIN_ROUTE_DECIDE_MS = 1000;
 const SHADOW_TIMEOUT_MS = 30_000;
 
 /** Where Paseo agent profiles come from: the hook context's `paseo.config`. */
@@ -53,18 +55,31 @@ interface RoutePlan {
   readonly profiles: readonly ProfileLike[];
 }
 
+/** What is left of one `agent.create.before` call: `signal` aborts at the deadline. */
+interface Budget {
+  readonly signal: AbortSignal;
+  readonly caller: AbortSignal;
+  remaining(): number;
+}
+
 export function createRoutingHandler(
   deps: HookDeps,
   budgetMs = ROUTING_BUDGET_MS,
   usage?: UsageLinks,
+  now: () => number = Date.now,
 ): (
   payload: { request: CreateRequest },
   ctx: { signal: AbortSignal; paseo?: ProfileSource },
 ) => Promise<CreateRequest | undefined> {
   return async ({ request }, ctx) => {
-    const budget = AbortSignal.any([ctx.signal, AbortSignal.timeout(budgetMs)]);
+    const deadline = now() + budgetMs;
+    const budget: Budget = {
+      signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(budgetMs)]),
+      caller: ctx.signal,
+      remaining: () => Math.max(0, deadline - now()),
+    };
     try {
-      return await withBudget(route(deps, request, budget, usage, ctx.paseo), budget);
+      return await withBudget(route(deps, request, budget, usage, ctx.paseo), budget.signal);
     } catch (error) {
       deps.log(`routing skipped: ${errorText(error)}`);
       return undefined;
@@ -136,7 +151,7 @@ function targetOf(res: DecideResponse, plan: RoutePlan): PresetTarget | null {
 async function route(
   deps: HookDeps,
   request: CreateRequest,
-  signal: AbortSignal,
+  budget: Budget,
   usage: UsageLinks | undefined,
   paseo: ProfileSource | undefined,
 ): Promise<CreateRequest | undefined> {
@@ -145,7 +160,7 @@ async function route(
     return undefined;
   }
   return plan.mode === 'act'
-    ? routeAct(plan, deps, request, signal, usage)
+    ? routeAct(plan, deps, request, budget, usage)
     : routeShadow(plan, request, usage);
 }
 
@@ -203,12 +218,17 @@ async function routeAct(
   plan: RoutePlan,
   deps: HookDeps,
   request: CreateRequest,
-  signal: AbortSignal,
+  budget: Budget,
   usage: UsageLinks | undefined,
 ): Promise<CreateRequest | undefined> {
+  const remaining = budget.remaining();
+  if (remaining < MIN_ROUTE_DECIDE_MS) {
+    deps.log('routing skipped: budget spent before decide');
+    return undefined;
+  }
   const pending = plan.gateway.decide(ROUTING_POLICY, plan.body, {
-    timeoutMs: ROUTING_BUDGET_MS,
-    signal,
+    timeoutMs: remaining,
+    signal: budget.signal,
   });
   usage?.creating(
     request.config.cwd,
@@ -219,7 +239,11 @@ async function routeAct(
     ),
   );
   const res = await pending;
-  if (res === null || !pluginEnforces(res, plan.mode)) {
+  if (res === null) {
+    markDownOnTimeout(deps, budget);
+    return undefined;
+  }
+  if (!pluginEnforces(res, plan.mode)) {
     return undefined;
   }
   const target = targetOf(res, plan);
@@ -227,6 +251,17 @@ async function routeAct(
     return undefined;
   }
   return applyRouteTarget(deps, request, res, target);
+}
+
+/**
+ * The gateway took the whole budget: mark it down so later creations skip it. A caller abort or a
+ * fast failure says nothing about the gateway.
+ */
+function markDownOnTimeout(deps: HookDeps, budget: Budget): void {
+  const reason = budget.signal.reason as { name?: unknown } | undefined;
+  if (budget.signal.aborted && reason?.name === 'TimeoutError' && !budget.caller.aborted) {
+    deps.markGatewayDown?.();
+  }
 }
 
 function applyRouteTarget(

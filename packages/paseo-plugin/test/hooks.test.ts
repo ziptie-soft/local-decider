@@ -126,6 +126,17 @@ describe('agent.turn.after', () => {
     assert.equal(paseo.agent.appended.length, 0);
   });
 
+  it('skips a failed turn like a canceled one, and still decides a completed one', async () => {
+    const gw = fakeGateway(() => response({ action: 'notify', mode: 'act', enforced: true }));
+    const paseo = fakePaseo(turn);
+    await turnHandler(deps(settings(), gw))(paseo, { kind: 'failed', error: { message: 'boom' } });
+    assert.equal(gw.calls.length, 0);
+    assert.equal(paseo.agent.appended.length, 0);
+    await turnHandler(deps(settings(), gw))(paseo, completed);
+    assert.equal(gw.calls.length, 1);
+    assert.equal(paseo.agent.appended.length, 1);
+  });
+
   it('swallows timeline failures', async () => {
     const d = deps(
       settings(),
@@ -293,7 +304,70 @@ describe('agent.permission.before', () => {
     const d = deps(actMode, gw);
     await permissionHandlers(d).request(paseo);
     assert.equal(flag(paseo.agent.appended[0], 'applied'), false);
+    assert.equal(d.logs.length, 1, 'a rejection with no answer is logged once');
+    assert.match(d.logs[0] ?? '', /^permission allow not applied: Permission request r1 is not/);
+  });
+
+  it('does not log a rejection after the user answered, and reports the user', async () => {
+    const gw = fakeGateway(() =>
+      response({ policy: 'permission', action: 'allow', mode: 'act', enforced: true }),
+    );
+    let handlers: ReturnType<typeof createPermissionHandlers> | null = null;
+    const paseo = fakePaseo(turn, async () => {
+      await handlers?.after({ agent, requestId: 'r1', resolution: { behavior: 'deny' } });
+      throw new Error('Permission request r1 is not pending');
+    });
+    const d = deps(actMode, gw);
+    handlers = createPermissionHandlers(d, bg);
+    await handlers.before({ agent, request: toolRequest }, ctx(paseo));
+    await bg.idle();
     assert.deepEqual(d.logs, []);
+    assert.deepEqual(gw.outcomes, [{ decisionId: 'd-1', outcome: 'decline', source: 'user' }]);
+  });
+
+  it('keeps the outcome ours and logs a rejection once per interval', async () => {
+    const gw = fakeGateway(() =>
+      response({ policy: 'permission', action: 'allow', mode: 'act', enforced: true }),
+    );
+    const paseo = fakePaseo(turn, async () => {
+      throw new Error('boom\nsecond line');
+    });
+    const d = deps(actMode, gw);
+    let t = 1_000;
+    const handlers = createPermissionHandlers(d, bg, { now: () => t });
+    for (const id of ['r1', 'r2']) {
+      await handlers.before({ agent, request: { ...toolRequest, id } }, ctx(paseo));
+      await bg.idle();
+    }
+    assert.deepEqual(d.logs, ['permission allow not applied: boom']);
+    assert.equal(flag(paseo.agent.appended[0], 'applied'), false);
+    await handlers.after({ agent, requestId: 'r1', resolution: { behavior: 'allow' } });
+    assert.deepEqual(gw.outcomes, [], 'autoAllowed stays set');
+    t += 60_000;
+    await handlers.before({ agent, request: { ...toolRequest, id: 'r3' } }, ctx(paseo));
+    await bg.idle();
+    assert.deepEqual(d.logs, [
+      'permission allow not applied: boom',
+      'permission allow not applied: boom (1 similar suppressed)',
+    ]);
+  });
+
+  it('logs a send that never settles as a timeout', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const gw = fakeGateway(() =>
+      response({ policy: 'permission', action: 'allow', mode: 'act', enforced: true }),
+    );
+    const paseo = fakePaseo(turn, () => new Promise<void>(() => {}));
+    const d = deps(actMode, gw);
+    const handlers = createPermissionHandlers(d, bg);
+    await handlers.before({ agent, request: toolRequest }, ctx(paseo));
+    while (paseo.agent.responses.length === 0) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    t.mock.timers.tick(10_000);
+    await bg.idle();
+    assert.deepEqual(d.logs, ['permission allow timed out']);
+    assert.equal(flag(paseo.agent.appended[0], 'applied'), false);
   });
 
   it('skips questions and plan approvals, and reports user answers as outcomes', async () => {
@@ -780,6 +854,61 @@ describe('agent.create.before', () => {
     assert.equal(gw.calls.length, 0);
   });
 
+  describe('remaining budget', () => {
+    it('skips decide when less than a second is left after planning', async () => {
+      const clock = { t: 0 };
+      const gw = fakeGateway(budgetRes);
+      const d = clockDeps(gw, clock, 1200);
+      const h = createRoutingHandler(d, 2000, undefined, () => clock.t);
+      assert.equal(await h(createRequest('Task'), { signal }), undefined);
+      assert.equal(gw.calls.length, 0);
+      assert.ok(d.logs.some((l) => l.includes('budget spent before decide')));
+      assert.equal(d.downs, 0);
+    });
+
+    it('passes the remaining budget to the gateway', async () => {
+      const clock = { t: 0 };
+      const gw = fakeGateway(budgetRes);
+      const d = clockDeps(gw, clock, 500);
+      const h = createRoutingHandler(d, 2000, undefined, () => clock.t);
+      assert.equal((await h(createRequest('Task'), { signal }))?.config.model, 'haiku');
+      assert.equal(gw.calls[0]?.timeoutMs, 1500);
+    });
+
+    it('marks the gateway down when it takes the whole budget', async () => {
+      const gw = fakeGateway(async () => new Promise(() => {}));
+      const d = clockDeps(gw, { t: 0 }, 0);
+      const h = createRoutingHandler(d, 1100);
+      assert.equal(await h(createRequest('Task'), { signal }), undefined);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(d.downs, 1);
+    });
+
+    it('does not mark it down on a fast failure or a caller abort', async () => {
+      const fast = clockDeps(
+        fakeGateway(() => null),
+        { t: 0 },
+        0,
+      );
+      await createRoutingHandler(fast)(createRequest('Task'), { signal });
+      assert.equal(fast.downs, 0);
+
+      const controller = new AbortController();
+      const hung = clockDeps(
+        fakeGateway(async () => new Promise(() => {})),
+        { t: 0 },
+        0,
+      );
+      const pending = createRoutingHandler(hung)(createRequest('Task'), {
+        signal: controller.signal,
+      });
+      controller.abort();
+      await pending;
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(hung.downs, 0);
+    });
+  });
+
   it('skips internal agents', async () => {
     const gw = fakeGateway(() => response());
     const req = createRequest('Commit message');
@@ -788,6 +917,28 @@ describe('agent.create.before', () => {
     assert.equal(gw.calls.length, 0);
   });
 });
+
+const budgetRes = (): ReturnType<typeof response> =>
+  response({ policy: 'routing', action: 'route:fast', mode: 'act', enforced: true });
+const clockDeps = (
+  gw: ReturnType<typeof fakeGateway>,
+  clock: { t: number },
+  spend: number,
+): HookDeps & { downs: number; logs: string[] } => {
+  const d = deps(routingAct, gw);
+  const settingsFn = d.settings.bind(d);
+  const out = Object.assign(d, {
+    downs: 0,
+    settings: async () => {
+      clock.t += spend;
+      return settingsFn();
+    },
+    markGatewayDown: () => {
+      out.downs += 1;
+    },
+  });
+  return out;
+};
 
 const open = (purpose: 'interactive' | 'history'): { request: PluginSessionOpenRequest } => ({
   request: {

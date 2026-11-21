@@ -178,7 +178,8 @@ The plugin sends agent content to the gateway at the configured URL:
   tool request with its input.
 - **Routing:** the project path and the new agent's title.
 - **Usage:** for agents that routing created, each turn's model id, token counts and cost, so the
-  statistics can show routing savings.
+  statistics can show routing savings. Reports stop for agents created before a daemon or plugin
+  restart, so savings undercount.
 - **`/decide`:** the text you type after the command.
 - **Feedback:** your answers to "Right answer?" chips and your accept or decline on prompts.
 

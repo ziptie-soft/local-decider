@@ -55,6 +55,8 @@ export interface HookDeps {
   log(message: string): void;
   /** True when a recent health check failed; waiting hooks then skip the gateway entirely. */
   gatewayKnownDown?(): boolean;
+  /** Called when a waiting hook spent its whole budget on the gateway; a status RPC success clears it. */
+  markGatewayDown?(): void;
 }
 
 /** Read a local token using the gateway's config directory precedence. */
