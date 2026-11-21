@@ -87,10 +87,25 @@ describe('MCP tools', () => {
       listed.map((p) => p.id),
       ['turn-outcome'],
     );
+    assert.deepEqual((listed[0] as { inputKeys?: string[] }).inputKeys, ['request']);
     assert.deepEqual(listed[0]?.questions, {
       verdict: { instructions: 'Judge.', options: ['allow', 'ask'] },
     });
     assert.doesNotMatch(raw, /minProbability|threshold|rules|precedent|calibration/i);
+  });
+
+  it('annotates decide as writing to the log and policies as read-only', async () => {
+    const client = await connect([]);
+    const tools = (await client.listTools()).tools;
+    const decide = tools.find((t) => t.name === 'decide');
+    assert.deepEqual(decide?.annotations, {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    });
+    assert.doesNotMatch(decide?.description ?? '', /a calibrated confidence/);
+    assert.equal(tools.find((t) => t.name === 'policies')?.annotations?.readOnlyHint, true);
   });
 
   it('defaults mcp to true', () => {
