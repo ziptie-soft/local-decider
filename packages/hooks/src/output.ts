@@ -2,10 +2,11 @@
  * DecideResponse → harness stdout. An empty string means "abstain": exit 0 with no output, so the
  * harness runs its normal flow. Only enforced decisions produce output (ADR-0005).
  */
-import type { DecideResponse } from '@ziptie-soft/local-decider-core';
+import { isEnforcedAllow, type DecideResponse } from '@ziptie-soft/local-decider-core';
 
 import type { GuardHit } from './guard.ts';
 import type { HookHarness, PolicyEvent } from './mapping.ts';
+import { mayAutoAllow } from './permission-tools.ts';
 
 const PREFIX = 'local-decider';
 const REASON_DETAIL_CHARS = 160;
@@ -35,7 +36,22 @@ function preToolUse(decision: 'deny' | 'ask', reason: string): string {
 }
 
 export function guardDeny(hit: GuardHit): string {
-  return preToolUse('deny', `${PREFIX} guard (${hit.rule}): ${hit.reason}.`);
+  return preToolUse('deny', guardReason(hit));
+}
+
+function guardReason(hit: GuardHit): string {
+  return `${PREFIX} guard (${hit.rule}): ${safeReasonDetail(hit.reason)}.`;
+}
+
+/**
+ * A write-guard hit as PreToolUse output. Codex cannot ask, so it always denies; Claude denies,
+ * except an `ask` hit, which asks outside auto mode and stays silent in it (the classifier decides).
+ */
+export function guardOutput(harness: HookHarness, hit: GuardHit, autoMode: boolean): string {
+  if (hit.ask !== true || harness === 'codex') {
+    return guardDeny(hit);
+  }
+  return autoMode ? '' : preToolUse('ask', guardReason(hit));
 }
 
 function permissionAllow(): string {
@@ -123,16 +139,53 @@ function preToolUseOutput(harness: HookHarness, res: DecideResponse, autoMode: b
   return '';
 }
 
+const SUBAGENT_NOTICE: Readonly<Record<string, string>> = {
+  stuck: 'looks stuck',
+  needs_input: 'is waiting for input it did not get',
+};
+const SUBAGENT_ADVICE: Readonly<Record<string, string>> = {
+  stuck: 'check its result before relying on it or re-delegate',
+  needs_input: 'answer or re-delegate',
+};
+
+/**
+ * Tell the parent agent a subagent looks stuck or waiting. Fixed text only: the subagent's own
+ * words never reach the parent through here. Anything else (done, failed, log) stays silent.
+ */
+function subagentContext(res: DecideResponse, label: string): string {
+  const first = Object.entries(res.answers)[0]?.[1];
+  const outcome = first?.answer ?? '';
+  const notice = SUBAGENT_NOTICE[outcome];
+  const advice = SUBAGENT_ADVICE[outcome];
+  if (
+    res.action !== 'notify' ||
+    first === undefined ||
+    notice === undefined ||
+    advice === undefined
+  ) {
+    return '';
+  }
+  const text = `${PREFIX}: subagent "${label}" ${notice} (confidence ${first.confidence.toFixed(2)}); ${advice}. Decision ${res.decisionId}.`;
+  return json({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: text } });
+}
+
 /**
  * Translate a gateway answer for an event. `null` (gateway down, slow, error) → abstain.
- * `autoMode`: Claude Code runs in auto mode (`permission_mode: auto`).
+ * `autoMode`: Claude Code runs in auto mode (`permission_mode: auto`). `tool` is the tool name,
+ * or the subagent label for `SubagentResult`.
  */
 export function translate(
   harness: HookHarness,
   event: PolicyEvent,
   res: DecideResponse | null,
   autoMode = false,
+  tool?: string,
 ): string {
+  if (event === 'PermissionRequest') {
+    // v1 never denies from the model: anything but an enforced allow of an allowlisted tool
+    // leaves the normal prompt (Claude) or the auto-reviewer (Codex) in charge.
+    return isEnforcedAllow(res) && mayAutoAllow(harness, tool) ? permissionAllow() : '';
+  }
   const enforced: unknown = res?.enforced;
   if (res === null || enforced !== true || res.mode !== 'act' || res.error !== undefined) {
     return '';
@@ -140,13 +193,11 @@ export function translate(
   if (event === 'PreToolUse') {
     return preToolUseOutput(harness, res, autoMode);
   }
-  if (event === 'PermissionRequest') {
-    // v1 never denies from the model: anything but an enforced allow leaves the normal prompt
-    // (Claude) or the auto-reviewer (Codex) in charge.
-    return res.action === 'allow' ? permissionAllow() : '';
-  }
   if (event === 'UserPromptSubmit' && res.action.startsWith('route:')) {
     return routingContext(harness, res);
+  }
+  if (event === 'SubagentResult') {
+    return subagentContext(res, tool ?? 'subagent');
   }
   // Stop is log only: any Stop output would continue the turn.
   return '';

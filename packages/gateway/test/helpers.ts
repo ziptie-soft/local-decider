@@ -47,6 +47,8 @@ export class FakeEngine implements Engine {
   readonly requests: SystemOneRequest[] = [];
   inFlight = 0;
   maxInFlight = 0;
+  /** Requests answered at once, as an engine with `--max-concurrency` reports. */
+  concurrency: number | undefined = undefined;
   respond: Responder;
 
   constructor(probs: Record<string, number> = {}) {
@@ -95,6 +97,7 @@ function choiceResponse(
 export const NO_CAPABILITIES: HostCapabilities = {
   npu: { status: 'unavailable', evidence: 'stub' },
   nvidia: { status: 'unavailable', evidence: 'stub' },
+  rocm: { status: 'unavailable', evidence: 'stub' },
   apple: { status: 'unavailable', evidence: 'stub' },
   vulkan: { status: 'unavailable', evidence: 'stub' },
   probedAt: 0,

@@ -5,12 +5,12 @@
  * every other path returns what Claude Code decided. A failure skips the hook, so the classifier
  * decides as if the mod were not installed.
  */
-import type { DecideResponse } from '@ziptie-soft/local-decider-core';
+import { budgetFor, isEnforcedAllow, type DecideResponse } from '@ziptie-soft/local-decider-core';
 
+import { deterministicBlock } from '../block.ts';
 import {
   callAllows,
   classifierVerdict,
-  deterministicBlock,
   isPlainAsk,
   mayAct,
   reasonOf,
@@ -80,6 +80,7 @@ async function ask(
 ): Promise<DecideResponse | null> {
   const subagent = e.agentId !== undefined;
   const messages = subagent ? undefined : await $.session.messages();
+  const budget = budgetFor(env.budgetMs);
   return decide($, env, 'permission', {
     harness: 'claude-code',
     sessionId: await $.session.id(),
@@ -87,6 +88,7 @@ async function ask(
     workspace: { cwd },
     scope: 'claude-auto',
     call: { id, agent: subagent },
+    ...(budget === undefined ? {} : { budgetMs: budget }),
   });
 }
 
@@ -135,9 +137,12 @@ async function upgrade(
     return decided;
   }
   const r = await within($, g.env.budgetMs, res);
-  const allow = r !== null && r.enforced && r.action === 'allow';
-  pending.set(id, { res, env: g.env, applied: allow });
-  return allow ? { decision: 'allow', reason: reasonOf(r) } : decided;
+  if (!isEnforcedAllow(r)) {
+    pending.set(id, { res, env: g.env, applied: false });
+    return decided;
+  }
+  pending.set(id, { res, env: g.env, applied: true });
+  return { decision: 'allow', reason: reasonOf(r) };
 }
 
 /** Calls the mod sent to the gateway; exported so tests can inspect and drain it. */

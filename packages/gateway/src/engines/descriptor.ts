@@ -67,8 +67,15 @@ export interface ModelDescriptor<E extends string = string> {
   readonly source?: string;
   /** Engine-interpreted artifacts to download; strands uses Hugging Face repos, adapter first. */
   readonly artifacts?: readonly string[];
+  /** Pinned commit (full sha) per artifact repo; strands passes it as `hf download --revision`. */
+  readonly revisions?: Readonly<Record<string, string>>;
   /** Verified upstream base checkpoint; absent models have their own singleton family. */
   readonly baseModel?: string;
+  /**
+   * Strands checkpoint generation. 2 = the transformers backend (self-contained weights): no MLX
+   * (`--device mlx`), `--device-map` or `--vision`; serve queues requests and answers 503 on timeout.
+   */
+  readonly generation?: 2;
   /** Weight format short code used for display and quant selection. */
   readonly quant?: string;
 }

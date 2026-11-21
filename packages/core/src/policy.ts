@@ -62,16 +62,27 @@ const questionSchema = z
   );
 
 const sectionSchema = z.strictObject({
-  label: z.string().min(1).max(80),
+  label: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[^\r\n\u2028\u2029#]+$/)
+    .describe('Section heading shown to the model; no line breaks or `#`.'),
   /** Key of the harness input to render into this section. */
   from: z
     .string()
     .regex(/^[A-Za-z][A-Za-z0-9_]*$/)
     .describe('Key of the harness input rendered here, e.g. `prompt`, `project`, `history`.'),
   keep: z
-    .enum(['head', 'tail', 'middle'])
+    .enum(['head', 'tail', 'ends'])
     .default('tail')
-    .describe('Which part survives truncation.'),
+    .describe('Which part survives truncation; `ends` keeps the start and the end.'),
+  critical: z
+    .boolean()
+    .default(false)
+    .describe(
+      'A cut of this section downgrades allow, log and abstain to ask (deny is kept), because the decision may hinge on the lost part.',
+    ),
 });
 
 const precedentSchema = z.strictObject({
@@ -137,6 +148,17 @@ export const policySchema = z
       .enum(['high', 'normal', 'low'])
       .default('normal')
       .describe('Engine queue priority: `high` for decisions a hook waits on.'),
+    /**
+     * Whether the MCP `decide` and `policies` tools expose this policy. Policies a harness hook
+     * enforces set `false` so an agent cannot probe them for a phrasing that yields an allow.
+     * Unset: open, except a variant inherits its base policy's value (see {@link mcpOpen}).
+     */
+    mcp: z
+      .boolean()
+      .optional()
+      .describe(
+        'Callable and listed through MCP (default true); `false` for policies a harness hook enforces. A variant inherits its base policy value when unset.',
+      ),
     /** Harness ids this policy applies to; empty = all. */
     harnesses: z.array(z.string().regex(ID_PATTERN)).default([]),
     state: z
@@ -304,8 +326,14 @@ export function policySections(
   return policy.state.sections.map((section) => ({
     label: section.label,
     keep: section.keep,
+    critical: section.critical,
     text: render(input[section.from]),
   }));
+}
+
+/** Whether MCP exposes `policy`: everything but an explicit `mcp: false`. */
+export function mcpOpen(policy: Pick<Policy, 'mcp'>): boolean {
+  return policy.mcp !== false;
 }
 
 export interface RuleMatch {
@@ -344,6 +372,18 @@ export function evaluateRules(
   return rule === undefined
     ? { action: policy.default, rule: -1 }
     : { action: rule.action, rule: index };
+}
+
+/**
+ * Downgrade a match when a critical section was cut: the engine never saw all of the request, so
+ * `allow`, `log` and `abstain` become `ask`. `deny` and other actions stand, and the rule index is
+ * kept so the log still names the rule that fired.
+ */
+export function guardTruncation(match: RuleMatch, cutCritical: boolean): RuleMatch {
+  if (!cutCritical || !['allow', 'log', 'abstain'].includes(match.action)) {
+    return match;
+  }
+  return { ...match, action: 'ask' };
 }
 
 /** Preset names the policy can route to (`route:<preset>` in its rules or default), in order. */

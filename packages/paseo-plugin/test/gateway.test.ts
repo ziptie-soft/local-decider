@@ -168,8 +168,20 @@ describe('createGateway (fail open)', () => {
       harness: 'paseo',
       sessionId: 'a1',
       input: { task: 't' },
+      budgetMs: 1500,
     });
     assert.equal(last?.auth, undefined);
+  });
+
+  it('sends budgetMs from the call timeout minus a margin, unless the request has one', async () => {
+    const gw = createGateway({ baseUrl: url });
+    const req = { harness: 'paseo' as const, input: {} };
+    await gw?.decide('turn-outcome', req, { timeoutMs: 1200 });
+    assert.equal(JSON.parse(seen.at(-1)?.body ?? '')['budgetMs'], 700);
+    await gw?.decide('turn-outcome', { ...req, budgetMs: 40 }, { timeoutMs: 1200 });
+    assert.equal(JSON.parse(seen.at(-1)?.body ?? '')['budgetMs'], 40);
+    await gw?.decide('turn-outcome', req, { timeoutMs: 400 });
+    assert.equal('budgetMs' in JSON.parse(seen.at(-1)?.body ?? ''), false);
   });
 
   it('returns null on 5xx, bad JSON, a wrong shape and timeouts', async () => {

@@ -3,6 +3,8 @@ export {
   DEFAULT_GATEWAY_URL,
   CONTROL_HEADER,
   GatewayClient,
+  isDecideResponse,
+  isEnforcedAllow,
   loopbackUrl,
   tokenAllowed,
   trimTrailingSlashes,
@@ -10,6 +12,7 @@ export {
   type GatewayHealth,
 } from './client.ts';
 export {
+  budgetFor,
   HARNESSES,
   PERMISSION_MODES,
   SCOPES,
@@ -29,9 +32,12 @@ export {
   type RouteTarget,
 } from './decision.ts';
 export { inputHash } from './hash.ts';
+export { capInput, INPUT_CAPS } from './input-cap.ts';
 export {
   ALLOW_THRESHOLD_FLOOR,
   evaluateRules,
+  guardTruncation,
+  mcpOpen,
   minMode,
   MODES,
   parsePolicy,
@@ -84,6 +90,8 @@ export {
   CHARS_PER_TOKEN,
   cutText,
   DEFAULT_STATE_TOKENS,
+  TRUNCATION_MARKER_RE,
+  type BuiltState,
   type KeepSide,
   type StateSection,
 } from './truncate.ts';

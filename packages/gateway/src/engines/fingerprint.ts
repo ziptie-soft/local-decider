@@ -20,6 +20,7 @@ export function hardwareFingerprint(
     memoryGb: Math.round(host.totalMemoryBytes / 2 ** 30),
     npu: evidence(capabilities.npu),
     nvidia: evidence(capabilities.nvidia),
+    ...(capabilities.rocm.status === 'unavailable' ? {} : { rocm: evidence(capabilities.rocm) }),
     vulkan: evidence(capabilities.vulkan),
     apple: evidence(capabilities.apple),
   });

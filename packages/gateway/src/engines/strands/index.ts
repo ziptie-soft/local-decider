@@ -4,8 +4,10 @@ import { dirname, join } from 'node:path';
 import { z } from 'zod';
 
 import { DEVICES, defineEngine, type EngineContext, type ModelDescriptor } from '../descriptor.ts';
+import { checkExtraArgs } from './extra-args.ts';
+import { hfCacheDir, hfCached } from './hf-cache.ts';
 import { resolveStrandsDevice } from './mlx.ts';
-import { MODELS } from './models.ts';
+import { MODELS, hfDownloadArgs, isTransformersModel } from './models.ts';
 import { StrandsDeciderEngine, strandsBinary } from './server.ts';
 
 export const DEFAULT_MODEL = 'StrandsAgents/strands-decider-2B-qwen3.5-v1-2610';
@@ -17,27 +19,22 @@ const strandsSchema = z.strictObject({
   /** Attach to a running `strands-decider serve` instead of spawning one. */
   url: z.url().optional(),
   maxBatch: z.number().int().min(1).max(64).default(8),
+  /** `serve --max-concurrency` (strands-decider >= 0.4.0): requests run at once; unset = upstream default. */
+  maxConcurrency: z.number().int().min(1).max(64).optional(),
   /** Extra `serve` flags, e.g. ["--no-warmup"]. Only flags; never derived from requests. */
   extraArgs: z
     .array(z.string().regex(/^--[a-z][a-z0-9-]*(?:=[\w./:-]+)?$|^[\w./:-]+$/))
+    .superRefine(checkExtraArgs)
     .default([]),
   startTimeoutSeconds: z.number().int().min(10).max(3600).default(900),
 });
 
 export type StrandsEngineConfig = z.infer<typeof strandsSchema>;
 
-/** `models--Org--Name/snapshots/<rev>` holds at least one file. */
-export function hfCached(hfCache: string, repo: string): boolean {
-  const snapshots = join(hfCache, `models--${repo.replace('/', '--')}`, 'snapshots');
-  if (!existsSync(snapshots)) {
-    return false;
-  }
-  return readdirSync(snapshots).some((rev) => readdirSync(join(snapshots, rev)).length > 0);
-}
+export { hfCached };
 
 function hfCachePath(ctx: EngineContext): string {
-  const configured = ctx.tools?.env['HF_HUB_CACHE'] ?? ctx.env['HF_HUB_CACHE'];
-  return configured ?? join(ctx.env['HF_HOME'] ?? join(homedir(), '.cache', 'huggingface'), 'hub');
+  return hfCacheDir(ctx.tools?.env, ctx.env);
 }
 
 function strandsModelsPresent(
@@ -49,7 +46,9 @@ function strandsModelsPresent(
     new Map(
       models.map((model) => [
         model.id,
-        (model.artifacts ?? []).every((artifact) => hfCached(cache, artifact)),
+        (model.artifacts ?? []).every((artifact) =>
+          hfCached(cache, artifact, model.revisions?.[artifact]),
+        ),
       ]),
     ),
   );
@@ -66,7 +65,10 @@ function strandsDownloadSteps(
       'the strands-decider engine is not installed; run `local-decider engine install`',
     );
   }
-  return (model.artifacts ?? []).map((artifact) => ({ command: hf, args: ['download', artifact] }));
+  return (model.artifacts ?? []).map((artifact) => ({
+    command: hf,
+    args: hfDownloadArgs(artifact, model.revisions?.[artifact]),
+  }));
 }
 
 export const strandsEngine = defineEngine({
@@ -78,13 +80,15 @@ export const strandsEngine = defineEngine({
   supports: () => ({ ok: true }),
   tag: (config, host, ctx) => {
     const binary = ctx?.tools?.strandsDecider ?? (ctx?.paths && strandsBinary(ctx.paths));
-    return resolveStrandsDevice(config.device, host, binary).backend ?? 'PyTorch';
+    const transformers = isTransformersModel(config.model);
+    return resolveStrandsDevice(config.device, host, binary, transformers).backend ?? 'PyTorch';
   },
   devices: (host) => {
     if (host.platform === 'darwin' && host.arch === 'arm64') {
       return ['auto', 'cpu', 'mlx', 'mps'];
     }
     if (host.platform === 'linux') {
+      // ROCm torch also reports as `cuda`, so AMD GPUs use this device too.
       return ['auto', 'cpu', 'cuda'];
     }
     return ['auto', 'cpu'];

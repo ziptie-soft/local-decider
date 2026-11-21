@@ -8,7 +8,7 @@ export function makeShadowRecord(
     kind: 'decision',
     ts: '2026-11-10T00:00:00.000Z',
     decisionId,
-    harness: 'cli',
+    harness: 'claude-code',
     policy: 'permission',
     mode: 'shadow',
     inputHash: 'input-hash',

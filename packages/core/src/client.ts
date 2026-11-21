@@ -154,12 +154,12 @@ function validPrecedent(value: unknown): boolean {
   );
 }
 
-function validDecisionCore(value: Record<string, unknown>, policy: string): boolean {
+function validDecisionCore(value: Record<string, unknown>): boolean {
   const enforced: unknown = value['enforced'];
   return (
     typeof value['decisionId'] === 'string' &&
     DECISION_ID.test(value['decisionId']) &&
-    value['policy'] === policy &&
+    typeof value['policy'] === 'string' &&
     typeof value['action'] === 'string' &&
     ACTION.test(value['action']) &&
     typeof enforced === 'boolean' &&
@@ -186,27 +186,42 @@ function validDecisionDetails(value: Record<string, unknown>): boolean {
   );
 }
 
-/** Reject malformed or inconsistent gateway decisions before an adapter can enforce them. */
-function isDecideResponse(
-  value: unknown,
-  policy: string,
-  scope: DecideRequest['scope'],
-): value is DecideResponse {
+/** The shape of a gateway decision, whichever policy and scope answered. */
+function isDecideShape(value: unknown): value is DecideResponse {
   const response = asRecord(value);
-  if (
-    response === undefined ||
-    !validDecisionCore(response, policy) ||
-    !validDecisionDetails(response)
-  ) {
+  if (response === undefined || !validDecisionCore(response) || !validDecisionDetails(response)) {
     return false;
   }
   return (
     optionalString(response['variant']) &&
-    response['scope'] === scope &&
     validRoute(response['route'], response['action']) &&
     validPrecedent(response['precedent']) &&
     optionalString(response['precedentKey']) &&
     optionalString(response['error'])
+  );
+}
+
+/** Reject malformed or inconsistent gateway decisions before an adapter can enforce them. */
+export function isDecideResponse(
+  value: unknown,
+  policy: string,
+  scope: DecideRequest['scope'],
+): value is DecideResponse {
+  return isDecideShape(value) && value.policy === policy && value.scope === scope;
+}
+
+/**
+ * The one check behind every auto-allow, shared by the hook runner and the Claude Code mod: a
+ * validated decision that was enforced (mode `act`), whose action is `allow`, with no error.
+ * Anything else, including a malformed reply, is not an allow.
+ */
+export function isEnforcedAllow(reply: unknown): reply is DecideResponse {
+  return (
+    isDecideShape(reply) &&
+    reply.enforced &&
+    reply.mode === 'act' &&
+    reply.action === 'allow' &&
+    reply.error === undefined
   );
 }
 

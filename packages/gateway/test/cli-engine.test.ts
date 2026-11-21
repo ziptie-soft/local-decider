@@ -199,7 +199,14 @@ describe('engine list formatting', () => {
 describe('automatic install planning', () => {
   const NO = { status: 'unavailable', evidence: 'x' } as const;
   const YES = { status: 'available', evidence: 'ok' } as const;
-  const base: HostCapabilities = { npu: NO, nvidia: NO, apple: NO, vulkan: NO, probedAt: 0 };
+  const base: HostCapabilities = {
+    npu: NO,
+    nvidia: NO,
+    rocm: NO,
+    apple: NO,
+    vulkan: NO,
+    probedAt: 0,
+  };
 
   function auto(
     host: HostInfo,
@@ -242,6 +249,8 @@ describe('automatic install planning', () => {
   it('plans cuda on NVIDIA and cpu otherwise', () => {
     const cuda = planAuto([], linux, auto(linux, { nvidia: YES }));
     assert.equal(cuda.engine === 'strands-decider' && cuda.flavor, 'cuda');
+    const rocm = planAuto([], linux, auto(linux, { rocm: YES }));
+    assert.equal(rocm.engine === 'strands-decider' && rocm.flavor, 'rocm');
     const cpu = planAuto([], linux, auto(linux));
     assert.equal(cpu.engine === 'strands-decider' && cpu.flavor, 'cpu');
   });

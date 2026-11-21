@@ -13,7 +13,7 @@ import {
 } from './ranking.ts';
 import type { EngineId } from './registry.ts';
 
-export type Backend = 'NPU' | 'CUDA' | 'Vulkan' | 'MLX' | 'MPS' | 'CPU';
+export type Backend = 'NPU' | 'CUDA' | 'ROCm' | 'Vulkan' | 'MLX' | 'MPS' | 'CPU';
 
 /** The slice of an engine descriptor the selector reads. */
 export type SelectorEngine = Pick<
@@ -103,7 +103,7 @@ const LADDER: readonly Rung[] = [
     engine: 'strands-decider',
     device: 'cuda',
     backend: 'CUDA',
-    needs: (c) => c.nvidia,
+    needs: (c) => gpuTorch(c).result,
     label: 'NVIDIA GPU',
   },
   {
@@ -135,6 +135,30 @@ export function ladderIndex(engine: string, device: string | null): number {
   const exact = LADDER.findIndex((rung) => rung.engine === engine && rung.device === device);
   const any = LADDER.findIndex((rung) => rung.engine === engine);
   return exact >= 0 ? exact : any >= 0 ? any : LADDER.length;
+}
+
+/**
+ * One `cuda` rung serves NVIDIA and AMD: ROCm torch reports as `cuda`, so both share the runtime
+ * device and only the backend tag (and install flavor) differ. NVIDIA wins when both are present.
+ */
+function gpuTorch(c: HostCapabilities): { backend: Backend; result: CapabilityResult } {
+  const nvidia = { backend: 'CUDA' as const, result: c.nvidia };
+  const rocm = { backend: 'ROCm' as const, result: c.rocm };
+  const options = [nvidia, rocm];
+  return (
+    options.find((o) => o.result.status === 'available') ??
+    options.find((o) => o.result.status === 'unknown') ??
+    nvidia
+  );
+}
+
+/** The rung as it applies to this host: the `cuda` rung is relabelled for AMD GPUs. */
+function forHost(rung: Rung, caps: HostCapabilities | undefined): Rung {
+  if (rung.device !== 'cuda' || caps === undefined) {
+    return rung;
+  }
+  const { backend } = gpuTorch(caps);
+  return backend === 'ROCm' ? { ...rung, backend, label: 'AMD GPU (ROCm)' } : rung;
 }
 
 function appleVariant(want: 'mlx' | 'mps'): (c: HostCapabilities) => CapabilityResult {
@@ -178,12 +202,17 @@ function verdict(rung: Rung, caps: HostCapabilities | undefined): Verdict {
 }
 
 function rungCandidate(
-  rung: Rung,
+  baseRung: Rung,
   engine: SelectorEngine | undefined,
   model: ModelDescriptor | undefined,
   input: SelectorInput,
 ): Candidate | undefined {
+  const rung = forHost(baseRung, input.capabilities);
   if (engine === undefined || model === undefined) {
+    return undefined;
+  }
+  if (rung.device === 'mlx' && model.generation === 2) {
+    // v2 checkpoints run on the transformers backend only: never offer them on MLX.
     return undefined;
   }
   const base = {

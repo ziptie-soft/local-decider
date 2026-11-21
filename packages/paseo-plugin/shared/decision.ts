@@ -27,6 +27,8 @@ export interface DecideRequest {
   readonly input: Readonly<Record<string, unknown>>;
   readonly workspace?: { readonly cwd: string };
   readonly models?: DecisionModels;
+  /** The caller's wait in ms; a longer estimated queue wait fails open at once ("busy"). */
+  readonly budgetMs?: number;
 }
 
 /** Models for savings stats (`provider/model`). Logged, never sent to the engine. */
@@ -111,3 +113,12 @@ export type OutcomeSource =
   | 'supervised'
   | 'classifier'
   | 'unverified';
+
+/**
+ * The plugin's copy of core's `isEnforcedAllow` (the published plugin cannot import core): an
+ * enforced decision in `act` whose action is `allow`, with no error. The gateway client has
+ * already validated the shape.
+ */
+export function isEnforcedAllow(res: DecideResponse): boolean {
+  return res.enforced && res.mode === 'act' && res.action === 'allow' && res.error === undefined;
+}

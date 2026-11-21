@@ -16,7 +16,7 @@ const YES = (variant?: 'mlx' | 'mps'): CapabilityResult => ({
 });
 
 function caps(over: Partial<HostCapabilities>): HostCapabilities {
-  return { npu: NO, nvidia: NO, apple: NO, vulkan: NO, probedAt: 0, ...over };
+  return { npu: NO, nvidia: NO, rocm: NO, apple: NO, vulkan: NO, probedAt: 0, ...over };
 }
 
 const LINUX: HostInfo = { platform: 'linux', arch: 'x64', totalMemoryBytes: 64e9 };
@@ -55,6 +55,17 @@ const timing = (p50Ms: number): Measured => ({
 });
 
 describe('engine ranking', () => {
+  it('never offers an MLX candidate for a v2 (transformers) model', () => {
+    const family = 'strands-decider:StrandsAgents/strands-decider-E2B-gemma4-v2-2611';
+    const r = rank(MAC, caps({ apple: { ...YES('mlx'), mps: true } }), {
+      preferredFamily: family,
+    });
+    const v2 = r.candidates.filter((c) => c.model.includes('-v2-'));
+    assert.ok(v2.length > 0);
+    assert.ok(v2.every((c) => c.device !== 'mlx'));
+    assert.ok(v2.some((c) => c.device === 'mps'));
+  });
+
   it('Linux with an NPU: FLM NPU first, CPU last', () => {
     const r = rank(LINUX, caps({ npu: YES() }));
     assert.deepEqual(ladder(r), ['fastflowlm:NPU', 'strands-decider:CPU']);
@@ -65,6 +76,12 @@ describe('engine ranking', () => {
   it('Linux with NVIDIA: CUDA then CPU', () => {
     const r = rank(LINUX, caps({ nvidia: YES() }));
     assert.deepEqual(ladder(r), ['strands-decider:CUDA', 'strands-decider:CPU']);
+  });
+
+  it('Linux with ROCm: ROCm (device cuda) then CPU', () => {
+    const r = rank(LINUX, caps({ rocm: YES() }));
+    assert.deepEqual(ladder(r), ['strands-decider:ROCm', 'strands-decider:CPU']);
+    assert.equal(r.automatic?.device, 'cuda');
   });
 
   it('plain Linux, and unknowns, fall to CPU; unknown is not available', () => {

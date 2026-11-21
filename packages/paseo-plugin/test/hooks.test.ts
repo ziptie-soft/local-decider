@@ -143,9 +143,9 @@ describe('agent.turn.after', () => {
 const toolRequest: AgentPermissionRequest = {
   id: 'r1',
   provider: 'claude',
-  name: 'Read',
+  name: 'Bash',
   kind: 'tool',
-  input: { path: 'README.md' },
+  input: { command: 'ls' },
 };
 
 const actMode = settings({
@@ -182,6 +182,21 @@ describe('agent.permission.before', () => {
       },
     };
   };
+
+  it('caps a 3 MiB request input before it reaches the gateway', async () => {
+    const gw = fakeGateway(() => response({ policy: 'permission', action: 'ask' }));
+    const huge: AgentPermissionRequest = {
+      ...toolRequest,
+      input: { command: `START${'x'.repeat(3 * 1024 * 1024)}END` },
+    };
+    await permissionHandlers(deps(settings(), gw)).request(fakePaseo(turn), huge);
+    const sent = gw.calls[0]?.input;
+    assert.ok(JSON.stringify(sent).length < 256 * 1024);
+    const request = String((sent as Record<string, unknown>)['request']);
+    assert.ok(request.startsWith('{"input":{"command":"START'));
+    assert.match(request, /chars truncated/);
+    assert.equal('subject' in (sent as object), false, 'an over-cap subject is dropped');
+  });
 
   it('auto-allows only an enforced allow with the plugin in act', async () => {
     const gw = fakeGateway(() =>
@@ -426,18 +441,126 @@ describe('agent.permission.before', () => {
     });
   });
 
-  it('selects the primary allow action when the request offers actions', () => {
+  it('picks a one-shot allow, never an always or session one, else abstains', () => {
+    const no = { id: 'no', label: 'No', behavior: 'deny' } as const;
+    const pick = (...actions: NonNullable<AgentPermissionRequest['actions']>): unknown =>
+      allowResponse({ ...toolRequest, actions });
+    assert.deepEqual(allowResponse(toolRequest), { behavior: 'allow' });
     assert.deepEqual(
-      allowResponse({
-        ...toolRequest,
-        actions: [
-          { id: 'no', label: 'No', behavior: 'deny' },
-          { id: 'once', label: 'Once', behavior: 'allow' },
-          { id: 'always', label: 'Always', behavior: 'allow', variant: 'primary' },
-        ],
-      }),
-      { behavior: 'allow', selectedActionId: 'always' },
+      pick(
+        no,
+        { id: 'always', label: 'Always allow', behavior: 'allow', variant: 'primary' },
+        { id: 'session', label: 'Allow for this session', behavior: 'allow' },
+        { id: 'once', label: 'Allow once', behavior: 'allow' },
+      ),
+      { behavior: 'allow', selectedActionId: 'once' },
     );
+    assert.deepEqual(pick({ id: 'allow', label: 'Allow', behavior: 'allow' }), {
+      behavior: 'allow',
+      selectedActionId: 'allow',
+    });
+    assert.equal(
+      pick(
+        no,
+        { id: 'always', label: 'Always allow', behavior: 'allow', variant: 'primary' },
+        { id: 'session', label: 'Allow for session', behavior: 'allow' },
+      ),
+      null,
+    );
+  });
+
+  it('does not auto-allow when only persistent allow actions exist', async () => {
+    const gw = fakeGateway(() => response({ action: 'allow', mode: 'act', enforced: true }));
+    const paseo = fakePaseo(turn);
+    await permissionHandlers(deps(actMode, gw)).request(paseo, {
+      ...toolRequest,
+      actions: [{ id: 'always', label: 'Always allow', behavior: 'allow', variant: 'primary' }],
+    });
+    assert.deepEqual(paseo.agent.responses, []);
+  });
+
+  it('auto-allows only shell and edit tools, leaving the rest to the user', async () => {
+    const gw = fakeGateway(() => response({ action: 'allow', mode: 'act', enforced: true }));
+    const allowed = [
+      toolRequest,
+      { ...toolRequest, name: 'Edit', input: { file_path: 'a.ts' } },
+      { ...toolRequest, name: 'unknown-shell', detail: { type: 'shell', command: 'ls' } },
+    ] satisfies AgentPermissionRequest[];
+    const left = [
+      { ...toolRequest, name: 'mcp__github__create_issue' },
+      { ...toolRequest, name: 'SomethingNew' },
+      { ...toolRequest, name: 'Read' },
+      { ...toolRequest, name: 'mcp__x__run', detail: { type: 'shell', command: 'ls' } },
+    ] satisfies AgentPermissionRequest[];
+    for (const [request, count] of [
+      ...allowed.map((r) => [r, 1] as const),
+      ...left.map((r) => [r, 0] as const),
+    ]) {
+      const paseo = fakePaseo(turn);
+      await permissionHandlers(deps(actMode, gw)).request(paseo, request);
+      assert.equal(paseo.agent.responses.length, count, request.name);
+      assert.equal(paseo.agent.appended.length, 1, 'still recorded');
+    }
+  });
+
+  it('records an answer given before settings load, as a user outcome', async () => {
+    const gate = Promise.withResolvers<void>();
+    const gw = fakeGateway(() =>
+      response({ policy: 'permission', action: 'allow', mode: 'act', enforced: true }),
+    );
+    const d = deps(actMode, gw);
+    const slow: HookDeps = {
+      ...d,
+      settings: async () => {
+        await gate.promise;
+        return d.settings();
+      },
+    };
+    const paseo = fakePaseo(turn);
+    const handlers = createPermissionHandlers(slow, bg);
+    await handlers.before({ agent, request: toolRequest }, ctx(paseo));
+    await handlers.after({ agent, requestId: 'r1', resolution: { behavior: 'allow' } });
+    gate.resolve();
+    await bg.idle();
+    assert.deepEqual(paseo.agent.responses, [], 'the plugin does not decide after the user');
+    assert.deepEqual(gw.outcomes, [{ decisionId: 'd-1', outcome: 'allow', source: 'user' }]);
+  });
+
+  it('keeps an allow whose send failed as the plugin own, never a user allow', async () => {
+    for (const failure of [
+      async (): Promise<void> => {
+        throw new Error('socket closed');
+      },
+    ]) {
+      const gw = fakeGateway(() =>
+        response({ policy: 'permission', action: 'allow', mode: 'act', enforced: true }),
+      );
+      let handlers: ReturnType<typeof createPermissionHandlers> | null = null;
+      const paseo = fakePaseo(turn, async () => {
+        // The daemon applied the allow and emitted `after` before the call failed.
+        await handlers?.after({ agent, requestId: 'r1', resolution: { behavior: 'allow' } });
+        await failure();
+      });
+      handlers = createPermissionHandlers(deps(actMode, gw), bg);
+      await handlers.before({ agent, request: toolRequest }, ctx(paseo));
+      await bg.idle();
+      assert.deepEqual(gw.outcomes, [], 'not reported as source user');
+      assert.equal(flag(paseo.agent.appended[0], 'applied'), false);
+      assert.equal(flag(paseo.agent.appended[0], 'feedback'), null);
+    }
+  });
+
+  it('keeps a failed send with no answer seen as the plugin own', async () => {
+    const gw = fakeGateway(() =>
+      response({ policy: 'permission', action: 'allow', mode: 'act', enforced: true }),
+    );
+    const paseo = fakePaseo(turn, async () => {
+      throw new Error('socket closed');
+    });
+    const handlers = permissionHandlers(deps(actMode, gw));
+    await handlers.request(paseo);
+    await handlers.after({ agent, requestId: 'r1', resolution: { behavior: 'allow' } });
+    assert.deepEqual(gw.outcomes, []);
   });
 });
 

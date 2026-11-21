@@ -6,10 +6,17 @@ import type {
   ShadowRecord,
 } from '@ziptie-soft/local-decider-core';
 
-import { correctedOutcome, isVerifiedOutcome } from './outcome-labels.ts';
+import { isProbeDecision, isTruncatedDecision } from './log-store.ts';
+import {
+  comparableOutcome,
+  correctedOutcome,
+  isVerifiedOutcome,
+  outcomeClass,
+} from './outcome-labels.ts';
 import type { Paths } from './paths.ts';
 import type { LoadedPolicy } from './policies.ts';
 import { openLogStore } from './sqlite-log.ts';
+import { eligibleAllowRules } from './stats.ts';
 
 const MIN_SAMPLES = 50;
 const MIN_THRESHOLD_SAMPLES = 30;
@@ -48,6 +55,10 @@ interface Sample {
   readonly question: string;
   readonly probabilities: Readonly<Record<string, number>>;
   readonly outcome: string;
+  /** Normalised probabilities of every valid question, for allow-threshold lookups. */
+  readonly byQuestion: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  /** A veto whose label is in no option space: counts for thresholds, not for the fit. */
+  readonly unscored?: true;
 }
 
 interface Group {
@@ -109,7 +120,9 @@ function sampleGroups(
 ): Map<string, Group> {
   const groups = new Map<string, Group>();
   for (const record of records) {
-    if (record.kind !== 'decision') continue;
+    if (record.kind !== 'decision' || isProbeDecision(record) || isTruncatedDecision(record)) {
+      continue;
+    }
     const outcome = labels.get(record.decisionId);
     const sample = outcome === undefined ? undefined : sampleFor(record, outcome);
     if (sample === undefined) continue;
@@ -127,14 +140,25 @@ function sampleGroups(
   return groups;
 }
 
-function sampleFor(record: ShadowRecord, outcome: string): Sample | undefined {
+function sampleFor(record: ShadowRecord, label: string): Sample | undefined {
+  // Vetoes (`unsafe`, `deny`) are negatives for allow thresholds; neutral labels are excluded.
+  const outcome = comparableOutcome(label);
+  if (outcome === undefined) return undefined;
+  const byQuestion: Record<string, Record<string, number>> = {};
   for (const [question, answer] of Object.entries(record.answers)) {
     const probabilities = normalizedProbabilities(answer);
-    if (probabilities !== undefined && Object.hasOwn(probabilities, outcome)) {
-      return { question, probabilities, outcome };
-    }
+    if (probabilities !== undefined) byQuestion[question] = probabilities;
   }
-  return undefined;
+  const questions = Object.entries(byQuestion);
+  const scoredEntry = questions.find(([, probabilities]) => Object.hasOwn(probabilities, outcome));
+  if (scoredEntry !== undefined) {
+    return { question: scoredEntry[0], probabilities: scoredEntry[1], outcome, byQuestion };
+  }
+  // A veto outside every option space cannot score the temperature but still counts against
+  // allow thresholds.
+  const first = questions[0];
+  if (first === undefined || outcomeClass(outcome) !== 'veto') return undefined;
+  return { question: first[0], probabilities: first[1], outcome, byQuestion, unscored: true };
 }
 
 function normalizedProbabilities(answer: Answer): Record<string, number> | undefined {
@@ -153,7 +177,8 @@ function normalizedProbabilities(answer: Answer): Record<string, number> | undef
 
 function resultFor(group: Group, policy: Policy | undefined): CalibrationResult {
   const n = group.samples.length;
-  if (n < MIN_SAMPLES) {
+  const scored = group.samples.filter((sample) => sample.unscored !== true);
+  if (n < MIN_SAMPLES || scored.length === 0) {
     return {
       policy: group.policy,
       engine: group.engine,
@@ -162,7 +187,7 @@ function resultFor(group: Group, policy: Policy | undefined): CalibrationResult 
       status: 'insufficient-data',
     };
   }
-  const temperature = fitTemperature(group.samples);
+  const temperature = fitTemperature(scored);
   return {
     policy: group.policy,
     engine: group.engine,
@@ -170,8 +195,8 @@ function resultFor(group: Group, policy: Policy | undefined): CalibrationResult 
     n,
     status: 'calibrated',
     temperature,
-    before: metrics(group.samples, 1),
-    after: metrics(group.samples, temperature),
+    before: metrics(scored, 1),
+    after: metrics(scored, temperature),
     ...thresholdSuggestions(group.samples, policy),
   };
 }
@@ -260,9 +285,7 @@ function thresholdSuggestions(
   policy: Policy | undefined,
 ): Pick<CalibrationResult, 'suggestedAllowThresholds'> {
   if (policy === undefined) return {};
-  const allowRules = policy.rules.filter(
-    (rule) => rule.action === 'allow' && rule.when.minProbability !== undefined,
-  );
+  const allowRules = eligibleAllowRules(policy);
   if (allowRules.length === 0) return {};
   const floor = Math.min(...allowRules.map((rule) => rule.when.minProbability ?? 1));
   const suggestions = allowRules.flatMap((rule) => thresholdForRule(rule, samples, floor) ?? []);
@@ -276,10 +299,8 @@ function thresholdForRule(
 ): SuggestedAllowThreshold[] | undefined {
   const answer = rule.when.answer;
   const values = samples.flatMap((sample) => {
-    const probability = sample.probabilities[answer];
-    return sample.question === rule.when.question && probability !== undefined
-      ? [{ probability, allowed: sample.outcome === answer }]
-      : [];
+    const probability = sample.byQuestion[rule.when.question]?.[answer];
+    return probability !== undefined ? [{ probability, allowed: sample.outcome === answer }] : [];
   });
   if (values.length < MIN_SAMPLES) return undefined;
   const candidates = [...new Set([floor, ...values.map((value) => value.probability)])]

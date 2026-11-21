@@ -1,10 +1,13 @@
 import type { DecideRequest, DecideResponse } from '@ziptie-soft/local-decider-core';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, it } from 'node:test';
 
 import { mapEvent, parseEvent } from '../src/mapping.ts';
+import { translate } from '../src/output.ts';
+import { PERMISSION_ALLOW_TOOLS } from '../src/permission-tools.ts';
 import { run, type Decide } from '../src/run.ts';
 import type { TranscriptSlice } from '../src/transcript.ts';
 
@@ -20,7 +23,9 @@ function response(action: string, enforced: boolean): DecideResponse {
     mode: enforced ? 'act' : 'shadow',
     action,
     enforced,
-    answers: { q: { type: 'choice', answer: 'a', probabilities: { a: 0.9 }, confidence: 0.8 } },
+    answers: {
+      q: { type: 'choice', answer: 'a', probabilities: { a: 0.9, b: 0.1 }, confidence: 0.8 },
+    },
     rule: 0,
     engine: 'test',
     model: 'm',
@@ -212,7 +217,42 @@ describe('event → policy mapping', () => {
     );
     assert.deepEqual(calls[2]?.request.workspace, { cwd: '/work/my-app' });
   });
+
+  it('sends budgetMs as the hook timeout minus a 500 ms margin', async () => {
+    const { decide, calls } = fake('abstain', false);
+    const hook = JSON.stringify(HOOKS.PreToolUse);
+    await run('claude', 'PreToolUse', hook, {}, { decide });
+    assert.equal(calls[0]?.request.budgetMs, 1000, 'default 1500 ms timeout');
+    await run('codex', 'PreToolUse', hook, { LOCAL_DECIDER_TIMEOUT_MS: '3000' }, { decide });
+    assert.equal(calls[1]?.request.budgetMs, 2500);
+    await run('claude', 'PreToolUse', hook, { LOCAL_DECIDER_TIMEOUT_MS: '400' }, { decide });
+    assert.equal(calls[2]?.request.budgetMs, undefined, 'no budget left after the margin');
+  });
 });
+
+/** A PermissionRequest for `tool`; the gateway says an enforced allow (or shadow when asked). */
+async function permissionFor(
+  harness: string,
+  tool: string,
+  shadow = false,
+): Promise<{ stdout: string; calls: number }> {
+  const { decide, calls } = fake('allow', !shadow);
+  const toolInput =
+    tool === 'apply_patch'
+      ? { command: '*** Begin Patch\n*** Update File: src/a.ts\n*** End Patch' }
+      : tool === 'Bash'
+        ? HOOKS.PermissionRequest.tool_input
+        : { file_path: 'src/a.ts', command: 'npm test' };
+  const hook = { ...HOOKS.PermissionRequest, tool_name: tool, tool_input: toolInput };
+  const res = await run(
+    harness,
+    'PermissionRequest',
+    JSON.stringify(hook),
+    {},
+    { decide, readTranscript: readPermissionContext },
+  );
+  return { stdout: res.stdout, calls: calls.length };
+}
 
 describe('output translation', () => {
   it('prints nothing in shadow mode, whatever the action', async () => {
@@ -286,6 +326,53 @@ describe('output translation', () => {
       assert.deepEqual(parsed(await stdoutOf(harness, 'PermissionRequest', 'allow', true)), allow);
       assert.equal(await stdoutOf(harness, 'PermissionRequest', 'deny', true), '');
       assert.equal(await stdoutOf(harness, 'PermissionRequest', 'ask', true), '');
+    }
+  });
+
+  it('PermissionRequest: only allowlisted tools are allowed, others abstain before the gateway', async () => {
+    for (const tool of ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit']) {
+      const res = await permissionFor('claude', tool);
+      assert.notEqual(res.stdout, '', tool);
+      assert.equal(res.calls, 1);
+    }
+    for (const tool of ['Bash', 'apply_patch']) {
+      assert.notEqual((await permissionFor('codex', tool)).stdout, '', tool);
+    }
+    const abstain = [
+      'ExitPlanMode',
+      'AskUserQuestion',
+      'Task',
+      'Agent',
+      'mcp__x__y',
+      'Unknown',
+      '',
+    ];
+    for (const tool of abstain) {
+      const res = await permissionFor('claude', tool);
+      assert.deepEqual(res, { stdout: '', calls: 0 }, `claude ${tool}`);
+    }
+    assert.deepEqual(await permissionFor('codex', 'Edit'), { stdout: '', calls: 0 });
+    assert.deepEqual(await permissionFor('claude', 'apply_patch'), { stdout: '', calls: 0 });
+    assert.equal((await permissionFor('claude', 'Bash', true)).stdout, '');
+  });
+
+  it('hooks.json PermissionRequest matchers list exactly the allowlisted tools', () => {
+    const files = { claude: 'hooks.json', codex: 'codex-hooks.json' } as const;
+    for (const [harness, file] of Object.entries(files) as [keyof typeof files, string][]) {
+      const url = new URL(`../../../plugins/local-decider/hooks/${file}`, import.meta.url);
+      const json = JSON.parse(readFileSync(url, 'utf8')) as {
+        hooks: { PermissionRequest: { matcher: string }[] };
+      };
+      const matcher = json.hooks.PermissionRequest[0]?.matcher ?? '';
+      assert.deepEqual(new Set(matcher.split('|')), PERMISSION_ALLOW_TOOLS[harness], file);
+    }
+  });
+
+  it('translate repeats the tool check on the output side', () => {
+    const allow = response('allow', true);
+    assert.notEqual(translate('claude', 'PermissionRequest', allow, false, 'Bash'), '');
+    for (const tool of ['ExitPlanMode', 'AskUserQuestion', 'mcp__x__y', undefined]) {
+      assert.equal(translate('claude', 'PermissionRequest', allow, false, tool), '');
     }
   });
 
@@ -498,6 +585,136 @@ describe('guard', () => {
     const { decide } = fake('abstain', false);
     const res = await run('claude', 'PermissionRequest', JSON.stringify(rmRoot), {}, { decide });
     assert.equal(res.stdout, '');
+  });
+});
+
+const patch = (target: string): string =>
+  `*** Begin Patch\n*** Update File: ${target}\n*** End Patch`;
+const codex = (target: string): object => ({
+  ...BASE,
+  tool_name: 'apply_patch',
+  tool_input: { command: patch(target) },
+});
+const edit = (path: string, mode?: string): object => ({
+  ...BASE,
+  tool_name: 'Edit',
+  tool_input: { file_path: path },
+  ...(mode === undefined ? {} : { permission_mode: mode }),
+});
+const decisionOf = (stdout: string): string =>
+  (parsed(stdout) as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput
+    .permissionDecision;
+
+describe('write guard', () => {
+  it('denies a Codex patch into .git without calling the gateway', async () => {
+    const { decide, calls } = fake('abstain', false);
+    const res = await run(
+      'codex',
+      'PreToolUse',
+      JSON.stringify(codex('.git/hooks/x')),
+      {},
+      { decide },
+    );
+    assert.equal(decisionOf(res.stdout), 'deny');
+    assert.match(res.stdout, /write-git/);
+    assert.equal(calls.length, 0);
+  });
+
+  it('denies a Codex workflow patch, and a Claude Edit of .git or .ssh', async () => {
+    const { decide, calls } = fake('abstain', false);
+    const wf = await run(
+      'codex',
+      'PreToolUse',
+      JSON.stringify(codex('.github/workflows/a.yml')),
+      {},
+      { decide },
+    );
+    assert.equal(decisionOf(wf.stdout), 'deny');
+    for (const path of ['/work/my-app/.git/config', '/home/u/.ssh/id']) {
+      const res = await run('claude', 'PreToolUse', JSON.stringify(edit(path)), {}, { decide });
+      assert.equal(decisionOf(res.stdout), 'deny', path);
+    }
+    assert.equal(calls.length, 0);
+  });
+
+  it('asks for a Claude workflow edit, and stays silent in auto mode', async () => {
+    const path = '/work/my-app/.github/workflows/ci.yml';
+    const { decide } = fake('abstain', false);
+    const ask = await run('claude', 'PreToolUse', JSON.stringify(edit(path)), {}, { decide });
+    assert.equal(decisionOf(ask.stdout), 'ask');
+    const auto = await run(
+      'claude',
+      'PreToolUse',
+      JSON.stringify(edit(path, 'auto')),
+      {},
+      { decide },
+    );
+    assert.equal(auto.stdout, '');
+  });
+
+  it('passes ordinary writes and honours LOCAL_DECIDER_GUARD=off', async () => {
+    const { decide } = fake('abstain', false);
+    const ok = await run(
+      'claude',
+      'PreToolUse',
+      JSON.stringify(edit('/work/my-app/src/a.ts')),
+      {},
+      { decide },
+    );
+    assert.equal(ok.stdout, '');
+    const env = { LOCAL_DECIDER_GUARD: 'off' };
+    const off = await run('codex', 'PreToolUse', JSON.stringify(codex('.git/x')), env, { decide });
+    assert.equal(off.stdout, '');
+  });
+
+  it('sanitises control characters in the quoted path', async () => {
+    const { decide } = fake('abstain', false);
+    const res = await run(
+      'codex',
+      'PreToolUse',
+      JSON.stringify(codex('.git/a\u001b[31mb')),
+      {},
+      { decide },
+    );
+    const reason = (
+      parsed(res.stdout) as { hookSpecificOutput: { permissionDecisionReason: string } }
+    ).hookSpecificOutput.permissionDecisionReason;
+    assert.ok(!Array.from(reason).some((c) => c.charCodeAt(0) < 32));
+    assert.match(reason, /write-git/);
+  });
+
+  it('abstains on PermissionRequest when the target is outside cwd or protected', async () => {
+    const cases: [string, object][] = [
+      ['codex', { ...codex('/etc/hosts') }],
+      ['claude', { ...BASE, tool_name: 'Write', tool_input: { file_path: '.claude/x' } }],
+      ['claude', { ...BASE, tool_name: 'Bash', tool_input: { command: 'curl x.dev' } }],
+      ['claude', { session_id: 's', tool_name: 'Write', tool_input: { file_path: 'a' } }],
+    ];
+    for (const [harness, hook] of cases) {
+      const { decide, calls } = fake('allow', true);
+      const res = await run(
+        harness,
+        'PermissionRequest',
+        JSON.stringify(hook),
+        {},
+        { decide, readTranscript: readPermissionContext },
+      );
+      assert.equal(res.stdout, '');
+      assert.equal(calls.length, 0);
+    }
+  });
+
+  it('still decides an in-cwd patch on PermissionRequest', async () => {
+    const { decide, calls } = fake('allow', true);
+    const res = await run(
+      'codex',
+      'PermissionRequest',
+      JSON.stringify(codex('src/a.ts')),
+      {},
+      { decide, readTranscript: readPermissionContext },
+    );
+    assert.equal(calls.length, 1);
+    assert.match(res.stdout, /allow/);
   });
 });
 

@@ -86,6 +86,10 @@ PATH="$bats_root/libexec/bats-core:/bin:/usr/bin:$PATH" /bin/bash "$bats_bin" pl
 description = "cccc: cognitive and cyclomatic complexity ceilings (cccc.toml)"
 run = "s=0; cccc --top-cognitive 10 packages/*/src packages/paseo-plugin/server packages/paseo-plugin/shared packages/paseo-plugin/client || s=$?; cccc --top-cyclomatic 10 packages/*/src packages/paseo-plugin/server packages/paseo-plugin/shared packages/paseo-plugin/client || s=$?; exit $s"
 
+[tasks."lint:uvlock"]
+description = "uv.lock is current for the strands-decider engine project"
+run = "uv lock --check --project packages/gateway/engines/strands-decider"
+
 [tasks."lint:fallow"]
 description = "fallow: dead code, duplication and complexity (fallow.toml)"
 run = "fallow"
@@ -103,6 +107,7 @@ depends = [
   "test:shim",
   "lint:complexity",
   "lint:fallow",
+  "lint:uvlock",
 ]
 run = ["pnpm -r build", "pnpm -r test"]
 

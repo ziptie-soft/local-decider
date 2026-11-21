@@ -38,7 +38,7 @@ function decision(
     kind: 'decision',
     ts: '2026-11-10T00:00:00.000Z',
     decisionId: id,
-    harness: 'cli',
+    harness: 'claude-code',
     policy: 'permission',
     mode: 'shadow',
     inputHash: id,
@@ -111,7 +111,38 @@ function thresholdLog(): LogRecord[] {
   return records;
 }
 
+/** Replace the outcome of the nth threshold-log decision where `pick` returns a label. */
+function relabel(
+  records: readonly LogRecord[],
+  pick: (index: number) => string | undefined,
+): LogRecord[] {
+  let index = -1;
+  return records.map((record) => {
+    if (record.kind === 'decision') index += 1;
+    const label = record.kind === 'outcome' ? pick(index) : undefined;
+    return record.kind === 'outcome' && label !== undefined
+      ? { ...record, outcome: label }
+      : record;
+  });
+}
+
 describe('calibrate', () => {
+  it('ignores decisions asked through MCP or the CLI', () => {
+    for (const harness of ['mcp', 'cli'] as const) {
+      const records = sampleLog().map((r) => (r.kind === 'decision' ? { ...r, harness } : r));
+      assert.deepEqual(calibrate(records, LOADED), []);
+    }
+    const mixed = [
+      ...sampleLog(),
+      ...sampleLog().map((r) =>
+        r.kind === 'decision'
+          ? { ...r, harness: 'mcp' as const, decisionId: `m-${r.decisionId}` }
+          : { ...r, decisionId: `m-${r.decisionId}` },
+      ),
+    ];
+    assert.equal(calibrate(mixed, LOADED)[0]?.n, 100);
+  });
+
   it('fits temperature and reports Brier and ECE', () => {
     const [result] = calibrate(sampleLog(), LOADED);
     assert.ok(result);
@@ -238,6 +269,73 @@ default: ask
     const [result] = calibrate(records, policies);
     assert.equal(result?.status, 'calibrated');
     assert.equal(result?.suggestedAllowThresholds, undefined);
+  });
+
+  it('counts unsafe vetoes as not-allowed, so the allow threshold is not looser', () => {
+    const base = thresholdLog();
+    const baseline = calibrate(base, LOADED)[0]?.suggestedAllowThresholds?.[0];
+    assert.equal(baseline?.threshold, 0.98);
+    const vetoed = relabel(base, (index) => (index < 10 ? 'unsafe' : undefined));
+    const [result] = calibrate(vetoed, LOADED);
+    assert.equal(result?.n, 400);
+    const suggestion = result?.suggestedAllowThresholds?.[0];
+    assert.ok(suggestion === undefined || suggestion.threshold > baseline.threshold);
+    assert.equal(suggestion, undefined);
+  });
+
+  it('ignores neutral labels', () => {
+    const neutral = relabel(thresholdLog(), (index) =>
+      index < 10 ? (index % 2 === 0 ? 'decline' : 'interrupted') : undefined,
+    );
+    const [result] = calibrate(neutral, LOADED);
+    assert.equal(result?.n, 390);
+    const suggestion = result?.suggestedAllowThresholds?.[0];
+    assert.equal(suggestion?.threshold, 0.98);
+    assert.equal(suggestion?.n, 190);
+  });
+
+  it('keeps precedent allow rules out of the threshold floor', () => {
+    const policy = parsePolicy(`
+id: permission
+version: 2
+description: precedent floor
+state:
+  maxTokens: 1000
+  sections:
+    - { label: Request, from: request }
+precedent: { from: subject }
+questions:
+  verdict:
+    type: choice
+    instructions: Judge.
+    criteria: { allow: allow, ask: ask }
+rules:
+  - when: { question: verdict, answer: allow, minProbability: 0.5, precedent: allow }
+    action: allow
+  - when: { question: verdict, answer: allow, minProbability: 0.8 }
+    action: allow
+default: ask
+`);
+    const policies = new Map([
+      ['permission', { policy: policy, mode: 'shadow' as const, source: '<test>' }],
+    ]);
+    const records: LogRecord[] = [];
+    for (let index = 0; index < 400; index += 1) {
+      const id = `floor-${String(index)}`;
+      records.push(decision(id, index < 200 ? 0.6 : 0.98), {
+        kind: 'outcome',
+        ts: '2026-11-10T00:00:01.000Z',
+        decisionId: id,
+        outcome: 'allow',
+        source: 'user',
+        verified: true,
+      });
+    }
+    const [result] = calibrate(records, policies);
+    assert.equal(result?.suggestedAllowThresholds?.length, 1);
+    assert.equal(result?.suggestedAllowThresholds?.[0]?.rule, 'verdict.allow');
+    // The floor is the plain rule's 0.8; a precedent rule's 0.5 would have given 0.5.
+    assert.equal(result?.suggestedAllowThresholds?.[0]?.threshold, 0.8);
   });
 
   it('reports the no-log message when the database is absent', () => {

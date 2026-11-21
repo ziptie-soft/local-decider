@@ -1,4 +1,5 @@
 import {
+  mcpOpen,
   parsePolicy,
   SCOPES,
   type Mode,
@@ -76,5 +77,20 @@ export function loadPolicies(
       });
     }
   }
-  return out;
+  return inheritMcp(out);
+}
+
+/**
+ * A variant that leaves `mcp` unset takes its base policy's value, so a variant of a hook-enforced
+ * policy cannot be probed through MCP. A base that is not loaded leaves the variant open.
+ */
+function inheritMcp(policies: Map<string, LoadedPolicy>): Map<string, LoadedPolicy> {
+  for (const [id, loaded] of policies) {
+    const { variantOf, mcp } = loaded.policy;
+    const base = variantOf === undefined ? undefined : policies.get(variantOf);
+    if (base !== undefined && mcp === undefined) {
+      policies.set(id, { ...loaded, policy: { ...loaded.policy, mcp: mcpOpen(base.policy) } });
+    }
+  }
+  return policies;
 }

@@ -10,7 +10,9 @@ import type {
 } from '@ziptie-soft/local-decider-core';
 
 import { classifierAgreement, type ClassifierAgreement } from './classifier-agreement.ts';
-import { ENGINE_BENCHMARK_RUNNING_ERROR } from './engine-busy.ts';
+import { isUnjudged } from './engine-busy.ts';
+import { ENGINE_BUSY_ERROR } from './engines/types.ts';
+import { isProbeDecision, isTruncatedDecision } from './log-store.ts';
 import { percentile, sortedLatencies, wilsonUpper } from './numbers.ts';
 import {
   comparableOutcome,
@@ -42,7 +44,11 @@ export interface PolicyStats {
   readonly policy: string;
   readonly decisions: number;
   readonly errors: number;
+  /** Of `errors`, decisions refused as busy (engine 503 or `budgetMs` admission): fail open, uncounted for calibration. */
+  readonly busy: number;
   readonly enforced: number;
+  /** Decisions whose state had a section cut, dropped or already truncated (see ShadowRecord). */
+  readonly truncated: number;
   readonly actions: Readonly<Record<string, number>>;
   readonly latencyP50Ms?: number;
   readonly latencyP95Ms?: number;
@@ -155,7 +161,8 @@ interface ThresholdSample {
   readonly denied: boolean;
 }
 
-function eligibleAllowRules(policy: Policy): PolicyRule[] {
+/** Allow rules with a probability threshold; `precedent: allow` rules are never eligible. */
+export function eligibleAllowRules(policy: Policy): PolicyRule[] {
   return policy.rules.filter(
     (rule) =>
       rule.action === 'allow' &&
@@ -174,7 +181,8 @@ function samplesForRule(
     const outcome = verified.get(decision.decisionId);
     const cls = outcome === undefined ? 'other' : outcomeClass(outcome);
     if (
-      decision.error === ENGINE_BENCHMARK_RUNNING_ERROR ||
+      isUnjudged(decision.error) ||
+      isTruncatedDecision(decision) ||
       decision.action !== 'ask' ||
       (cls !== 'allow' && cls !== 'veto')
     ) {
@@ -245,7 +253,7 @@ function labelledDecisions(
 ): Labelled[] {
   const labelled: Labelled[] = [];
   for (const d of decisions) {
-    if (d.error === ENGINE_BENCHMARK_RUNNING_ERROR) {
+    if (isUnjudged(d.error)) {
       continue;
     }
     const record = outcomes.get(d.decisionId);
@@ -274,7 +282,9 @@ function policyStats(
     policy,
     decisions: decisions.length,
     errors: decisions.filter((d) => d.error !== undefined).length,
+    busy: decisions.filter((d) => d.error === ENGINE_BUSY_ERROR).length,
     enforced: decisions.filter((d) => d.enforced).length,
+    truncated: decisions.filter(isTruncatedDecision).length,
     actions: countActions(decisions),
     ...(p50 === undefined ? {} : { latencyP50Ms: p50 }),
     ...(p95 === undefined ? {} : { latencyP95Ms: p95 }),
@@ -319,7 +329,11 @@ function noteOutcomeRecord(
   classifier: Map<string, OutcomeRecord>,
   verified: Map<string, string>,
 ): void {
-  outcomes.set(record.decisionId, record);
+  const held = outcomes.get(record.decisionId);
+  // A verified outcome is never replaced by an unverified one, whatever the arrival order.
+  if (held === undefined || isVerifiedOutcome(record) || !isVerifiedOutcome(held)) {
+    outcomes.set(record.decisionId, record);
+  }
   if (record.source === 'classifier' || record.claimedSource === 'classifier') {
     classifier.set(record.decisionId, record);
   }
@@ -353,7 +367,10 @@ function joinRecords(records: readonly LogRecord[], options: StatsOptions): Join
       if (record.source === 'unverified') unverified.push(record);
     } else if (record.kind === 'usage') {
       usage.push(record);
-    } else if (options.scope === undefined || record.scope === options.scope) {
+    } else if (
+      !isProbeDecision(record) &&
+      (options.scope === undefined || record.scope === options.scope)
+    ) {
       const list = byPolicy.get(record.policy) ?? [];
       list.push(record);
       byPolicy.set(record.policy, list);
@@ -419,6 +436,9 @@ export function formatStats(stats: readonly PolicyStats[]): string {
         .join(' ')}`,
       `  labelled ${String(s.labelled)}, agreement ${pct(s.agreement)}, brier ${s.brier?.toFixed(3) ?? '-'}`,
     );
+    if (s.truncated > 0) {
+      lines.push(`  truncated ${String(s.truncated)} (a state section was cut)`);
+    }
     if (s.unverifiedByClaimedSource !== undefined) {
       lines.push(
         `  unverified outcomes ${Object.entries(s.unverifiedByClaimedSource)

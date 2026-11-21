@@ -1,5 +1,6 @@
 import {
   HARNESSES,
+  mcpOpen,
   PERMISSION_MODES,
   policyRoutes,
   SCOPES,
@@ -32,7 +33,7 @@ import {
 } from './engine-control.ts';
 import { allModels } from './engines/registry.ts';
 import type { LogStore } from './log-store.ts';
-import { handleMcpHttp } from './mcp.ts';
+import { handleMcpHttp, policyInfo } from './mcp.ts';
 import { modelFits } from './models.ts';
 import { withConfiguredRoutes, withRoute } from './routing.ts';
 import type { Pricing } from './savings.ts';
@@ -120,6 +121,7 @@ function parseDecideRequest(body: unknown): DecideRequest {
   const call = parseCall(body['call']);
   const scope = parseScope(body['scope']);
   const workspace = parseWorkspace(body['workspace']);
+  const budgetMs = parseBudget(body['budgetMs']);
   return {
     harness: harness as DecideRequest['harness'],
     input: body['input'],
@@ -128,7 +130,15 @@ function parseDecideRequest(body: unknown): DecideRequest {
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(models === undefined ? {} : { models }),
     ...(workspace === undefined ? {} : { workspace }),
+    ...(budgetMs === undefined ? {} : { budgetMs }),
   };
+}
+
+/** Tolerant like `call`: a `budgetMs` that is not an integer from 1 to 600000 is dropped. */
+function parseBudget(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 600_000
+    ? value
+    : undefined;
 }
 
 function parseWorkspace(value: unknown): DecideRequest['workspace'] {
@@ -576,6 +586,8 @@ function route(method: string, path: string): Handler | undefined {
           id: policy.id,
           mode,
           description: policy.description,
+          mcp: mcpOpen(policy),
+          questions: policyInfo(policy).questions,
           inputKeys: policy.state.sections.map((s) => s.from),
           routes: policyRoutes(policy),
           thresholds: decider.thresholdsOf(policy.id),
@@ -586,12 +598,12 @@ function route(method: string, path: string): Handler | undefined {
       );
   }
   if (key === 'POST /v1/systemone' || key === 'POST /invocations') {
-    return async (req, res, { decider }) =>
-      send(
-        res,
-        200,
-        await decider.systemOne(parseSystemOne(await readJson(req)), requestSignal(res)),
-      );
+    return async (req, res, { decider }) => {
+      const signal = requestSignal(res);
+      const body = parseSystemOne(await readJson(req));
+      signal.throwIfAborted();
+      send(res, 200, await decider.systemOne(body, signal));
+    };
   }
   if (key === 'POST /v1/usage') {
     return async (req, res, { log }) => {
@@ -629,9 +641,11 @@ function route(method: string, path: string): Handler | undefined {
   if (policy !== undefined) {
     return async (req, res, { decider, settings }) => {
       const config = settings?.();
+      const signal = requestSignal(res);
       const parsed = parseDecideRequest(await readJson(req));
+      signal.throwIfAborted();
       const request = config === undefined ? parsed : withConfiguredRoutes(config, parsed);
-      const response = await decider.decide(policy, request, requestSignal(res));
+      const response = await decider.decide(policy, request, signal);
       send(
         res,
         200,

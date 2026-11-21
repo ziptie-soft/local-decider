@@ -5,7 +5,9 @@ import type { Paths } from '../../paths.ts';
 import type { Toolchain } from '../../toolchain.ts';
 import type { Device, HostInfo } from '../descriptor.ts';
 import { SupervisedEngine, type ServerSpec } from '../supervised.ts';
+import { hfCacheDir, pinnedCheckpoint } from './hf-cache.ts';
 import { resolveStrandsDevice, type DeviceResolution } from './mlx.ts';
+import { isTransformersModel } from './models.ts';
 
 const STRANDS_VENV = 'strands-decider';
 
@@ -21,12 +23,21 @@ export function serveArgs(
   device: Exclude<Device, 'auto'> | undefined = config.device === 'auto'
     ? undefined
     : config.device,
+  /** A pinned HF snapshot directory to serve instead of the repo id (see `pinnedCheckpoint`). */
+  checkpoint?: string,
 ): string[] {
-  const args = ['serve', config.model, '--host', '127.0.0.1', '--port', String(port)];
+  const args = ['serve', checkpoint ?? config.model, '--host', '127.0.0.1', '--port', String(port)];
+  if (checkpoint !== undefined) {
+    // Upstream names the model after the checkpoint's basename, which would now be the sha.
+    args.push('--model-name', config.model.split('/').pop() ?? config.model);
+  }
   if (device !== undefined) {
     args.push('--device', device);
   }
   args.push('--max-batch', String(config.maxBatch));
+  if (config.maxConcurrency !== undefined) {
+    args.push('--max-concurrency', String(config.maxConcurrency));
+  }
   // Warmup compiles kernel shapes; on CPU there is nothing to compile and it adds ~27 s to every
   // start (ready in 4.6 s without it, first request no slower). `--warmup` in extraArgs opts back in.
   if (device === 'cpu' && !config.extraArgs.some((a) => a === '--warmup' || a === '--no-warmup')) {
@@ -44,22 +55,37 @@ function strandsSpec(
 ): ServerSpec {
   const binary = tools?.strandsDecider ?? strandsBinary(paths);
   // Resolved once per launch (refreshed in `binary()`), so argv and health agree.
-  let device: DeviceResolution = resolveStrandsDevice(config.device, host, binary);
+  const transformers = isTransformersModel(config.model);
+  let device: DeviceResolution = resolveStrandsDevice(config.device, host, binary, transformers);
   return {
     id: 'strands-decider',
     model: config.model,
     url: config.url,
     startTimeoutSeconds: config.startTimeoutSeconds,
+    concurrency: config.maxConcurrency,
     healthPath: '/health',
     env: { PYTHONUNBUFFERED: '1', ...tools?.env },
     binary: () => {
-      device = resolveStrandsDevice(config.device, host, binary);
+      if (transformers && config.device === 'mlx') {
+        // Fail the start with a clear reason rather than let upstream reject the flag.
+        return {
+          missing:
+            'v2 checkpoints use the transformers backend, which has no MLX device; set device to auto, mps or cpu',
+        };
+      }
+      device = resolveStrandsDevice(config.device, host, binary, transformers);
       return {
         path: binary,
         missing: `${binary} not found; run \`local-decider engine install\``,
       };
     },
-    args: (port) => serveArgs(config, port, device.resolved),
+    args: (port) =>
+      serveArgs(
+        config,
+        port,
+        device.resolved,
+        pinnedCheckpoint(hfCacheDir(tools?.env, process.env), config.model),
+      ),
     deviceInfo: () => device,
     maxLength: (body) => (typeof body['max_length'] === 'number' ? body['max_length'] : undefined),
   };

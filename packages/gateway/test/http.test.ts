@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { describe, it } from 'node:test';
 
 import { getJson, postJson, postSystemOne } from '../src/engines/http.ts';
-import { EngineError } from '../src/engines/types.ts';
+import { EngineError, isEngineBusy } from '../src/engines/types.ts';
 
 const request = { questions: {}, state: '' };
 
@@ -55,7 +55,22 @@ describe('postSystemOne', () => {
         request,
         signal,
       ),
-      /engine HTTP 503: model not loaded/,
+      (error: unknown) =>
+        error instanceof EngineError &&
+        error.message === 'engine busy (503)' &&
+        isEngineBusy(error) &&
+        error.httpFailure?.body === 'model not loaded',
+    );
+  });
+
+  it('keeps other statuses as plain HTTP errors', async () => {
+    await assert.rejects(
+      postSystemOne(
+        { baseUrl: 'http://127.0.0.1:1', fetch: fakeFetch('boom', 1, 500) },
+        request,
+        signal,
+      ),
+      (error: unknown) => /engine HTTP 500/.test((error as Error).message) && !isEngineBusy(error),
     );
   });
 });

@@ -6,11 +6,17 @@ the Paseo settings page all read it. Decision architecture is in
 [architecture.md](architecture.md); the reasoning behind the registry is in
 [ADR-0008](adr/0008-engine-registry.md).
 
+The `strands-decider` engine runs [Strands Decider](https://github.com/strands-labs/strands-decider)
+(Apache-2.0, see [NOTICE](../NOTICE)). Its
+[launch post](https://strandsagents.com/blog/introducing-strands-decider/) describes the model, and an
+[Amazon case study](https://strandsagents.com/blog/amazon-saves-millions-replacing-sonnet-with-strands-decider/)
+measures the token and cost savings of a decision model over an LLM.
+
 ## 1. Engines
 
 | id | Label | Platforms | Devices | Install | Calibrated | Models |
 |---|---|---|---|---|---|---|
-| `strands-decider` | Strands Decider | all | Apple Silicon: `auto`, `cpu`, `mlx`, `mps`; Linux: `auto`, `cpu`, `cuda`; else `auto`, `cpu` | `local-decider engine install [--flavor cpu\|mlx\|cuda]` | yes | Catalogue in `engines/strands/models.ts`, downloaded from Hugging Face |
+| `strands-decider` | Strands Decider | all | Apple Silicon: `auto`, `cpu`, `mlx`, `mps`; Linux: `auto`, `cpu`, `cuda` (NVIDIA or ROCm); else `auto`, `cpu` | `local-decider engine install [--flavor cpu\|mlx\|cuda\|rocm]` | yes | Catalogue in `engines/strands/models.ts`, downloaded from Hugging Face |
 | `fastflowlm` | FastFlowLM (AMD NPU) | Linux | none | install FastFlowLM yourself (distribution package or upstream installer); `local-decider engine install --engine fastflowlm` validates and pulls a model | yes | Catalogue in `engines/fastflowlm/models.ts`, pulled with `flm pull` |
 | `llama-vulkan` | llama.cpp (Vulkan GPU) | Linux x86_64 | none | Install a Vulkan-enabled `llama-server` yourself on `PATH` or set `tools.llamaServer`; `local-decider engine install --engine llama-vulkan` downloads a pinned d3 GGUF | yes | Catalogue in `engines/llama/models.ts`, pinned GGUF downloads |
 | `openai-compatible` | OpenAI-compatible | all | none | nothing to install: start your server | **no** | Discovered from the server's `/models` |
@@ -31,6 +37,14 @@ the Paseo settings page all read it. Decision architecture is in
   gateway sends the active one as `engineTag` in `/health`.
 
 `local-decider engine list` prints the engines and models as the gateway sees them.
+
+`strands-decider` accepts `maxConcurrency` (1-64, `serve --max-concurrency`, strands-decider
+0.4.0 or newer). The gateway runs as many engine calls at once as that value, so a fleet of
+agents is no longer serialised in front of an engine that can batch. Without it, and for every
+other engine, the gateway sends one request at a time. Queue places scale with it: 7 waiting
+places beyond the slots. Callers that send `budgetMs` fail open at once when the estimated wait
+is longer (see [architecture](architecture.md)). A cold managed engine's load time is not
+budgeted, so the first request after a load is admitted and may time out (fail-open).
 
 The llama Vulkan engine uses llama.cpp's native `/v1/systemone` endpoint with calibrated d3
 decision GGUFs. It needs a Vulkan-enabled `llama-server` installed separately; the engine-specific
@@ -133,6 +147,14 @@ Append a `ModelDescriptor` to the engine's `models.ts`: `id`, `engine`, `label`,
 engine: for `strands-decider` it lists Hugging Face repos, adapter first. A model that does not fit
 within 80% of the machine's memory is listed but cannot be selected.
 
+**Strands v2 checkpoints** (`strands-decider-<size>-gemma4-v2-2611`, `generation: 2` in the
+catalogue) use the transformers backend, not MLX: `device: mlx` fails the start with a clear
+reason, `auto` never resolves to MLX and the selector offers them on CUDA, MPS and CPU only. Only
+E2B v2 is on Hugging Face (2026-11-21), pinned together with the upstream-recorded base revision,
+and it is not recommended by default. `serve` queues requests and answers 503 after
+`--queue-timeout`; the gateway reports that as `engine busy (503)`, fails open and does not count
+it as an engine failure or restart.
+
 ## 5. macOS and Linux defaults
 
 - **Apple Silicon.** `engine install` picks the `mlx` flavour. With `device: auto` the gateway
@@ -142,7 +164,10 @@ within 80% of the machine's memory is listed but cannot be selected.
   Pro: MLX 66 ms, MPS 180 ms, CPU 1.1 s.
 - **Memory.** On a 48 GB Mac the default budget (80%, 38.4 GB) fits models up to 12B in bf16 but
   not 26B-A4B.
-- **Linux.** `auto` lets strands-decider pick `cuda` or `cpu`. FastFlowLM needs an AMD XDNA2 NPU
+- **Linux.** `auto` lets strands-decider pick `cuda` or `cpu`. On AMD GPUs install
+  `--flavor rocm`: ROCm torch (`whl/rocm7.2`) reports the GPU as `cuda`, so the device stays
+  `cuda`. The gateway detects ROCm from `/dev/kfd` and the first `gfx` agent in `rocminfo`; gfx1150
+  (Radeon 880M/890M) needs no `HSA_OVERRIDE_GFX_VERSION`. FastFlowLM needs an AMD XDNA2 NPU
   and is not offered elsewhere.
 - **launchd.** On macOS `local-decider gateway start` installs a LaunchAgent with `PATH`, `HOME`
   and the data-directory variables set, and reads tokens from `~/.config/local-decider/env` if it

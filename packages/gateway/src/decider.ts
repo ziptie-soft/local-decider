@@ -1,8 +1,10 @@
 import {
   buildState,
+  type BuiltState,
   canonicalJson,
   CHARS_PER_TOKEN,
   evaluateRules,
+  guardTruncation,
   inputHash,
   normaliseAnswers,
   type OutcomeRecord,
@@ -21,6 +23,7 @@ import {
   type Policy,
   type PolicyThreshold,
   type PrecedentTally,
+  type Questions,
   type Scope,
   type ShadowRecord,
   type SystemOneRequest,
@@ -31,7 +34,7 @@ import { randomUUID } from 'node:crypto';
 
 import { CallStore, type CallDecision } from './call-store.ts';
 import { EngineBusyError } from './engine-busy.ts';
-import type { Engine } from './engines/types.ts';
+import { ENGINE_BUSY_ERROR, isEngineBusy, type Engine } from './engines/types.ts';
 import type { LogStore } from './log-store.ts';
 import type { LoadedPolicy } from './policies.ts';
 import { PrecedentStore } from './precedent.ts';
@@ -55,7 +58,26 @@ export const QUEUE_MAX = 8;
  * decision arriving at QUEUE_MAX evicts the oldest waiting `low` one.
  */
 const QUEUE_HIGH_RESERVE = 2;
-const QUEUE_LIMITS: QueueLimits = { max: QUEUE_MAX, highReserve: QUEUE_HIGH_RESERVE };
+
+/** Queue limits for an engine running `slots` jobs at once: the same 7 waiting places beyond them. */
+function queueLimits(slots: number): QueueLimits {
+  return { max: QUEUE_MAX - 1 + slots, highReserve: QUEUE_HIGH_RESERVE };
+}
+
+/** Recent engine jobs timed for the busy estimate; `replaceEngine` clears them. */
+const SERVICE_WINDOW = 50;
+
+/**
+ * Milliseconds a new job waits for a slot: each full wave of `slots` jobs ahead of it takes one
+ * mean service time. Zero while a slot is free or nothing has been timed yet.
+ */
+export function estimateWaitMs(
+  depth: number,
+  slots: number,
+  meanServiceMs: number | undefined,
+): number {
+  return meanServiceMs === undefined ? 0 : Math.floor(depth / slots) * meanServiceMs;
+}
 
 function precedentWindow(policies: ReadonlyMap<string, LoadedPolicy>): number | undefined {
   let days: number | undefined;
@@ -117,6 +139,25 @@ interface EngineResult {
   readonly error?: string;
 }
 
+/** How a decision enters the engine queue. */
+interface Admission {
+  readonly signal: AbortSignal;
+  readonly priority: Priority;
+  /** The caller's wait budget; a longer estimated queue wait refuses the decision as busy. */
+  readonly budgetMs?: number;
+}
+
+const PRIORITY_RANK: Readonly<Record<Priority, number>> = { low: 0, normal: 1, high: 2 };
+
+/** An engine call that identical concurrent requests share. */
+interface SharedCall {
+  readonly hash: string;
+  readonly priority: Priority;
+  readonly controller: AbortController;
+  readonly promise: Promise<EngineResult>;
+  waiters: number;
+}
+
 interface PrecedentDecision {
   readonly key: string;
   readonly tally: PrecedentTally;
@@ -146,8 +187,15 @@ export class Decider {
   /** Decisions waiting for a managed engine to load (outside the queue). */
   #preparing = 0;
   #holdReason: string | null = null;
+  #switchReason: string | null = null;
+  /** Bumped by hold and replaceEngine: answers computed before it must not enter the cache. */
+  #generation = 0;
   readonly #latency = new LatencyWindow();
+  /** Time inside the engine call only (no queue wait), for `budgetMs` admission. */
+  readonly #service = new LatencyWindow(SERVICE_WINDOW);
   readonly #cache = new Map<string, CacheEntry>();
+  /** Engine calls running now by input hash; identical requests join instead of calling again. */
+  readonly #inflight = new Map<string, SharedCall>();
   readonly #precedent: PrecedentStore;
   /** Recent harness tool calls and what each policy decided for them. */
   readonly calls = new CallStore();
@@ -156,7 +204,12 @@ export class Decider {
 
   constructor(options: DeciderOptions) {
     this.#engine = options.engine;
-    this.#queue = new SerialQueue({ abandonGraceMs: options.queueGraceMs ?? ABANDON_GRACE_MS });
+    this.#queue = new SerialQueue({
+      abandonGraceMs: options.queueGraceMs ?? ABANDON_GRACE_MS,
+      ...(options.engine.concurrency === undefined
+        ? {}
+        : { concurrency: options.engine.concurrency }),
+    });
     this.#policies = new Map(options.policies);
     this.#log = options.log;
     this.#timeoutMs = options.decisionTimeoutMs;
@@ -175,10 +228,46 @@ export class Decider {
     return this.#engine;
   }
 
+  /** Why decisions currently fail open, or null. */
+  get held(): string | null {
+    return this.#blocked;
+  }
+
   /** Fail open while a gateway operation temporarily owns the engine. */
   hold(reason: string | null): void {
     this.#holdReason = reason;
+    this.#invalidate();
+  }
+
+  /**
+   * The same fail-open hold for an engine switch, kept apart from `hold` so a benchmark's release
+   * cannot end it early and vice versa.
+   */
+  holdSwitch(reason: string | null): void {
+    this.#switchReason = reason;
+    this.#invalidate();
+  }
+
+  #invalidate(): void {
+    this.#generation += 1;
     this.#cache.clear();
+    this.#inflight.clear();
+  }
+
+  /** The reason decisions fail open now, from either hold. */
+  get #blocked(): string | null {
+    return this.#holdReason ?? this.#switchReason;
+  }
+
+  /** Throws for a queued job whose engine was replaced or held since it was enqueued. */
+  #assertCurrent(generation: number): void {
+    const reason = this.#blocked;
+    if (reason !== null) {
+      throw new EngineBusyError(reason);
+    }
+    if (generation !== this.#generation) {
+      throw new EngineBusyError('engine changed');
+    }
   }
 
   /** Called with the engine that errored, so a supervisor can check its health. */
@@ -351,7 +440,11 @@ export class Decider {
   replaceEngine(next: Engine): Engine {
     const previous = this.#engine;
     this.#engine = next;
+    this.#queue.setConcurrency(next.concurrency);
+    this.#service.clear();
+    this.#generation += 1;
     this.#cache.clear();
+    this.#inflight.clear();
     return previous;
   }
 
@@ -360,19 +453,26 @@ export class Decider {
     return this.#queue.depth + this.#preparing;
   }
 
+  /** Engine calls that run at once, from the engine's own setting. */
+  get slots(): number {
+    return this.#queue.concurrency;
+  }
+
   latency(p: number): number | undefined {
     return this.#latency.percentile(p);
   }
 
   /** Pass-through `/v1/systemone`: keys sorted, strings redacted, one request at a time. */
   async systemOne(request: SystemOneRequest, signal: AbortSignal): Promise<SystemOneResponse> {
-    if (this.#holdReason !== null) {
-      throw new EngineBusyError(this.#holdReason);
-    }
+    this.#assertCurrent(this.#generation);
+    const generation = this.#generation;
     const clean = sortKeysDeep(redactDeep(request));
     const started = performance.now();
     const bounded = this.#signal(signal);
-    const response = await this.#queue.run(bounded, () => this.#engine.decide(clean, bounded));
+    const response = await this.#queue.run(bounded, () => {
+      this.#assertCurrent(generation);
+      return this.#engine.decide(clean, bounded);
+    });
     this.#latency.add(performance.now() - started);
     return response;
   }
@@ -412,26 +512,19 @@ export class Decider {
     }
     const input = redactDeep(request.input);
     const precedent = this.#precedentFor(policy, input, request.workspace?.cwd);
-    const modelInput = { ...input };
-    delete modelInput['subject'];
-    if (policy.precedent !== undefined) {
-      delete modelInput[policy.precedent.from];
-    }
-    const sections = policySections(policy, modelInput, renderValue);
-    const state = buildState(sections, policy.state.maxTokens);
-    const questions = sortKeysDeep(policyQuestions(policy));
-    const hash = inputHash({ id: policy.id, version: policy.version, state, questions });
-    const admitted = admission(mode, policy, signal);
+    const { state, questions, hash, truncated, criticalCut } = this.#state(policy, input);
+    const admitted = admission(mode, policy, signal, request.budgetMs);
     const result = await this.#answers(
       { state, questions },
       hash,
       policy.cache.ttlSeconds,
-      admitted.signal,
-      admitted.priority,
+      admitted,
     );
-    const match = evaluateRules(policy, result.answers, {
-      precedentAllows: precedent?.allows ?? false,
-    });
+    // Cached answers are stored without this: the guard runs on every call, hits included.
+    const match = guardTruncation(
+      evaluateRules(policy, result.answers, { precedentAllows: precedent?.allows ?? false }),
+      criticalCut,
+    );
     const enforced = mode === 'act' && result.error === undefined;
     const response: DecideResponse = {
       ...base,
@@ -445,6 +538,7 @@ export class Decider {
         ? {}
         : { precedentKey: precedent.key, precedent: precedent.tally }),
       ...(result.error === undefined ? {} : { error: result.error }),
+      ...(truncated.length === 0 ? {} : { truncated }),
     };
     this.#record(request, response, {
       hash,
@@ -457,6 +551,26 @@ export class Decider {
       answered: response.error === undefined,
     });
     return response;
+  }
+
+  /** What the model reads for `input` (redacted), the questions, their hash and what was cut. */
+  #state(
+    policy: Policy,
+    input: Readonly<Record<string, unknown>>,
+  ): BuiltState & { questions: Questions; hash: string; state: string } {
+    const modelInput = { ...input };
+    delete modelInput['subject'];
+    if (policy.precedent !== undefined) {
+      delete modelInput[policy.precedent.from];
+    }
+    const built = buildState(
+      policySections(policy, modelInput, renderValue),
+      policy.state.maxTokens,
+    );
+    const state = built.text;
+    const questions = sortKeysDeep(policyQuestions(policy));
+    const hash = inputHash({ id: policy.id, version: policy.version, state, questions });
+    return { ...built, state, questions, hash };
   }
 
   /** Index the decision under the request's call id, even if its HTTP caller is gone. */
@@ -492,18 +606,106 @@ export class Decider {
     request: SystemOneRequest,
     hash: string,
     ttlSeconds: number,
-    signal: AbortSignal,
-    priority: Priority = 'normal',
+    admitted: Admission,
   ): Promise<EngineResult> {
-    if (this.#holdReason !== null) {
-      return { answers: {}, latencyMs: 0, cached: false, error: this.#holdReason };
+    const { signal, priority, budgetMs } = admitted;
+    const blocked = this.#blocked;
+    if (blocked !== null) {
+      return { answers: {}, latencyMs: 0, cached: false, error: blocked };
     }
     const hit = this.#cache.get(hash);
     if (hit !== undefined && hit.expires > Date.now()) {
       return { answers: hit.answers, latencyMs: 0, cached: true };
     }
+    const running = ttlSeconds <= 0 ? undefined : this.#inflight.get(hash);
+    // The queue cannot re-prioritise a running call: a more urgent request runs on its own.
+    if (running !== undefined && PRIORITY_RANK[priority] <= PRIORITY_RANK[running.priority]) {
+      return this.#join(running, signal);
+    }
+    const busy = this.#overBudget(budgetMs);
+    if (busy !== undefined) {
+      return busy;
+    }
+    if (ttlSeconds <= 0 || running !== undefined) {
+      return this.#compute(request, hash, ttlSeconds, signal, priority);
+    }
+    // The shared call has its own signal: it aborts only once every waiter has left.
+    const controller = new AbortController();
+    const call: SharedCall = {
+      hash,
+      priority,
+      controller,
+      waiters: 0,
+      promise: this.#compute(request, hash, ttlSeconds, controller.signal, priority).finally(() => {
+        if (this.#inflight.get(hash) === call) {
+          this.#inflight.delete(hash);
+        }
+      }),
+    };
+    this.#inflight.set(hash, call);
+    return this.#join(call, signal);
+  }
+
+  /**
+   * Refuse a request whose caller will not wait out the estimated queue time, before it takes a
+   * place: the same fail-open result as the engine's own 503, not an engine failure.
+   */
+  #overBudget(budgetMs: number | undefined): EngineResult | undefined {
+    if (budgetMs === undefined) {
+      return undefined;
+    }
+    const wait = estimateWaitMs(this.queueDepth, this.slots, this.#service.mean());
+    return wait > budgetMs
+      ? { answers: {}, latencyMs: 0, cached: false, error: ENGINE_BUSY_ERROR }
+      : undefined;
+  }
+
+  /** Wait for a shared call; return early (not abort it) when this caller's signal fires. */
+  async #join(call: SharedCall, signal: AbortSignal): Promise<EngineResult> {
+    call.waiters += 1;
+    let onAbort: (() => void) | undefined;
+    const aborted = new Promise<EngineResult>((resolve) => {
+      onAbort = (): void => {
+        call.waiters -= 1;
+        if (call.waiters === 0) {
+          // Unlist it now: a newcomer must not join a call that is already aborted.
+          if (this.#inflight.get(call.hash) === call) {
+            this.#inflight.delete(call.hash);
+          }
+          call.controller.abort(signal.reason);
+        }
+        resolve({
+          answers: {},
+          latencyMs: 0,
+          cached: false,
+          error: errorMessage(signal.reason),
+        });
+      };
+      if (signal.aborted) {
+        onAbort();
+      } else {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+    });
+    try {
+      return await Promise.race([call.promise, aborted]);
+    } finally {
+      if (onAbort !== undefined) {
+        signal.removeEventListener('abort', onAbort);
+      }
+    }
+  }
+
+  async #compute(
+    request: SystemOneRequest,
+    hash: string,
+    ttlSeconds: number,
+    signal: AbortSignal,
+    priority: Priority,
+  ): Promise<EngineResult> {
     // A managed engine (ensureReady) loads on demand, outside the queue; others must be up.
     const engine = this.#engine;
+    const generation = this.#generation;
     if (engine.ensureReady === undefined && engine.health().state !== 'ready') {
       return { answers: {}, latencyMs: 0, cached: false, error: `engine ${engine.health().state}` };
     }
@@ -520,9 +722,12 @@ export class Decider {
       // the old behaviour).
       const response = await this.#queue.run(
         bounded,
-        () => this.#engine.decide(request, bounded),
+        () => {
+          this.#assertCurrent(generation);
+          return this.#timed(() => this.#engine.decide(request, bounded), bounded);
+        },
         priority,
-        QUEUE_LIMITS,
+        queueLimits(this.slots),
       );
       const answers = normaliseAnswers(request.questions, response);
       const latencyMs = performance.now() - started;
@@ -530,11 +735,37 @@ export class Decider {
       if (Object.keys(answers).length === 0) {
         return { answers, latencyMs, cached: false, error: 'engine returned no usable answers' };
       }
-      this.#remember(hash, answers, ttlSeconds);
+      if (generation === this.#generation) {
+        this.#remember(hash, answers, ttlSeconds);
+      }
       this.#successHandler?.(engine);
       return { answers, latencyMs, cached: false };
     } catch (error) {
       return this.#failed(error, engine, started);
+    }
+  }
+
+  /**
+   * Run an engine call, adding its duration to the service window when it answers or when its
+   * signal fires (timeout or caller abort, so a hanging engine raises the mean). Immediate
+   * non-abort errors are not sampled. At most one sample per call.
+   */
+  async #timed<T>(call: () => Promise<T>, signal: AbortSignal): Promise<T> {
+    const started = performance.now();
+    let recorded = false;
+    const record = (): void => {
+      if (!recorded) {
+        recorded = true;
+        this.#service.add(performance.now() - started);
+      }
+    };
+    signal.addEventListener('abort', record, { once: true });
+    try {
+      const result = await call();
+      record();
+      return result;
+    } finally {
+      signal.removeEventListener('abort', record);
     }
   }
 
@@ -546,7 +777,10 @@ export class Decider {
   async #prepare(engine: Engine, signal: AbortSignal, priority: Priority): Promise<void> {
     // Checked apart from the queue's limits: a burst that finishes a cold load is re-checked by
     // the queue itself, and `high` waiting for the load is bounded only by decisionTimeoutMs.
-    if (priority !== 'high' && this.queueDepth >= admissionLimit(priority, QUEUE_LIMITS)) {
+    if (
+      priority !== 'high' &&
+      this.queueDepth >= admissionLimit(priority, queueLimits(this.slots))
+    ) {
       throw new QueueFullError();
     }
     this.#preparing += 1;
@@ -564,6 +798,15 @@ export class Decider {
   #failed(error: unknown, engine: Engine, started: number): EngineResult {
     if (error instanceof QueueFullError) {
       return { answers: {}, latencyMs: 0, cached: false, error: 'engine queue full' };
+    }
+    if (isEngineBusy(error)) {
+      // Transient load (the engine's queue timeout): fail open, but not an engine failure.
+      return {
+        answers: {},
+        latencyMs: performance.now() - started,
+        cached: false,
+        error: ENGINE_BUSY_ERROR,
+      };
     }
     this.#failureHandler?.(engine);
     return {
@@ -618,6 +861,7 @@ export class Decider {
       model: response.model,
       latencyMs: Math.round(response.latencyMs),
       ...(response.error === undefined ? {} : { error: response.error }),
+      ...(response.truncated === undefined ? {} : { truncated: response.truncated }),
     };
     this.#log.append(record);
     this.#precedent.noteDecision(record);
@@ -633,10 +877,12 @@ function admission(
   mode: Mode,
   policy: Policy,
   signal: AbortSignal,
-): { readonly signal: AbortSignal; readonly priority: Priority } {
+  budgetMs: number | undefined,
+): Admission {
+  // A shadow decision has no caller waiting, so a budget never refuses it.
   return mode === 'shadow'
     ? { signal: new AbortController().signal, priority: 'low' }
-    : { signal, priority: policy.priority };
+    : { signal, priority: policy.priority, ...(budgetMs === undefined ? {} : { budgetMs }) };
 }
 
 /** `scope`, `callId`, `permissionMode` and `subagent`, from the request's `scope` and `call`. */

@@ -25,8 +25,9 @@ A mod, `plugins/local-decider/hooks/register.mjs` (built from `packages/hooks/sr
   you set that scope to `act`, the mod never allows anything. It only logs.
 - Path safety is the mod's job: Claude Code's own path asks (outside the working directory,
   "multiple operations") carry no field the mod can read, so a deterministic check keeps any
-  call with an outside or protected path (`.git`, `.claude`, `.env*`, shell rc files, …), `git push`,
-  publishing, network and container tools, `rm -r`, `sudo` or a `-c` script away from an allow.
+  call with an outside or protected path (`.git`, `.ssh`, `.github/workflows`, `.claude`, `.env*`,
+  shell rc files, …), `git push`, publishing, network and container tools, `rm -r`, `sudo` or a
+  `-c` script away from an allow.
 - Subagent calls (`agentId` set) are shadow-only; the request has the tool and input but no
   history, because `$.session.messages()` returns the main conversation.
 - It needs Claude Code 2.1.304 or newer (`$.session.version().base`, compared numerically).

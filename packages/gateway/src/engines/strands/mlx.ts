@@ -27,7 +27,17 @@ function venvHasMlx(venv: string): boolean {
 }
 
 /** `auto` prefers MLX only for Apple Silicon venvs that contain mlx_lm. */
-function resolveDevice(device: Device, host?: HostInfo, venv?: string): Device | undefined {
+function resolveDevice(
+  device: Device,
+  host?: HostInfo,
+  venv?: string,
+  transformers = false,
+): Device | undefined {
+  if (transformers && (device === 'auto' || device === 'mlx')) {
+    // v2 checkpoints have no MLX backend; the config schema rejects an explicit `mlx`, and `auto`
+    // omits --device so upstream picks cuda/mps/cpu itself.
+    return undefined;
+  }
   if (device !== 'auto') {
     return device;
   }
@@ -64,16 +74,21 @@ function venvOfExecutable(binary: string): string {
   return dirname(dirname(real));
 }
 
-/** Resolves `device` once, from the venv that `binary` belongs to. Explicit devices win. */
+/**
+ * Resolves `device` once, from the venv that `binary` belongs to. Explicit devices win, except
+ * that a v2 (`transformers`) model never resolves to MLX.
+ */
 export function resolveStrandsDevice(
   device: Device,
   host: HostInfo | undefined,
   binary: string | undefined,
+  transformers = false,
 ): DeviceResolution {
   const resolved = resolveDevice(
     device,
     host,
     binary === undefined ? undefined : venvOfExecutable(binary),
+    transformers,
   );
   const concrete = resolved === undefined || resolved === 'auto' ? undefined : resolved;
   return {

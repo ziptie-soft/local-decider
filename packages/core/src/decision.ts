@@ -28,7 +28,7 @@ export interface DecideCall {
   /** The harness's tool-use id (`^[\w-]{1,128}$`). */
   readonly id: string;
   readonly permissionMode?: PermissionMode;
-  /** True when a subagent made the call. */
+  /** True when a subagent made the call, or the call is a subagent's result (SubagentResult). */
   readonly agent?: boolean;
 }
 
@@ -46,6 +46,20 @@ export interface DecideRequest {
   readonly scope?: Scope;
   /** Models for savings stats (`provider/model`). Logged, never sent to the engine. */
   readonly models?: DecisionModels;
+  /**
+   * How long the caller will wait, in ms (its timeout minus a margin). When the queue's estimated
+   * wait is longer, the gateway answers at once, fail open, with `error: "engine busy (503)"`.
+   */
+  readonly budgetMs?: number;
+}
+
+/** Margin a client keeps between `budgetMs` and its own timeout for the round trip. */
+const BUDGET_MARGIN_MS = 500;
+
+/** `budgetMs` for a client with `timeoutMs`; undefined when that leaves no positive budget. */
+export function budgetFor(timeoutMs: number): number | undefined {
+  const budget = Math.floor(timeoutMs - BUDGET_MARGIN_MS);
+  return Number.isFinite(budget) && budget > 0 ? budget : undefined;
 }
 
 export interface DecisionModels {
@@ -100,6 +114,8 @@ export interface DecideResponse {
   readonly precedentKey?: string;
   /** Set when the engine failed; the action is then the policy default and never enforced. */
   readonly error?: string;
+  /** Labels of state sections cut, dropped or already truncated; absent when nothing was. */
+  readonly truncated?: string[];
 }
 
 export interface ShadowRecord {
@@ -134,6 +150,8 @@ export interface ShadowRecord {
   readonly model: string;
   readonly latencyMs: number;
   readonly error?: string;
+  /** Labels of state sections cut, dropped or already truncated; absent when nothing was. */
+  readonly truncated?: string[];
 }
 
 /** What actually happened, reported later by an adapter (e.g. the user allowed the request). */

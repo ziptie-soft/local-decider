@@ -87,7 +87,7 @@ describe('SqliteLog', () => {
           .all()
           .map((row) => row['name']);
         assert.ok(outcomeColumns.includes('claimed_source'));
-        assert.equal(pragma(file, 'user_version'), 3);
+        assert.equal(pragma(file, 'user_version'), 4);
       } finally {
         db.close();
       }
@@ -497,9 +497,9 @@ describe('SqliteLog', () => {
     new (sqlite().DatabaseSync)(file, { allowExtension: false }).close();
     assert.equal(pragma(file, 'user_version'), 0);
     SqliteLog.open(file).close();
-    assert.equal(pragma(file, 'user_version'), 3);
+    assert.equal(pragma(file, 'user_version'), 4);
     SqliteLog.open(file).close();
-    assert.equal(pragma(file, 'user_version'), 3);
+    assert.equal(pragma(file, 'user_version'), 4);
     const database = new (sqlite().DatabaseSync)(file, { allowExtension: false, readOnly: true });
     try {
       const names = database

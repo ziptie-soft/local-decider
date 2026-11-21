@@ -272,6 +272,29 @@ describe('gateway HTTP', () => {
     }
   });
 
+  it('starts no decision when the client leaves during the body read', async () => {
+    const baseline = engine.requests.length;
+    const port = Number(new URL(gw.url).port);
+    await new Promise<void>((resolve, reject) => {
+      const socket = connect(port, '127.0.0.1', () => {
+        socket.write(
+          'POST /v1/systemone HTTP/1.1\r\nHost: 127.0.0.1\r\n' +
+            'Content-Type: application/json\r\nContent-Length: 500\r\n\r\n{"state":',
+        );
+        setTimeout(() => socket.destroy(), 20);
+      });
+      socket.on('close', () => resolve());
+      socket.on('error', reject);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(engine.requests.length, baseline);
+    const ok = await post('/v1/systemone', {
+      state: 's',
+      questions: { q: { type: 'choice', instructions: 'i', criteria: { done: 'd' } } },
+    });
+    assert.equal(ok.status, 200, 'a normal request is not aborted');
+  });
+
   it('GET /models and /v1/policies', async () => {
     const models = await json(await fetch(`${gw.url}/models`));
     assert.ok(Array.isArray(models['models']));
@@ -308,6 +331,18 @@ describe('gateway HTTP', () => {
     assert.equal(body['enforced'], false);
   });
 
+  it('drops an out-of-range budgetMs instead of rejecting or applying it', async () => {
+    for (const budgetMs of [0, -5, 1.5, 600_001, '100', null]) {
+      const res = await post('/v1/decide/turn-outcome', {
+        harness: 'paseo',
+        input: { lastMessage: 'done' },
+        budgetMs,
+      });
+      assert.equal(res.status, 200);
+      assert.equal((await json(res))['error'], undefined);
+    }
+  });
+
   it('validates requests', async () => {
     assert.equal(
       (await post('/v1/decide/turn-outcome', { harness: 'evil', input: {} })).status,
@@ -323,7 +358,7 @@ describe('gateway HTTP', () => {
 
   it('rejects oversized bodies', async () => {
     const res = await post('/v1/decide/turn-outcome', {
-      harness: 'cli',
+      harness: 'claude-code',
       input: { lastMessage: 'x'.repeat(300 * 1024) },
     });
     assert.equal(res.status, 413);
@@ -356,7 +391,10 @@ describe('gateway HTTP', () => {
 
   it('records outcomes and serves stats', async () => {
     const decision = await json(
-      await post('/v1/decide/turn-outcome', { harness: 'cli', input: { lastMessage: 'ok' } }),
+      await post('/v1/decide/turn-outcome', {
+        harness: 'claude-code',
+        input: { lastMessage: 'ok' },
+      }),
     );
     assert.equal(
       (
@@ -386,7 +424,7 @@ describe('gateway HTTP', () => {
   it('records usage against a decision and reports token savings', async () => {
     const decision = await json(
       await post('/v1/decide/turn-outcome', {
-        harness: 'cli',
+        harness: 'claude-code',
         input: { lastMessage: 'ok' },
         models: {
           requested: 'claude/claude-opus-4-6[1m]',

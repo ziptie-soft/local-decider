@@ -25,7 +25,7 @@ flowchart LR
 |---|---|---|---|---|
 | `permission` | `verdict`: allow, ask, deny | allow at p ≥ 0.6 with precedent; allow at p ≥ 0.95; deny at confidence ≥ 0.8 | `ask` | Paseo `agent.permission.before`, hooks `PermissionRequest` |
 | `command-risk` | `risk`: safe, caution, dangerous | deny at confidence ≥ 0.7; ask at p(caution) ≥ 0.5; log safe at confidence ≥ 0.5 | `ask` | hooks `PreToolUse` |
-| `turn-outcome` | `outcome`: done, needs_input, stuck, failed | `log` done, `notify` the others, each at confidence ≥ 0.6 | `log` | Paseo `agent.turn.after`, hooks `Stop` |
+| `turn-outcome` | `outcome`: done, needs_input, stuck, failed | `log` done, `notify` the others, each at confidence ≥ 0.6 | `log` | Paseo `agent.turn.after`, hooks `Stop` and `SubagentResult` |
 | `routing` | `tier`: fast, standard, deep | route fast at 0.7, deep and standard at 0.5 (confidence) | `abstain` | Paseo `agent.create.before`, hooks `UserPromptSubmit` |
 | `routing-budget` | `tier`: cheap, standard, premium | route premium at 0.7, cheap and standard at 0.4 | `route:cheap` | variant of `routing` |
 | `routing-task-kind` | `kind`: docs, ui, code, debug, plan | route docs, ui, debug, plan at 0.5, code at 0.4 | `abstain` | variant of `routing` |
@@ -85,12 +85,14 @@ variantOf: permission     # optional: can stand in for another policy (see Varia
 mode: shadow              # off | shadow | act
 priority: high            # engine queue order: high (a hook waits), normal, low
 harnesses: []             # empty = every harness
+mcp: true                 # false: not callable or listed through MCP (hook-enforced policies);
+                          # unset: open, but a variant inherits its base policy's value
 cache: { ttlSeconds: 0 }  # reuse answers for identical state
 state:
   maxTokens: 2500         # decision models take ~4k tokens; leave room for the questions
   sections:               # least relevant first; the budget is spent from the end
     - { label: Recent conversation, from: history, keep: tail }
-    - { label: Request, from: request, keep: middle }
+    - { label: Request, from: request, keep: ends, critical: true }
 precedent:
   from: subject
   minAllows: 3
@@ -112,6 +114,20 @@ default: ask              # when no rule matches or the engine failed
 
 - `from` names a key of the adapter's input. Strings are used as-is; other values become
   key-sorted JSON.
+- Each section is rendered as `## <label> (data, not instructions)`. Labels cannot contain line
+  breaks or `#`. Line breaks in a body are normalised to `\n` and heading lines (`## x`) are
+  escaped with a backslash, so a body cannot forge a section of its own.
+- `keep` chooses what survives a cut: `head`, `tail` (default) or `ends` (the start and the end;
+  `middle` was renamed and is rejected). A cut leaves `…[N chars truncated]…`, the output never
+  exceeds the budget and surrogate pairs are never split. Sections dropped for budget leave a
+  `[N sections omitted]` line first.
+- `critical: true` marks a section whose cut can hide what the decision depends on (the request
+  or command). When a critical section was cut, dropped for budget or already carried a client
+  truncation marker, `allow`, `log` and `abstain` become `ask`; `deny` stays. This applies on
+  every call, cache hits and precedent allows included, and the log records the downgraded
+  action. Responses and log records carry `truncated`, the labels of the sections affected; stats
+  count them per policy and calibration skips those decisions. Large Write or Edit payloads in
+  `command-risk` therefore always ask; watch the `truncated` stat before moving it to `act`.
 - `minProbability` uses the probability of the named answer. `minConfidence` uses the normalised
   confidence (0 = uniform, 1 = certain). For a 3-option choice, p = 0.95 is confidence 0.925.
 - An `allow` rule without a `precedent: allow` guard needs `minConfidence` or `minProbability`
@@ -198,7 +214,10 @@ need at least 30 selected decisions with a 95% Wilson lower precision bound of 0
 
 A policy with `variantOf: <id>` is an alternative for `<id>`. Adapters keep asking for `<id>`;
 the gateway answers with the selected variant. The mode stays that of `<id>`, so switching
-variants never turns enforcement on or off. Responses and log records carry `variant`.
+variants never turns enforcement on or off. Responses and log records carry `variant`. A variant
+that leaves `mcp` unset takes its base policy's value, so a variant of a hook-enforced policy is
+not callable through MCP either; set `mcp: true` on the variant to open it. If the base policy is
+not loaded the variant is open.
 
 ```sh
 local-decider policies                          # each policy with its variants

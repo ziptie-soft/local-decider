@@ -47,7 +47,7 @@ flowchart LR
 | Bounded work | Request bodies are capped at 256 KiB, engine responses at 1 MiB, the queue at 8 waiting decisions, and each decision has a deadline. Unparsable request targets get 400. |
 | Fail open | Adapters act only on `enforced` decisions. Any error, timeout or unreachable gateway means the harness default. Policies ship in `shadow`. |
 | Limited actions | Auto-allow needs p(allow) ≥ 0.95 (floor 0.8 for non-precedent overrides). `command-risk` can only ask or deny. Permission hooks never deny from the model. |
-| Deterministic guard | Before any model, the hooks deny a short list of destructive shell commands, including inside `bash -lc` scripts, Codex argv arrays and `sudo` prefixes. A model cannot override it. |
+| Deterministic guard | Before any model, the hooks deny a short list of destructive shell commands, including inside `bash -lc` scripts, Codex argv arrays and `sudo` prefixes. A model cannot override it. The write guard denies writes into `.git` and `.ssh` (Claude edit tools, Codex `apply_patch`, shell patches); `.github/workflows` asks on Claude and is denied on Codex. It does not follow symlinks, and input over 4 MiB skips the guard (S7). `PermissionRequest` never auto-allows a target outside the working directory or in a protected place. |
 | Auto mode scope | The `claude-auto` scope caps the `permission` policy at `shadow` unless you raise it. The mod allows only in auto mode, only a plain ask, and only after a deterministic path and command check. |
 | Remote tool paths | In remote mode (`LOCAL_DECIDER_TOKEN` set), paths, engine connections, discovery and routing presets stay frozen, so a bearer cannot make the host run binaries or reach new URLs. Loopback writes need the control token. |
 

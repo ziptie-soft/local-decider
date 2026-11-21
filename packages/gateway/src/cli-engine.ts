@@ -7,7 +7,7 @@ import { defaultFlavor, type InstallFlavor } from './engine-install.ts';
 import type { HostInfo } from './engines/descriptor.ts';
 import { engineDescriptor } from './engines/registry.ts';
 
-const FLAVORS: readonly InstallFlavor[] = ['cpu', 'mlx', 'cuda'];
+const FLAVORS: readonly InstallFlavor[] = ['cpu', 'mlx', 'cuda', 'rocm'];
 const FLM_HOST_REFUSAL =
   'fastflowlm runs on Linux x86_64 with an AMD XDNA2 NPU; on macOS use strands-decider (MLX) or openai-compatible';
 const LLAMA_HOST_REFUSAL =

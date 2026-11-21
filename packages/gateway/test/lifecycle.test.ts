@@ -69,6 +69,78 @@ describe('ManagedEngine', () => {
     await engine.stop();
   });
 
+  it('defers idle unload while a decision is in flight and arms it afterwards', async () => {
+    const inner = new SlowStart(0);
+    inner.respond = async () => {
+      await sleep(150);
+      return { answers: { q: { type: 'noul', noul: 0.9 } } };
+    };
+    // 0.001 min = 60 ms: shorter than the decision.
+    const engine = new ManagedEngine(inner, { lifecycle: 'lazy', idleUnloadMinutes: 0.001 });
+    await engine.load();
+    await engine.decide(REQ, AbortSignal.timeout(2000));
+    assert.equal(inner.health().state, 'ready', 'not unloaded mid-request');
+    await sleep(150);
+    assert.equal(inner.health().state, 'stopped', 'unloaded once idle');
+    await engine.stop();
+  });
+
+  it('drain waits for in-flight decisions and is bounded', async () => {
+    const inner = new SlowStart(0);
+    let release: (() => void) | undefined;
+    inner.respond = () =>
+      new Promise((resolve) => {
+        release = () => resolve({ answers: { q: { type: 'noul', noul: 0.9 } } });
+      });
+    const engine = new ManagedEngine(inner, { lifecycle: 'lazy', idleUnloadMinutes: 15 });
+    await engine.load();
+    const running = engine.decide(REQ, AbortSignal.timeout(2000));
+    await sleep(10);
+    let drained = false;
+    const waiting = engine.drain(2000).then(() => {
+      drained = true;
+    });
+    await sleep(30);
+    assert.equal(drained, false);
+    release?.();
+    await running;
+    await waiting;
+    assert.equal(drained, true);
+    const stuck = engine.decide(REQ, AbortSignal.timeout(2000));
+    await sleep(10);
+    const started = Date.now();
+    await engine.drain(40);
+    assert.ok(Date.now() - started < 1000, 'gave up after the timeout');
+    release?.();
+    await stuck;
+    await engine.stop();
+  });
+
+  it('a drain that timed out does not disturb a later drain', async () => {
+    const inner = new SlowStart(0);
+    let release: (() => void) | undefined;
+    inner.respond = () =>
+      new Promise((resolve) => {
+        release = () => resolve({ answers: { q: { type: 'noul', noul: 0.9 } } });
+      });
+    const engine = new ManagedEngine(inner, { lifecycle: 'lazy', idleUnloadMinutes: 15 });
+    await engine.load();
+    const running = engine.decide(REQ, AbortSignal.timeout(2000));
+    await sleep(10);
+    await engine.drain(20);
+    let later = false;
+    const waiting = engine.drain(2000).then(() => {
+      later = true;
+    });
+    await sleep(20);
+    assert.equal(later, false);
+    release?.();
+    await running;
+    await waiting;
+    assert.equal(later, true);
+    await engine.stop();
+  });
+
   it('fails fast when the engine cannot load', async () => {
     const inner = new FakeEngine();
     inner.state = 'stopped';
