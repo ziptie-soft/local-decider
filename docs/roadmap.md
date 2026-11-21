@@ -196,18 +196,20 @@ verified, thresholded answer.
 ### R4 SQLite off the hot path
 
 - **Priority:** P1. **Size:** M.
-- **Problem:** `DatabaseSync` with `busy_timeout=2000` blocks the event loop up to 2 s per
-  append when prune, VACUUM, a stats reader or a CLI writer holds the lock
-  (`packages/gateway/src/sqlite-log.ts:338,359-360`). Prune and `incremental_vacuum` run on the
-  main thread (`:132-161`); a full `VACUUM` at startup aborts the gateway on failure (`:369-374`);
-  `JSON.parse` per row has no guard and a bad row stops startup (`:583`); `readRecent` loads the
-  whole window into memory (`:219-233`); `queue_ms`, `engine_ms`, `power` are never populated
-  (`:269-272`).
-- **Direction:** queue appends and flush off the hot path (or a writer worker); chunked deletes;
-  log and continue on vacuum failure; guard per row; aggregate stats in SQL; record queue and
-  engine time. Back up before migrating; clear message on a newer `user_version`.
-- **Open questions:** worker thread for writes, or accept a small async queue with a bounded
-  loss window on crash?
+- **Status:** done. Appends go through an in-process batched write queue; prune and vacuum are
+  chunked and yield; unreadable rows are skipped; a backup is taken before migrating; readers
+  check the schema version; `queueMs` and `engineMs` are recorded; stats stream the window.
+  See `docs/architecture.md`. Not done: `power` waits for a power-data source, and full stats
+  aggregation stays in TypeScript (only the probe and scope filters moved into SQL).
+- **Problem (corrected):** the 2 s `busy_timeout` rarely bites, because nothing contends for
+  the write lock: prune and VACUUM run on the gateway's own connection, stats read in a worker
+  with a read-only handle, and a pid lock excludes a second writer. What did cost the hot path
+  was one autocommit insert per append plus the WAL checkpoint, and the synchronous prune and
+  startup `VACUUM` (`packages/gateway/src/sqlite-log.ts`).
+- **Direction:** batch appends, chunk prune and vacuum, log and continue on vacuum failure,
+  guard per row, record queue and engine time, back up before migrating, clear version errors.
+- **Resolved question:** an async in-process queue with a bounded loss window (25 ms), not a
+  writer worker. Revisit a worker if R5 metrics show checkpoint stalls.
 
 ### R5 Observability and error hygiene
 

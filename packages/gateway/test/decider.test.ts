@@ -71,8 +71,13 @@ function precedentLog(records: LogRecord[] = []): PrecedentLog {
     records,
     windows,
     append: (record) => records.push(record),
+    flush: () => undefined,
     findDecision: () => undefined,
     read: () => records,
+    iterateRecent: (days) => {
+      windows.push(days);
+      return records;
+    },
     readRecent: (days) => {
       windows.push(days);
       return records;
@@ -81,7 +86,7 @@ function precedentLog(records: LogRecord[] = []): PrecedentLog {
       windows.push(days);
       return records;
     },
-    prune: () => 0,
+    prune: () => Promise.resolve(0),
     close: () => undefined,
   };
 }
@@ -443,6 +448,17 @@ describe('Decider', () => {
     assert.equal(first.cached, false);
     assert.equal(second.cached, true);
     assert.equal(engine.requests.length, 1);
+  });
+
+  it('logs queue and engine time, and omits both for a cached answer', async () => {
+    const { decider, log } = setup('shadow', undefined, 60);
+    await decider.decide('permission', req, signal());
+    await decider.decide('permission', req, signal());
+    const [fresh, cached] = log.read().filter((r) => r.kind === 'decision');
+    assert.ok((fresh?.queueMs ?? -1) >= 0);
+    assert.ok((fresh?.engineMs ?? -1) >= 0);
+    assert.equal(cached?.queueMs, undefined);
+    assert.equal(cached?.engineMs, undefined);
   });
 
   it('coalesces identical concurrent requests into one engine call', async () => {

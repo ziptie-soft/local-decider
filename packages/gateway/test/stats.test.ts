@@ -46,6 +46,25 @@ function decision(
 }
 
 describe('computeStats', () => {
+  it('gives the same result for a generator as for an array', () => {
+    const records: LogRecord[] = [
+      decision('a', 'allow', 0.9),
+      decision('b', 'ask', 0.8),
+      {
+        kind: 'outcome',
+        ts: '2026-11-10T00:01:00.000Z',
+        decisionId: 'a',
+        outcome: 'allow',
+        source: 'user',
+        verified: true,
+      },
+    ];
+    function* stream(): Generator<LogRecord> {
+      yield* records;
+    }
+    assert.deepEqual(computeStats(stream()), computeStats(records));
+  });
+
   it('ignores decisions asked through MCP or the CLI', () => {
     const records: LogRecord[] = [
       decision('mcp-call', 'allow', 0.9, { harness: 'mcp' }),

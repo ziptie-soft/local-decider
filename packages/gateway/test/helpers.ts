@@ -110,8 +110,12 @@ export function tempLog(): SqliteLog {
   return SqliteLog.open(join(mkdtempSync(join(tmpdir(), 'ld-log-test-')), 'decider.db'));
 }
 
-/** Every record, read through a short-lived read-only handle (a gateway may hold the writer). */
-export function readLog(paths: Paths): LogRecord[] {
+/**
+ * Every record, read through a short-lived read-only handle (a gateway may hold the writer).
+ * The writer is flushed first so queued appends are in the file.
+ */
+export function readLog(paths: Paths, writer: { flushLog(): void }): LogRecord[] {
+  writer.flushLog();
   const log = openLogStore(paths, { readOnly: true });
   try {
     return log.read();

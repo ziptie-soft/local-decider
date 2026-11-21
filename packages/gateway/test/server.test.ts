@@ -107,7 +107,7 @@ describe('routing presets per harness', () => {
         }),
       });
       const id = (await json(res))['decisionId'];
-      const record = readLog(paths).find((r) => r.kind === 'decision' && r.decisionId === id);
+      const record = readLog(paths, gw).find((r) => r.kind === 'decision' && r.decisionId === id);
       assert.ok(record?.kind === 'decision');
       assert.equal(record.requestedModel, 'claude/claude-opus-5-5');
       assert.equal(record.routedModel, 'codex/gpt-6-luna');
@@ -155,7 +155,7 @@ describe('gateway precedent', () => {
         }),
       });
       assert.equal(forgedOutcome.status, 200);
-      const forgedRecord = readLog(paths).findLast(
+      const forgedRecord = readLog(paths, gw).findLast(
         (record) => record.kind === 'outcome' && record.decisionId === forged['decisionId'],
       );
       assert.equal(
@@ -205,7 +205,7 @@ describe('gateway precedent', () => {
           200,
         );
       }
-      const verifiedRecord = readLog(paths).findLast(
+      const verifiedRecord = readLog(paths, gw).findLast(
         (record) => record.kind === 'outcome' && record.verified === true,
       );
       assert.equal(verifiedRecord?.kind === 'outcome' ? verifiedRecord.source : undefined, 'user');
@@ -221,7 +221,7 @@ describe('gateway precedent', () => {
           source: 'classifier',
         }),
       });
-      const classifierRecord = readLog(paths).findLast(
+      const classifierRecord = readLog(paths, gw).findLast(
         (record) => record.kind === 'outcome' && record.decisionId === learned['decisionId'],
       );
       assert.deepEqual(
@@ -233,7 +233,7 @@ describe('gateway precedent', () => {
       const vetoed = await decide();
       assert.equal(vetoed['action'], 'ask', JSON.stringify(vetoed));
       assert.deepEqual(vetoed['precedent'], { allows: 3, denies: 1 });
-      assert.equal(JSON.stringify(readLog(paths)).includes(reportToken), false);
+      assert.equal(JSON.stringify(readLog(paths, gw)).includes(reportToken), false);
     } finally {
       await gw.close();
     }
@@ -410,7 +410,7 @@ describe('gateway HTTP', () => {
       ).status,
       200,
     );
-    const outcome = readLog(logPaths).findLast(
+    const outcome = readLog(logPaths, gw).findLast(
       (record) => record.kind === 'outcome' && record.decisionId === decision['decisionId'],
     );
     assert.equal(outcome?.kind === 'outcome' ? outcome.source : undefined, 'unverified');
@@ -435,7 +435,7 @@ describe('gateway HTTP', () => {
     const stats = await readStats();
     assert.equal(stats.find((s) => s.policy === 'turn-outcome')?.labelled, 1);
     const reportToken = readFileSync(join(configDir, 'report-token'), 'utf8');
-    assert.equal(JSON.stringify(readLog(logPaths)).includes(reportToken), false);
+    assert.equal(JSON.stringify(readLog(logPaths, gw)).includes(reportToken), false);
   });
 
   it('records usage against a decision and reports token savings', async () => {

@@ -204,6 +204,33 @@ flowchart LR
   has no encryption at rest. `local-decider logs backup <file>` uses
   `VACUUM INTO`; `local-decider logs export [--since YYYY-MM-DD] <dir>` writes JSONL portability
   files. JSONL is not a live storage backend. Schema changes use `PRAGMA user_version` migrations.
+  - *Batched writes.* `append` binds the record and queues it. One `BEGIN IMMEDIATE` transaction
+    writes the queue 25 ms after the first enqueue (256 records flush at once), in order, so an
+    outcome always follows its decision. Reads, `prune`, `backup` and `close` flush first, and
+    `findDecision` sees queued decisions. A failed write is rolled back and retried with backoff
+    up to 5 s, logged at most once a minute; beyond 10 000 queued records the newest are dropped
+    and counted. A row that violates a constraint is skipped. Loss window: up to 25 ms of
+    records on SIGKILL, OOM or power loss; a normal or `process.exit` shutdown flushes.
+  - *Chunked prune.* `prune` deletes at most 2 000 rows per transaction and yields to the event
+    loop between steps, so queued appends flush meanwhile. Children go before their decisions;
+    orphans and aged unverified rows are swept in one cursor pass. Freed pages are returned with
+    chunked `incremental_vacuum`; a vacuum failure is logged and the prune still reports its
+    count. Startup prune runs in the background after the server listens. A failed one-time
+    `VACUUM` of a legacy file is logged and the gateway starts without space reclaim.
+  - *Bad rows.* A decision whose `answers` cannot be parsed is skipped with its outcomes and
+    usage, logged once per read (`skipped N unreadable rows`); `findDecision` returns nothing.
+  - *Migration backup.* Before a schema change on an existing database, the writer takes a
+    `VACUUM INTO` copy beside it (`decider.db.pre-v<N>-<timestamp>.bak`, mode 0600) and keeps
+    the newest three. If the backup fails it logs a warning with the reason and migrates
+    anyway: each migration step and its version bump is one transaction, so a failed step
+    rolls back.
+  - *Version checks.* A writer or read-only open of a newer schema fails with a message naming
+    the file and the remedy (upgrade or restore a backup). A read-only open of an older schema
+    fails with "start the gateway once to migrate", since readers never migrate.
+  - *Timing.* Decision rows record `queueMs` (admission to engine slot, including any model load
+    wait) and `engineMs`; cached answers omit both. Stats stream the window through
+    `iterateRecent`, filtering probes and scope in SQL. `power` stays empty until there is a
+    power-data source.
 - **Statistics.** `GET /v1/stats?days=N` and `local-decider stats --days N` use a 30-day default;
   `N` must be from 1 through `logs.retainDays`. The gateway computes statistics in a worker
   thread using its own read-only SQLite connection. A 30-second timeout returns HTTP 503.

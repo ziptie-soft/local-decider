@@ -132,7 +132,7 @@ describe('SqliteLog', () => {
     }
   });
 
-  it('filters recent records by the UTC day boundary and prunes old records', () => {
+  it('filters recent records by the UTC day boundary and prunes old records', async () => {
     const log = tempLog();
     try {
       log.append(makeShadowRecord('old', { ts: '2026-08-12T10:00:00.000Z' }));
@@ -142,7 +142,7 @@ describe('SqliteLog', () => {
         log.readRecent(2, Date.parse('2026-11-11T00:00:00.000Z')).map((r) => r.decisionId),
         ['recent'],
       );
-      assert.equal(log.prune(90, Date.parse('2026-11-11T00:00:00.000Z')), 1);
+      assert.equal(await log.prune(90, Date.parse('2026-11-11T00:00:00.000Z')), 1);
       assert.deepEqual(
         log.read().map((r) => r.decisionId),
         ['boundary', 'recent'],
@@ -396,7 +396,7 @@ describe('SqliteLog', () => {
     });
   });
 
-  it('retention removes old orphan outcomes and usage records', () => {
+  it('retention removes old orphan outcomes and usage records', async () => {
     const log = tempLog();
     try {
       log.append(outcome('missing-outcome', { ts: '2026-08-12T12:00:00.000Z' }));
@@ -408,14 +408,14 @@ describe('SqliteLog', () => {
         cachedInputTokens: 0,
         outputTokens: 1,
       });
-      assert.equal(log.prune(90, Date.parse('2026-11-11T00:00:00.000Z')), 0);
+      assert.equal(await log.prune(90, Date.parse('2026-11-11T00:00:00.000Z')), 0);
       assert.deepEqual(log.read(), []);
     } finally {
       log.close();
     }
   });
 
-  it('prunes orphans and unverified rows older than the unverified window', () => {
+  it('prunes orphans and unverified rows older than the unverified window', async () => {
     const log = tempLog();
     try {
       const now = Date.parse('2026-11-21T12:00:00.000Z');
@@ -443,7 +443,7 @@ describe('SqliteLog', () => {
       ]) {
         log.append(record);
       }
-      log.prune(365, now);
+      await log.prune(365, now);
       const left = log
         .read()
         .filter((r) => r.kind !== 'decision')
@@ -510,11 +510,13 @@ describe('SqliteLog', () => {
     const reader = SqliteLog.open(file, { readOnly: true });
     try {
       writer.append(makeShadowRecord('first'));
+      writer.flush();
       assert.deepEqual(
         reader.read().map((row) => row.decisionId),
         ['first'],
       );
       writer.append(makeShadowRecord('second'));
+      writer.flush();
       assert.deepEqual(
         reader.read().map((row) => row.decisionId),
         ['first', 'second'],

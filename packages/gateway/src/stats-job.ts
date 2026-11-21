@@ -22,7 +22,7 @@ const DEFAULT_STATS_DAYS = 30;
 /** The windowed read plus aggregation, shared by the CLI, the in-process path and the worker. */
 export function runStats(log: LogStore, job: StatsJob): PolicyStats[] {
   return computeStats(
-    log.readRecent(job.days),
+    log.iterateRecent(job.days, job.scope),
     job.pricing,
     job.policies,
     job.scope === undefined ? {} : { scope: job.scope },
@@ -32,7 +32,7 @@ export function runStats(log: LogStore, job: StatsJob): PolicyStats[] {
 /** CLI read: a fresh install has no database file yet, which reads as no records. */
 export function runStatsFromFile(paths: Paths, job: StatsJob): PolicyStats[] {
   if (!existsSync(join(paths.data, 'decider.db'))) {
-    return runStats({ readRecent: () => [] } as unknown as LogStore, job);
+    return runStats({ iterateRecent: () => [] } as unknown as LogStore, job);
   }
   const log = openLogStore(paths, { readOnly: true });
   try {

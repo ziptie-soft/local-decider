@@ -146,7 +146,9 @@ permissions. WAL mode permits read-only handles while the gateway writes. The ga
 lock at `<run>/db.lock`, enforcing one writer per data directory. Statistics run in a worker
 thread with its own read-only SQLite connection, keeping the synchronous database read off the
 gateway event loop. JSONL exports and SQLite backups contain the same sensitive metadata and
-should be protected accordingly.
+should be protected accordingly. Before a schema migration the gateway writes a backup beside
+the database (`decider.db.pre-v<N>-<timestamp>.bak`) with the same metadata, mode 0600, and
+keeps the newest three.
 
 ## Engine endpoints
 

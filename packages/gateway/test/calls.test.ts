@@ -26,8 +26,8 @@ async function post(
 
 const input = { project: '/project', subject: 'Bash: npm test', request: 'npm test' };
 
-function decisions(paths: Paths): ShadowRecord[] {
-  return readLog(paths).filter((r): r is ShadowRecord => r.kind === 'decision');
+function decisions(paths: Paths, gw: { flushLog(): void }): ShadowRecord[] {
+  return readLog(paths, gw).filter((r): r is ShadowRecord => r.kind === 'decision');
 }
 
 describe('decide call and scope fields', () => {
@@ -46,7 +46,7 @@ describe('decide call and scope fields', () => {
         scope: 'claude-auto',
         call: { id: 'toolu_01-A_b', permissionMode: 'auto', agent: true },
       });
-      const [record] = decisions(paths);
+      const [record] = decisions(paths, gw);
       assert.equal(record?.scope, 'claude-auto');
       assert.equal(record?.callId, 'toolu_01-A_b');
       assert.equal(record?.permissionMode, 'auto');
@@ -78,7 +78,7 @@ describe('decide call and scope fields', () => {
         call: { id: 'toolu_2', permissionMode: 'root' },
       });
       assert.equal(badMode['action'], 'allow');
-      const [first, second] = decisions(paths);
+      const [first, second] = decisions(paths, gw);
       assert.equal(first?.callId, undefined);
       assert.equal(first?.scope, undefined);
       assert.equal(second?.callId, 'toolu_2');
@@ -108,7 +108,7 @@ describe('decide call and scope fields', () => {
         { decisionId: decision['decisionId'], outcome: 'allow', source: 'classifier' },
         { 'x-local-decider-report': readFileSync(join(paths.config, 'report-token'), 'utf8') },
       );
-      const outcome = readLog(paths).find((r) => r.kind === 'outcome');
+      const outcome = readLog(paths, gw).find((r) => r.kind === 'outcome');
       assert.equal(outcome?.kind === 'outcome' ? outcome.source : '', 'classifier');
       assert.equal(outcome?.kind === 'outcome' ? outcome.verified : false, true);
     } finally {
@@ -134,7 +134,7 @@ async function run(
       input,
       ...(scope === undefined ? {} : { scope }),
     });
-    return { response, record: decisions(paths)[0] };
+    return { response, record: decisions(paths, gw)[0] };
   } finally {
     await gw.close();
   }
