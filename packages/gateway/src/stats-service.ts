@@ -80,6 +80,8 @@ export class StatsService {
     if (this.#closed) {
       return Promise.reject(new StatsFailedError('stats service closed'));
     }
+    // The worker reads the file through its own handle: queued appends must be in it first.
+    this.#options.log.flush();
     const timeoutMs = this.#options.timeoutMs ?? STATS_TIMEOUT_MS;
     const worker = new Worker(this.#options.workerFile ?? defaultWorkerFile(), {
       workerData: { ...job, paths },

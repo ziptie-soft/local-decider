@@ -140,6 +140,10 @@ interface EngineResult {
   readonly latencyMs: number;
   readonly cached: boolean;
   readonly error?: string;
+  /** Admission to slot start, including any model load wait; absent unless the engine ran. */
+  readonly queueMs?: number;
+  /** The engine call's duration; absent unless the engine ran. */
+  readonly engineMs?: number;
 }
 
 /** How a decision enters the engine queue. */
@@ -580,6 +584,8 @@ export class Decider {
     this.#record(request, response, {
       hash,
       stateTokens: Math.ceil(state.length / CHARS_PER_TOKEN),
+      ...(result.queueMs === undefined ? {} : { queueMs: result.queueMs }),
+      ...(result.engineMs === undefined ? {} : { engineMs: result.engineMs }),
     });
     this.#noteCall(request, policyId, {
       decisionId,
@@ -747,6 +753,7 @@ export class Decider {
       return { answers: {}, latencyMs: 0, cached: false, error: `engine ${engine.health().state}` };
     }
     const started = performance.now();
+    const timing: { jobStarted?: number; engineMs?: number } = {};
     try {
       const bounded = this.#signal(signal);
       if (engine.ensureReady !== undefined && engine.health().state !== 'ready') {
@@ -761,7 +768,14 @@ export class Decider {
         bounded,
         () => {
           this.#assertCurrent(generation);
-          return this.#timed(() => this.#engine.decide(request, bounded), bounded);
+          timing.jobStarted = performance.now();
+          return this.#timed(
+            () => this.#engine.decide(request, bounded),
+            bounded,
+            (ms) => {
+              timing.engineMs = ms;
+            },
+          );
         },
         priority,
         queueLimits(this.slots),
@@ -769,14 +783,21 @@ export class Decider {
       const answers = normaliseAnswers(request.questions, response);
       const latencyMs = performance.now() - started;
       this.#latency.add(latencyMs);
+      const timings = engineTimings(started, timing);
       if (Object.keys(answers).length === 0) {
-        return { answers, latencyMs, cached: false, error: 'engine returned no usable answers' };
+        return {
+          answers,
+          latencyMs,
+          cached: false,
+          error: 'engine returned no usable answers',
+          ...timings,
+        };
       }
       if (generation === this.#generation) {
         this.#remember(hash, answers, ttlSeconds);
       }
       this.#successHandler?.(engine);
-      return { answers, latencyMs, cached: false };
+      return { answers, latencyMs, cached: false, ...timings };
     } catch (error) {
       return this.#failed(error, engine, started, signal);
     }
@@ -787,7 +808,11 @@ export class Decider {
    * signal fires (timeout or caller abort, so a hanging engine raises the mean). Immediate
    * non-abort errors are not sampled. At most one sample per call.
    */
-  async #timed<T>(call: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  async #timed<T>(
+    call: () => Promise<T>,
+    signal: AbortSignal,
+    onDone?: (ms: number) => void,
+  ): Promise<T> {
     const started = performance.now();
     let recorded = false;
     const record = (): void => {
@@ -803,6 +828,7 @@ export class Decider {
       return result;
     } finally {
       signal.removeEventListener('abort', record);
+      onDone?.(performance.now() - started);
     }
   }
 
@@ -877,7 +903,7 @@ export class Decider {
   #record(
     request: DecideRequest,
     response: DecideResponse,
-    state: { hash: string; stateTokens: number },
+    state: { hash: string; stateTokens: number; queueMs?: number; engineMs?: number },
   ): void {
     const record: ShadowRecord = {
       kind: 'decision',
@@ -900,12 +926,26 @@ export class Decider {
       engine: response.engine,
       model: response.model,
       latencyMs: Math.round(response.latencyMs),
+      ...(state.queueMs === undefined ? {} : { queueMs: Math.round(state.queueMs) }),
+      ...(state.engineMs === undefined ? {} : { engineMs: Math.round(state.engineMs) }),
       ...(response.error === undefined ? {} : { error: response.error }),
       ...(response.truncated === undefined ? {} : { truncated: response.truncated }),
     };
     this.#log.append(record);
     this.#precedent.noteDecision(record);
   }
+}
+
+/** Queue wait and engine time of a call that ran; empty when the job never started. */
+function engineTimings(
+  started: number,
+  timing: { jobStarted?: number; engineMs?: number },
+): { queueMs?: number; engineMs?: number } {
+  const { jobStarted, engineMs } = timing;
+  return {
+    ...(jobStarted === undefined ? {} : { queueMs: Math.max(0, jobStarted - started) }),
+    ...(engineMs === undefined ? {} : { engineMs }),
+  };
 }
 
 /**

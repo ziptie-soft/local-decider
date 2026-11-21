@@ -1,6 +1,7 @@
 import type {
   LogRecord,
   OutcomeRecord,
+  Scope,
   ShadowRecord,
   UsageRecord,
 } from '@ziptie-soft/local-decider-core';
@@ -14,6 +15,7 @@ import {
   lstatSync,
   openSync,
   readFileSync,
+  readdirSync,
   rmSync,
   unlinkSync,
   writeFileSync,
@@ -23,11 +25,22 @@ import { basename, dirname, join } from 'node:path';
 import type { LogStore } from './log-store.ts';
 import { ALLOW_VETO_REPLAY_MS } from './outcome-labels.ts';
 import type { Paths } from './paths.ts';
+import { pruneDatabase } from './sqlite-prune.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Unverified outcome and usage rows are dropped at prune after this many days at most. */
 const UNVERIFIED_RETAIN_DAYS = 30;
+
+/** Appends are batched: one transaction per flush, started this long after the first enqueue. */
+const FLUSH_DELAY_MS = 25;
+const FLUSH_MAX_BATCH = 256;
+const FLUSH_RETRY_MAX_MS = 5000;
+const FLUSH_ERROR_LOG_INTERVAL_MS = 60_000;
+/** Records queued beyond this many (the store is failing) are dropped, newest first. */
+const PENDING_MAX = 10_000;
+/** SQLite primary result code of a constraint violation (extended codes keep it in the low byte). */
+const SQLITE_CONSTRAINT = 19;
 
 type SqlValue = null | number | bigint | string | NodeJS.ArrayBufferView;
 type Row = Record<string, SqlValue>;
@@ -36,6 +49,7 @@ interface Statement {
   run(...values: SqlValue[]): { changes: number | bigint };
   all(...values: SqlValue[]): Row[];
   get(...values: SqlValue[]): Row | undefined;
+  iterate(...values: SqlValue[]): IterableIterator<Row>;
 }
 
 interface Database {
@@ -57,6 +71,13 @@ interface DatabaseModule {
   readonly DatabaseSync?: DatabaseConstructor;
 }
 
+/** A bound insert waiting for the next flush. */
+interface PendingWrite {
+  readonly sql: string;
+  readonly params: SqlValue[];
+  readonly decision?: ShadowRecord;
+}
+
 interface Lock {
   readonly path: string;
   readonly fd: number;
@@ -75,6 +96,13 @@ export class SqliteLog implements LogStore {
   readonly #database: Database;
   readonly #lock: Lock | undefined;
   readonly #statements = new Map<string, Statement>();
+  #pending: PendingWrite[] = [];
+  readonly #pendingDecisions = new Map<string, ShadowRecord>();
+  #timer: NodeJS.Timeout | undefined;
+  #retries = 0;
+  #dropped = 0;
+  #lastErrorLog: number | undefined;
+  #pruning: Promise<number> | undefined;
   #closed = false;
 
   constructor(database: Database, lock?: Lock) {
@@ -89,32 +117,92 @@ export class SqliteLog implements LogStore {
   }
 
   append(record: LogRecord): void {
+    let write: PendingWrite;
     try {
-      if (record.kind === 'decision') {
-        this.#insertDecision(record);
-      } else if (record.kind === 'outcome') {
-        this.#insertOutcome(record);
-      } else {
-        this.#insertUsage(record);
-      }
+      write = bindRecord(record);
     } catch (error) {
       // A storage problem must not turn a decision into an enforcement failure.
       console.error(`sqlite log: ${errorMessage(error)}`);
+      return;
+    }
+    if (this.#closed) {
+      console.error('sqlite log: record appended after close was dropped');
+      return;
+    }
+    if (this.#pending.length >= PENDING_MAX) {
+      this.#dropped += 1;
+      return;
+    }
+    this.#pending.push(write);
+    if (write.decision !== undefined) {
+      this.#pendingDecisions.set(write.decision.decisionId, write.decision);
+    }
+    // While a flush is failing, the backoff timer owns the retry; a full batch must not bypass it.
+    this.#schedule(
+      this.#pending.length >= FLUSH_MAX_BATCH && this.#retries === 0 ? 0 : FLUSH_DELAY_MS,
+    );
+  }
+
+  /** Write every queued record now; a failure keeps them queued for the backoff retry. */
+  flush(): void {
+    this.#cancelTimer();
+    while (this.#pending.length > 0 && !this.#closed) {
+      if (!this.#flushBatch()) {
+        this.#schedule(Math.min(FLUSH_DELAY_MS * 2 ** this.#retries, FLUSH_RETRY_MAX_MS));
+        this.#retries += 1;
+        return;
+      }
+      this.#retries = 0;
     }
   }
 
   findDecision(decisionId: string): ShadowRecord | undefined {
+    const queued = this.#pendingDecisions.get(decisionId);
+    if (queued !== undefined) {
+      return queued;
+    }
     const row = this.#statement('SELECT * FROM decision WHERE id = ?').get(decisionId);
     return row === undefined ? undefined : decisionRecord(row);
   }
 
   read(): LogRecord[] {
+    this.flush();
     return this.#readRows(undefined);
   }
 
   readRecent(maxAgeDays: number, now = Date.now()): LogRecord[] {
+    this.flush();
     const from = utcDateStart(now - maxAgeDays * DAY_MS);
     return this.#readRows(from);
+  }
+
+  /**
+   * Stats window as a stream: probe decisions (and, with `scope`, other scopes) are filtered in
+   * SQL, and rows are decoded as they are consumed rather than held as arrays. Consume it
+   * synchronously: it holds read statements open.
+   */
+  *iterateRecent(maxAgeDays: number, scope?: Scope, now = Date.now()): Generator<LogRecord> {
+    this.flush();
+    const from = utcDateStart(now - maxAgeDays * DAY_MS);
+    const skipped = new Set<string>();
+    const filter = scope === undefined ? '' : ' AND scope = ?';
+    const decisions = this.#database.prepare(
+      `SELECT * FROM decision WHERE ts >= ? AND harness NOT IN ('mcp', 'cli')${filter} ORDER BY ts`,
+    );
+    for (const row of decisions.iterate(from, ...(scope === undefined ? [] : [scope]))) {
+      yield* keepReadable(row, skipped);
+    }
+    const outcomes = this.#database.prepare('SELECT * FROM outcome WHERE ts >= ? ORDER BY seq');
+    for (const row of outcomes.iterate(from)) {
+      const record = outcomeRecord(row);
+      if (!skipped.has(record.decisionId)) yield record;
+    }
+    const usage = this.#database.prepare('SELECT * FROM usage WHERE ts >= ? ORDER BY ts, seq');
+    for (const row of usage.iterate(from)) {
+      const record = usageRecord(row);
+      if (!skipped.has(record.decisionId)) yield record;
+    }
+    reportSkipped(skipped.size);
   }
 
   /**
@@ -123,6 +211,7 @@ export class SqliteLog implements LogStore {
    * precedes its outcomes in `seq` order so neutral corrections replay consistently.
    */
   readVerifiedPrecedent(maxAgeDays: number, now = Date.now()): LogRecord[] {
+    this.flush();
     const from = utcDateStart(now - maxAgeDays * DAY_MS);
     const recent = Math.max(from, now - ALLOW_VETO_REPLAY_MS);
     const rows = this.#statement(
@@ -164,37 +253,21 @@ export class SqliteLog implements LogStore {
     return precedentRecords(rows);
   }
 
-  prune(retainDays: number, now = Date.now()): number {
-    const cutoff = utcDateStart(now - retainDays * DAY_MS);
-    const unverifiedCutoff = utcDateStart(
-      now - Math.min(retainDays, UNVERIFIED_RETAIN_DAYS) * DAY_MS,
-    );
-    // Orphans (their decision is gone) and aged unverified rows go whatever the retention.
-    const removeUsage = this.#statement(
-      `DELETE FROM usage WHERE decision_id IN (SELECT id FROM decision WHERE ts < ?)
-       OR (verified = 0 AND ts < ?)
-       OR NOT EXISTS (SELECT 1 FROM decision d WHERE d.id = usage.decision_id)`,
-    );
-    const removeOutcomes = this.#statement(
-      `DELETE FROM outcome WHERE decision_id IN (SELECT id FROM decision WHERE ts < ?)
-       OR (verified = 0 AND ts < ?)
-       OR NOT EXISTS (SELECT 1 FROM decision d WHERE d.id = outcome.decision_id)`,
-    );
-    const removeDecisions = this.#statement('DELETE FROM decision WHERE ts < ?');
-    this.#database.exec('BEGIN IMMEDIATE');
-    let deleted: number;
-    try {
-      removeUsage.run(cutoff, unverifiedCutoff);
-      removeOutcomes.run(cutoff, unverifiedCutoff);
-      deleted = Number(removeDecisions.run(cutoff).changes);
-      this.#database.exec('COMMIT');
-    } catch (error) {
-      this.#database.exec('ROLLBACK');
-      throw error;
+  /** Deletes in short transactions with event-loop yields; resolves to the decisions deleted. */
+  prune(retainDays: number, now = Date.now()): Promise<number> {
+    if (this.#pruning !== undefined) {
+      return this.#pruning;
     }
-    // After COMMIT: a vacuum failure must not reach the ROLLBACK above.
-    this.#database.exec('PRAGMA incremental_vacuum');
-    return deleted;
+    this.flush();
+    const cutoffs = {
+      cutoff: utcDateStart(now - retainDays * DAY_MS),
+      unverifiedCutoff: utcDateStart(now - Math.min(retainDays, UNVERIFIED_RETAIN_DAYS) * DAY_MS),
+    };
+    const run = pruneDatabase(this.#database, cutoffs, () => this.#closed).finally(() => {
+      this.#pruning = undefined;
+    });
+    this.#pruning = run;
+    return run;
   }
 
   /** Export records as daily `decisions-YYYY-MM-DD.jsonl` files, the portability format. */
@@ -217,24 +290,18 @@ export class SqliteLog implements LogStore {
 
   /** Copy a consistent snapshot with SQLite's online VACUUM INTO operation. */
   backup(destination: string): void {
-    const directory = mkdtempSync(join(dirname(destination), `.${basename(destination)}-tmp-`));
-    chmodSync(directory, 0o700);
-    const temporary = join(directory, 'snapshot.db');
-    try {
-      const escaped = temporary.replaceAll("'", "''");
-      this.#database.exec(`VACUUM INTO '${escaped}'`);
-      chmodSync(temporary, 0o600);
-      linkSync(temporary, destination);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
+    this.flush();
+    snapshotTo(this.#database, destination);
   }
 
   close(): void {
     if (this.#closed) {
       return;
     }
+    this.flush();
     this.#closed = true;
+    this.#cancelTimer();
+    this.#discardPending();
     this.#statements.clear();
     try {
       this.#database.close();
@@ -256,85 +323,200 @@ export class SqliteLog implements LogStore {
   #readRows(from: number | undefined): LogRecord[] {
     const predicate = from === undefined ? '' : ' WHERE ts >= ?';
     const args = from === undefined ? [] : [from];
+    const skipped = new Set<string>();
     const decisions = this.#statement(`SELECT * FROM decision${predicate} ORDER BY ts`)
       .all(...args)
-      .map(decisionRecord);
+      .flatMap((row) => keepReadable(row, skipped));
     // Stats folds outcomes in record order; seq preserves latest-appended semantics if clocks move.
     const outcomes = this.#statement(`SELECT * FROM outcome${predicate} ORDER BY seq`)
       .all(...args)
-      .map(outcomeRecord);
+      .map(outcomeRecord)
+      .filter((record) => !skipped.has(record.decisionId));
     const usage = this.#statement(`SELECT * FROM usage${predicate} ORDER BY ts, seq`)
       .all(...args)
-      .map(usageRecord);
+      .map(usageRecord)
+      .filter((record) => !skipped.has(record.decisionId));
+    reportSkipped(skipped.size);
     return [...decisions, ...outcomes, ...usage];
   }
 
-  #insertDecision(record: ShadowRecord): void {
-    const extras = record as ShadowRecord & {
-      readonly templateKey?: string;
-      readonly queueMs?: number;
-      readonly engineMs?: number;
-    };
-    this.#statement(
-      `INSERT INTO decision (
+  #schedule(delayMs: number): void {
+    if (this.#timer !== undefined && delayMs > 0) {
+      return;
+    }
+    this.#cancelTimer();
+    this.#timer = setTimeout(() => {
+      this.#timer = undefined;
+      this.flush();
+    }, delayMs);
+    this.#timer.unref();
+  }
+
+  #cancelTimer(): void {
+    if (this.#timer !== undefined) {
+      clearTimeout(this.#timer);
+      this.#timer = undefined;
+    }
+  }
+
+  /** Write up to one batch in a single transaction; false means it failed and stays queued. */
+  #flushBatch(): boolean {
+    const batch = this.#pending.slice(0, FLUSH_MAX_BATCH);
+    try {
+      this.#database.exec('BEGIN IMMEDIATE');
+    } catch (error) {
+      this.#flushFailed(error);
+      return false;
+    }
+    try {
+      for (const write of batch) {
+        this.#writeOne(write);
+      }
+      this.#database.exec('COMMIT');
+    } catch (error) {
+      this.#rollback();
+      this.#flushFailed(error);
+      return false;
+    }
+    this.#pending.splice(0, batch.length);
+    for (const write of batch) {
+      if (write.decision !== undefined) {
+        this.#pendingDecisions.delete(write.decision.decisionId);
+      }
+    }
+    this.#reportDrops();
+    return true;
+  }
+
+  /** A constraint violation is the row's own fault: skip it so it cannot block the queue. */
+  #writeOne(write: PendingWrite): void {
+    try {
+      this.#statement(write.sql).run(...write.params);
+    } catch (error) {
+      if (!isConstraintError(error)) {
+        throw error;
+      }
+      console.error(`sqlite log: skipped a row (${errorMessage(error)})`);
+    }
+  }
+
+  #rollback(): void {
+    try {
+      this.#database.exec('ROLLBACK');
+    } catch {
+      // The transaction may already be gone; the retry starts with BEGIN again.
+    }
+  }
+
+  #flushFailed(error: unknown): void {
+    const now = Date.now();
+    if (
+      this.#lastErrorLog !== undefined &&
+      now - this.#lastErrorLog < FLUSH_ERROR_LOG_INTERVAL_MS
+    ) {
+      return;
+    }
+    this.#lastErrorLog = now;
+    const dropped = this.#takeDropped();
+    console.error(
+      `sqlite log: write failed, ${String(this.#pending.length)} records queued for retry: ${errorMessage(error)}${dropped}`,
+    );
+  }
+
+  #reportDrops(): void {
+    const dropped = this.#takeDropped();
+    if (dropped !== '') {
+      console.error(`sqlite log:${dropped.slice(1)}`);
+    }
+  }
+
+  #takeDropped(): string {
+    const count = this.#dropped;
+    this.#dropped = 0;
+    return count === 0 ? '' : `; dropped ${String(count)} records over the queue limit`;
+  }
+
+  #discardPending(): void {
+    if (this.#pending.length > 0) {
+      console.error(
+        `sqlite log: ${String(this.#pending.length)} unwritten records dropped at close`,
+      );
+    }
+    this.#pending = [];
+    this.#pendingDecisions.clear();
+  }
+}
+
+function bindRecord(record: LogRecord): PendingWrite {
+  if (record.kind === 'decision') {
+    return { sql: DECISION_SQL, params: decisionParams(record), decision: record };
+  }
+  return record.kind === 'outcome' ? outcomeWrite(record) : usageWrite(record);
+}
+
+const DECISION_SQL = `INSERT INTO decision (
         id, ts, policy, variant, mode, scope, harness, session_id, call_id,
         permission_mode, subagent, input_hash, precedent_key, template_key,
         state_tokens, action, enforced, engine, model, latency_ms, queue_ms,
         engine_ms, error, power, requested_model, routed_model, answers, truncated
-      ) VALUES (${Array.from({ length: 28 }, () => '?').join(', ')})`,
-    ).run(
-      record.decisionId,
-      epoch(record.ts),
-      record.policy,
-      nullable(record.variant),
-      record.mode,
-      nullable(record.scope),
-      record.harness,
-      nullable(record.sessionId),
-      nullable(record.callId),
-      nullable(record.permissionMode),
-      nullableBoolean(record.subagent),
-      record.inputHash,
-      nullable(record.precedentKey),
-      nullable(extras.templateKey),
-      nullable(record.stateTokens),
-      record.action,
-      record.enforced ? 1 : 0,
-      record.engine,
-      record.model,
-      record.latencyMs,
-      nullable(extras.queueMs),
-      nullable(extras.engineMs),
-      nullable(record.error),
-      null,
-      nullable(record.requestedModel),
-      nullable(record.routedModel),
-      JSON.stringify(record.answers),
-      record.truncated === undefined ? null : JSON.stringify(record.truncated),
-    );
-  }
+      ) VALUES (${Array.from({ length: 28 }, () => '?').join(', ')})`;
 
-  #insertOutcome(record: OutcomeRecord): void {
-    this.#statement(
-      `INSERT INTO outcome (decision_id, ts, outcome, source, verified, claimed_source)
+function decisionParams(record: ShadowRecord): SqlValue[] {
+  const extras = record as ShadowRecord & { readonly templateKey?: string };
+  return [
+    record.decisionId,
+    epoch(record.ts),
+    record.policy,
+    nullable(record.variant),
+    record.mode,
+    nullable(record.scope),
+    record.harness,
+    nullable(record.sessionId),
+    nullable(record.callId),
+    nullable(record.permissionMode),
+    nullableBoolean(record.subagent),
+    record.inputHash,
+    nullable(record.precedentKey),
+    nullable(extras.templateKey),
+    nullable(record.stateTokens),
+    record.action,
+    record.enforced ? 1 : 0,
+    record.engine,
+    record.model,
+    record.latencyMs,
+    nullable(record.queueMs),
+    nullable(record.engineMs),
+    nullable(record.error),
+    null,
+    nullable(record.requestedModel),
+    nullable(record.routedModel),
+    JSON.stringify(record.answers),
+    record.truncated === undefined ? null : JSON.stringify(record.truncated),
+  ];
+}
+
+function outcomeWrite(record: OutcomeRecord): PendingWrite {
+  return {
+    sql: `INSERT INTO outcome (decision_id, ts, outcome, source, verified, claimed_source)
        VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(
+    params: [
       record.decisionId,
       epoch(record.ts),
       record.outcome,
       record.source,
       record.verified === true ? 1 : 0,
       nullable(record.claimedSource),
-    );
-  }
+    ],
+  };
+}
 
-  #insertUsage(record: UsageRecord): void {
-    this.#statement(
-      `INSERT INTO usage (
+function usageWrite(record: UsageRecord): PendingWrite {
+  return {
+    sql: `INSERT INTO usage (
         decision_id, ts, turn_id, model, input_tokens, cached_input_tokens,
         output_tokens, cost_usd, verified
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
+    params: [
       record.decisionId,
       epoch(record.ts),
       nullable(record.turnId),
@@ -344,8 +526,13 @@ export class SqliteLog implements LogStore {
       record.outputTokens,
       nullable(record.costUsd),
       record.verified === true ? 1 : 0,
-    );
-  }
+    ],
+  };
+}
+
+function isConstraintError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('errcode' in error)) return false;
+  return typeof error.errcode === 'number' && (error.errcode & 0xff) === SQLITE_CONSTRAINT;
 }
 
 /** Open the store under the data directory; writers take the pid lock. */
@@ -372,8 +559,10 @@ function openDatabase(Db: DatabaseConstructor, file: string, options: OpenLogOpt
       createPrivateFile(file);
     }
     database = new Db(file, { allowExtension: false, readOnly, timeout: 2000 });
-    if (!readOnly) {
-      configureDatabase(database);
+    if (readOnly) {
+      checkReaderVersion(database, file);
+    } else {
+      configureDatabase(database, file);
       chmodSync(file, 0o600);
     }
     return new SqliteLog(database, lock);
@@ -419,13 +608,13 @@ function missingLogError(file: string, cause: unknown): Error & { readonly code:
   });
 }
 
-function configureDatabase(database: Database): void {
+function configureDatabase(database: Database, file: string): void {
   // auto_vacuum only takes effect before the first table exists.
   database.exec('PRAGMA auto_vacuum=INCREMENTAL');
   database.exec('PRAGMA journal_mode=WAL');
   database.exec('PRAGMA synchronous=NORMAL');
   database.exec('PRAGMA busy_timeout=2000');
-  migrate(database);
+  migrate(database, file);
   ensureIncrementalVacuum(database);
 }
 
@@ -435,18 +624,26 @@ function configureDatabase(database: Database): void {
  */
 function ensureIncrementalVacuum(database: Database): void {
   const mode = Number(database.prepare('PRAGMA auto_vacuum').get()?.['auto_vacuum'] ?? 0);
-  if (mode !== 2) {
+  if (mode === 2) {
+    return;
+  }
+  try {
     database.exec('VACUUM');
+  } catch (error) {
+    console.error(
+      `sqlite log: could not enable incremental vacuum (${errorMessage(error)}); pruning will not reclaim space`,
+    );
   }
 }
 
 /** Apply pending steps from `PRAGMA user_version`; each step and its version bump is atomic. */
-function migrate(database: Database): void {
-  const current = Number(database.prepare('PRAGMA user_version').get()?.['user_version'] ?? 0);
+function migrate(database: Database, file: string): void {
+  const current = schemaVersion(database);
   if (current > MIGRATIONS.length) {
-    throw new Error(
-      `SQLite log schema version ${String(current)} is newer than this build supports (${String(MIGRATIONS.length)})`,
-    );
+    throw newerSchemaError(current, file);
+  }
+  if (current > 0 && current < MIGRATIONS.length) {
+    backupBeforeMigrating(database, file, current);
   }
   for (let version = current; version < MIGRATIONS.length; version += 1) {
     database.exec('BEGIN IMMEDIATE');
@@ -458,6 +655,87 @@ function migrate(database: Database): void {
       database.exec('ROLLBACK');
       throw error;
     }
+  }
+}
+
+function schemaVersion(database: Database): number {
+  return Number(database.prepare('PRAGMA user_version').get()?.['user_version'] ?? 0);
+}
+
+function newerSchemaError(current: number, file: string): Error {
+  return new Error(
+    `SQLite log schema version ${String(current)} is newer than this build supports ` +
+      `(${String(MIGRATIONS.length)}): upgrade local-decider or restore a backup (${file})`,
+  );
+}
+
+/** Read-only opens never migrate, so a mismatched schema would be read silently wrong. */
+function checkReaderVersion(database: Database, file: string): void {
+  const current = schemaVersion(database);
+  if (current > MIGRATIONS.length) {
+    throw newerSchemaError(current, file);
+  }
+  if (current > 0 && current < MIGRATIONS.length) {
+    throw new Error(
+      `SQLite log schema version ${String(current)} is older than this build ` +
+        `(${String(MIGRATIONS.length)}); start the gateway once to migrate (${file})`,
+    );
+  }
+}
+
+/** Newest backups kept per database file. */
+const MIGRATION_BACKUPS_KEEP = 3;
+
+/**
+ * Snapshot the file before a schema change. A failure only warns: every migration step is one
+ * transaction, so a failed step rolls back, and a full disk must not stop decisions.
+ */
+function backupBeforeMigrating(database: Database, file: string, current: number): void {
+  const stamp = new Date().toISOString().replaceAll(/[-:]/g, '').slice(0, 15);
+  const target = `${file}.pre-v${String(current)}-${stamp}.bak`;
+  try {
+    snapshotTo(database, target);
+  } catch (error) {
+    console.error(
+      `sqlite log: could not back up ${file} before migrating schema v${String(current)} → ` +
+        `v${String(MIGRATIONS.length)} (${errorMessage(error)}); migrating anyway`,
+    );
+    return;
+  }
+  pruneMigrationBackups(file);
+}
+
+function pruneMigrationBackups(file: string): void {
+  const prefix = `${basename(file)}.pre-v`;
+  try {
+    const backups = readdirSync(dirname(file))
+      .filter((name) => name.startsWith(prefix) && name.endsWith('.bak'))
+      .toSorted((a, b) => backupStamp(b, prefix).localeCompare(backupStamp(a, prefix)));
+    for (const name of backups.slice(MIGRATION_BACKUPS_KEEP)) {
+      unlinkSync(join(dirname(file), name));
+    }
+  } catch (error) {
+    console.error(`sqlite log: could not prune old migration backups (${errorMessage(error)})`);
+  }
+}
+
+/** The sortable `YYYYMMDDTHHmmss` part of `<file>.pre-v<N>-<stamp>.bak`. */
+function backupStamp(name: string, prefix: string): string {
+  return name.slice(prefix.length).replace(/^\d+-/, '');
+}
+
+/** Copy a consistent snapshot with VACUUM INTO into a private temp dir, then link it into place. */
+function snapshotTo(database: Database, destination: string): void {
+  const directory = mkdtempSync(join(dirname(destination), `.${basename(destination)}-tmp-`));
+  chmodSync(directory, 0o700);
+  const temporary = join(directory, 'snapshot.db');
+  try {
+    const escaped = temporary.replaceAll("'", "''");
+    database.exec(`VACUUM INTO '${escaped}'`);
+    chmodSync(temporary, 0o600);
+    linkSync(temporary, destination);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 }
 
@@ -637,13 +915,40 @@ function optionalNumber(value: SqlValue | undefined): number | undefined {
   return typeof value === 'number' ? value : undefined;
 }
 
-type DecisionExtras = Partial<ShadowRecord> & {
-  readonly templateKey?: string;
-  readonly queueMs?: number;
-  readonly engineMs?: number;
-};
+type DecisionExtras = Partial<ShadowRecord> & { readonly templateKey?: string };
 
-function decisionRecord(row: Row): ShadowRecord {
+/** The decision as a one-element list, or empty (and its id noted) when the row is unreadable. */
+function keepReadable(row: Row, skipped: Set<string>): ShadowRecord[] {
+  const record = decisionRecord(row);
+  if (record === undefined) {
+    skipped.add(text(row['id']));
+    return [];
+  }
+  return [record];
+}
+
+function reportSkipped(count: number): void {
+  if (count > 0) {
+    console.error(`sqlite log: skipped ${String(count)} unreadable rows`);
+  }
+}
+
+function parseAnswers(value: SqlValue | undefined): ShadowRecord['answers'] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(text(value));
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as ShadowRecord['answers'])
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function decisionRecord(row: Row): ShadowRecord | undefined {
+  const answers = parseAnswers(row['answers']);
+  if (answers === undefined) {
+    return undefined;
+  }
   return {
     kind: 'decision',
     ts: isoTime(row['ts']),
@@ -652,7 +957,7 @@ function decisionRecord(row: Row): ShadowRecord {
     mode: text(row['mode']) as ShadowRecord['mode'],
     harness: text(row['harness']) as ShadowRecord['harness'],
     inputHash: text(row['input_hash']),
-    answers: JSON.parse(text(row['answers'])) as ShadowRecord['answers'],
+    answers,
     action: text(row['action']),
     enforced: Number(row['enforced']) === 1,
     engine: text(row['engine']),
@@ -738,17 +1043,19 @@ function outcomeRecord(row: Row): OutcomeRecord {
 /** One decision record per decision id, then its outcome rows (rows are grouped by id). */
 function precedentRecords(rows: readonly Row[]): LogRecord[] {
   const records: LogRecord[] = [];
+  const skipped = new Set<string>();
   let last: string | undefined;
   for (const row of rows) {
     const id = text(row['id']);
     if (id !== last) {
-      records.push(decisionRecord(row));
+      records.push(...keepReadable(row, skipped));
       last = id;
     }
-    if (row['outcome_seq'] !== null && row['outcome_seq'] !== undefined) {
+    if (!skipped.has(id) && row['outcome_seq'] !== null && row['outcome_seq'] !== undefined) {
       records.push(outcomeRecord(row));
     }
   }
+  reportSkipped(skipped.size);
   return records;
 }
 

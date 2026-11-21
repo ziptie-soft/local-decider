@@ -371,7 +371,7 @@ interface JoinedRecords {
   readonly byPolicy: Map<string, ShadowRecord[]>;
 }
 
-function joinRecords(records: readonly LogRecord[], options: StatsOptions): JoinedRecords {
+function joinRecords(records: Iterable<LogRecord>, options: StatsOptions): JoinedRecords {
   const outcomes = new Map<string, OutcomeRecord>();
   const unverified: OutcomeRecord[] = [];
   const classifier = new Map<string, OutcomeRecord>();
@@ -403,7 +403,7 @@ function joinRecords(records: readonly LogRecord[], options: StatsOptions): Join
  * outcome. `pricing` (optional) adds dollar estimates to token savings.
  */
 export function computeStats(
-  records: readonly LogRecord[],
+  records: Iterable<LogRecord>,
   pricing: Pricing = {},
   policies?: ReadonlyMap<string, LoadedPolicy>,
   options: StatsOptions = {},

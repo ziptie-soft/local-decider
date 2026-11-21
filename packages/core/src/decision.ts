@@ -149,6 +149,10 @@ export interface ShadowRecord {
   readonly engine: string;
   readonly model: string;
   readonly latencyMs: number;
+  /** Time from admission to an engine slot starting the job; absent for cached answers. */
+  readonly queueMs?: number;
+  /** Time the engine call itself took; absent for cached answers. */
+  readonly engineMs?: number;
   readonly error?: string;
   /** Labels of state sections cut, dropped or already truncated; absent when nothing was. */
   readonly truncated?: string[];

@@ -20,6 +20,8 @@ export interface Gateway {
   readonly server: Server;
   readonly decider: Decider;
   readonly url: string;
+  /** Write queued log records now (the synchronous exit hook). */
+  flushLog(): void;
   close(): Promise<void>;
 }
 
@@ -80,7 +82,6 @@ export async function startGateway(options: StartOptions): Promise<Gateway> {
   const reportToken = ensureReportToken(paths);
   const policies = options.policies ?? loadPolicies(config, policyDirs(config, paths));
   const log = options.logStore ?? openLogStore(paths);
-  pruneLogs(log, config.logs.retainDays, report);
   const decider = new Decider({
     engine,
     policies,
@@ -108,12 +109,14 @@ export async function startGateway(options: StartOptions): Promise<Gateway> {
       ? watchSettings(store, engineControl, report)
       : NOOP;
   const stopPruning = scheduleLogPruning(log, store, report);
+  void pruneLogs(log, config.logs.retainDays, report);
   const { port } = server.address() as AddressInfo;
   const host = config.host.includes(':') ? `[${config.host}]` : config.host;
   return {
     server,
     decider,
     url: `http://${host}:${String(port)}`,
+    flushLog: () => log.flush(),
     async close() {
       unwatch();
       stopPruning();
@@ -146,9 +149,13 @@ async function cancelBenchmark(engineControl: EngineControl | undefined): Promis
   clearTimeout(timer);
 }
 
-function pruneLogs(log: LogStore, retainDays: number, report: (line: string) => void): void {
+async function pruneLogs(
+  log: LogStore,
+  retainDays: number,
+  report: (line: string) => void,
+): Promise<void> {
   try {
-    log.prune(retainDays);
+    await log.prune(retainDays);
   } catch (error) {
     report(`log retention failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -160,7 +167,7 @@ function scheduleLogPruning(
   report: (line: string) => void,
 ): () => void {
   const interval = setInterval(
-    () => pruneLogs(log, store.current.logs.retainDays, report),
+    () => void pruneLogs(log, store.current.logs.retainDays, report),
     24 * 60 * 60 * 1000,
   );
   interval.unref();

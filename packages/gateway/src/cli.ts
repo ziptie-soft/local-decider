@@ -198,6 +198,8 @@ async function gatewayRun(ctx: Context): Promise<void> {
   const shutdown = (): void => {
     void gateway.close().then(() => process.exit(0));
   };
+  // Covers the process.exit paths (guards, signals) that skip gateway.close().
+  process.once('exit', () => gateway.flushLog());
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
 }

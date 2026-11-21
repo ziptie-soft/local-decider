@@ -75,6 +75,18 @@ describe('StatsService', () => {
     assert.deepEqual(viaWorker, JSON.parse(JSON.stringify(inProcess)));
   });
 
+  it('flushes queued appends before the worker reads the file', async () => {
+    const paths = tempPaths();
+    const log = openLogStore(paths);
+    try {
+      log.append(decision('queued', 1));
+      const service = new StatsService({ log, paths });
+      assert.equal(decisions(await service.compute({ days: 30 })), 1);
+    } finally {
+      log.close();
+    }
+  });
+
   it('shares an in-flight run and serialises distinct ones', async () => {
     const paths = seeded();
     const service = new StatsService({ log: tempLog(), paths });
