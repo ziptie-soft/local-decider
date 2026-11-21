@@ -791,6 +791,31 @@ describe('Decider pass-through admission', () => {
     assert.equal(failures, 0);
   });
 
+  it('does not count a caller abort of a decision as an engine failure, a shadow job still does', async () => {
+    const abortError = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    const gone = new AbortController();
+    gone.abort();
+    for (const [mode, expected] of [
+      ['act', 0],
+      ['shadow', 1],
+    ] as const) {
+      const decider = deciderOn(mode, failing(abortError));
+      let failures = 0;
+      decider.onEngineFailure(() => {
+        failures += 1;
+      });
+      await decider.decide('permission', req, gone.signal);
+      assert.equal(failures, expected, mode);
+    }
+    const live = deciderOn('act', failing(new Error('boom')));
+    let boom = 0;
+    live.onEngineFailure(() => {
+      boom += 1;
+    });
+    await live.decide('permission', req, signal());
+    assert.equal(boom, 1, 'a live caller still counts engine errors');
+  });
+
   it('treats an engine 503 as busy, not a failure', async () => {
     const busy = failing(
       new EngineError('engine busy (503)', { status: 503, path: '/v1/systemone', body: '' }),
