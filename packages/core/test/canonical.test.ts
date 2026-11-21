@@ -13,6 +13,16 @@ describe('sortKeysDeep', () => {
     assert.equal(canonicalJson({ x: 1, y: 2 }), canonicalJson({ y: 2, x: 1 }));
   });
 
+  it('is total: values JSON cannot encode become null, as inside an array', () => {
+    assert.equal(canonicalJson(undefined), 'null');
+    assert.equal(
+      canonicalJson(() => 1),
+      'null',
+    );
+    assert.equal(canonicalJson([undefined]), '[null]');
+    assert.equal(canonicalJson({ a: undefined, b: 1 }), '{"b":1}');
+  });
+
   it('passes primitives through', () => {
     assert.equal(sortKeysDeep('s'), 's');
     assert.equal(sortKeysDeep(3), 3);

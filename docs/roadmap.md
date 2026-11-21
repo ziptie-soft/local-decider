@@ -289,6 +289,11 @@ verified, thresholded answer.
 - **Direction:** add engine and model to the key (or clear on switch, verify), prefix domain
   tags, require `project` for precedent, make `canonicalJson` total, LRU eviction.
 - **Open questions:** none.
+- **Status:** done (2026-11-22) — cache key is `cache:v1` of engine id, model and state hash
+  (the logged `inputHash` is unchanged); precedent key stays `v2` (persisted, so a new tag
+  would orphan learned precedent; it cannot alias the `cache:` key); `canonicalJson(undefined)`
+  is `'null'`; LRU eviction. A cache clear on engine switch and the workspace requirement for
+  precedent were already in place.
 
 ### Decision quality and feedback loop
 

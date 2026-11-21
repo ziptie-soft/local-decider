@@ -27,7 +27,7 @@ const KEEP_TAIL = new Set(['history']);
 
 function serialise(value: unknown): string {
   try {
-    return typeof value === 'string' ? value : (canonicalJson(value) ?? '');
+    return typeof value === 'string' ? value : canonicalJson(value);
   } catch {
     return '';
   }

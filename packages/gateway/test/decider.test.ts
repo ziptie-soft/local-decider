@@ -59,6 +59,10 @@ const INPUT = {
 const req = { harness: 'claude-code' as const, input: INPUT };
 const signal = (): AbortSignal => new AbortController().signal;
 
+function numbered(n: number): { harness: 'claude-code'; input: typeof INPUT } {
+  return { harness: 'claude-code', input: { ...INPUT, history: `user: ${n}` } };
+}
+
 interface PrecedentLog extends LogStore {
   readonly records: LogRecord[];
   readonly windows: number[];
@@ -463,6 +467,30 @@ describe('Decider', () => {
     assert.equal(first.cached, false);
     assert.equal(second.cached, true);
     assert.equal(engine.requests.length, 1);
+  });
+
+  it('never serves a replaced engine the old engine answer', async () => {
+    const { decider } = setup('act', undefined, 60);
+    const first = await decider.decide('permission', req, signal());
+    assert.equal(first.action, 'allow');
+    decider.replaceEngine(new FakeEngine({ allow: 0.01, ask: 0.02, deny: 0.97 }));
+    const second = await decider.decide('permission', req, signal());
+    assert.equal(second.cached, false);
+    assert.equal(second.action, 'deny');
+  });
+
+  it('evicts the least recently used cached answer first', async () => {
+    const { decider, engine } = setup('shadow', undefined, 60);
+    const at = numbered;
+    for (let n = 0; n < 500; n += 1) {
+      await decider.decide('permission', at(n), signal());
+    }
+    assert.equal((await decider.decide('permission', at(0), signal())).cached, true);
+    await decider.decide('permission', at(500), signal());
+    const calls = engine.requests.length;
+    assert.equal((await decider.decide('permission', at(0), signal())).cached, true);
+    assert.equal((await decider.decide('permission', at(1), signal())).cached, false);
+    assert.equal(engine.requests.length, calls + 1);
   });
 
   it('logs queue and engine time, and omits both for a cached answer', async () => {

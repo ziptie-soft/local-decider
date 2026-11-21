@@ -696,6 +696,9 @@ export class Decider {
     if (subject === '') {
       return undefined;
     }
+    // The tag stays `v2`: the key is persisted (`precedent_key`) and rebuilt from the log, so a
+    // new tag would orphan all learned precedent. It cannot alias the decision cache key, whose
+    // hash input begins with the `cache:v1` tag.
     const key = inputHash(['v2', policy.id, `/${resolveSegments('', cwd).join('/')}`, subject]);
     const tally = this.#precedent.tally(key);
     return {
@@ -707,7 +710,7 @@ export class Decider {
 
   async #answers(
     request: SystemOneRequest,
-    hash: string,
+    stateHash: string,
     ttlSeconds: number,
     admitted: Admission,
   ): Promise<EngineResult> {
@@ -716,8 +719,10 @@ export class Decider {
     if (blocked !== null) {
       return { answers: {}, latencyMs: 0, cached: false, error: blocked };
     }
-    const hit = this.#cache.get(hash);
-    if (hit !== undefined && hit.expires > Date.now()) {
+    // Cache and in-flight key: the logged state hash scoped to the serving engine and model.
+    const hash = inputHash(['cache:v1', this.#engine.id, this.#engine.model, stateHash]);
+    const hit = this.#cacheGet(hash);
+    if (hit !== undefined) {
       return { answers: hit.answers, latencyMs: 0, cached: true };
     }
     const running = ttlSeconds <= 0 ? undefined : this.#inflight.get(hash);
@@ -957,6 +962,7 @@ export class Decider {
     if (ttlSeconds <= 0) {
       return;
     }
+    this.#cache.delete(hash);
     if (this.#cache.size >= CACHE_MAX) {
       const oldest = this.#cache.keys().next().value;
       if (oldest !== undefined) {
@@ -964,6 +970,20 @@ export class Decider {
       }
     }
     this.#cache.set(hash, { answers, expires: Date.now() + ttlSeconds * 1000 });
+  }
+
+  /** A live entry, moved to most-recent so the least recently used one is evicted first. */
+  #cacheGet(hash: string): CacheEntry | undefined {
+    const hit = this.#cache.get(hash);
+    if (hit === undefined) {
+      return undefined;
+    }
+    this.#cache.delete(hash);
+    if (hit.expires <= Date.now()) {
+      return undefined;
+    }
+    this.#cache.set(hash, hit);
+    return hit;
   }
 
   #signal(caller: AbortSignal): AbortSignal {

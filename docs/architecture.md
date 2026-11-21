@@ -88,7 +88,9 @@ Step by step:
 2. **Redact and shape.** Every input string is redacted (`core/redact.ts`). The state sections
    are rendered in policy order, objects as key-sorted JSON, and trimmed to `state.maxTokens`
    (`core/truncate.ts`).
-3. **Engine.** Answers are cached by input hash for the policy's `cache.ttlSeconds`. Otherwise the
+3. **Engine.** Answers are cached for the policy's `cache.ttlSeconds` under a `cache:v1` key of
+   the input hash, engine id and model, so a switched engine never reads the old one's answers;
+   the least recently used entry is evicted at the size cap. Otherwise the
    request joins the engine queue: one request at a time (as many as the engine's
    `maxConcurrency` for `strands-decider`), `high` priority policies first; shadow decisions run
    at `low`. At most 8 decisions wait or run (7 waiting places beyond the slots); `normal` ones
@@ -243,8 +245,10 @@ flowchart LR
   thread using its own read-only SQLite connection. A 30-second timeout returns HTTP 503.
 - **Precedent.** Startup rebuilds only the largest `precedent.maxAgeDays` window configured by
   the policies. A workspace is required for precedent; requests without one do not use it. The
-  gateway stores one canonical key from the `v2` format tag, policy, lexically normalised cwd and
-  canonical subject. Existing precedent hashes are discarded because they cannot be converted. A
+  gateway stores one canonical key from the `v2` format tag, policy, lexically
+  normalised cwd and canonical subject. The tag stays `v2` so learned precedent survives; it
+  cannot alias the `cache:v1` decision cache key. Existing precedent hashes are discarded
+  because they cannot be converted. A
   policy's `vetoSources` may allow unverified classifier, harness or heuristic denials to veto,
   while those sources can never add allow evidence. A policy reload skips rebuilding when
   precedent settings are unchanged.

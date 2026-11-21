@@ -15,7 +15,10 @@ export function sortKeysDeep<T>(value: T): T {
   return value;
 }
 
-/** JSON with keys sorted at every depth. */
+/**
+ * JSON with keys sorted at every depth. Total: a value JSON cannot encode (`undefined`, a
+ * function or a symbol) encodes as `null`, as it already does inside an array.
+ */
 export function canonicalJson(value: unknown): string {
-  return JSON.stringify(sortKeysDeep(value));
+  return JSON.stringify(sortKeysDeep(value)) ?? 'null';
 }
