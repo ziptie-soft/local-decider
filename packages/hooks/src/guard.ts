@@ -44,8 +44,47 @@ const DISK_DEVICE = new RegExp(`^${DISK}`);
 const DISK_REDIRECT = new RegExp(`^\\d?>>?${DISK}`);
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
 const POWER = new Set(['shutdown', 'reboot', 'halt', 'poweroff']);
-const SHELL_SUBST_FETCH = /\b(?:ba|z|da|k)?sh\b[^;&|]*(?:<\(|\$\()\s*(?:curl|wget)\b/;
-const FORK_BOMB = /([A-Za-z_:][\w:]*)\(\)\{\1\|\1&\};\1/;
+// Linear forms: a shell word, then (in the same `;&|` segment) `<(` or `$(` and a fetcher.
+const SHELL_WORD = /\b(?:ba|z|da|k)?sh\b/;
+const SUBST_FETCH = /(?:<\(|\$\()\s*(?:curl|wget)\b/;
+
+function hasShellSubstFetch(command: string): boolean {
+  for (const part of command.split(/[;&|]/)) {
+    const m = SHELL_WORD.exec(part);
+    if (m !== null && SUBST_FETCH.test(part.slice(m.index + m[0].length))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const NAME_CHAR = /[\w:]/;
+const NAME_START = /[A-Za-z_:]/;
+
+/**
+ * `name(){name|name&};name` in whitespace-stripped text, the name being any suffix of the word
+ * before `(){`. Scans each `(){` once, forwards and backwards over word characters only, so it is
+ * linear (a backreference regex is quadratic on a long word).
+ */
+function hasForkBomb(text: string): boolean {
+  for (let i = text.indexOf('(){'); i !== -1; i = text.indexOf('(){', i + 1)) {
+    let end = i + 3;
+    while (end < text.length && NAME_CHAR.test(text[end] ?? '')) {
+      end++;
+    }
+    const name = text.slice(i + 3, end);
+    if (
+      name !== '' &&
+      NAME_START.test(name[0] ?? '') &&
+      i >= name.length &&
+      text.startsWith(name, i - name.length) &&
+      text.startsWith(`|${name}&};${name}`, end)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function flags(args: readonly string[]): readonly string[] {
   return args.filter((a) => a.startsWith('-'));
@@ -95,7 +134,10 @@ function checkDd(args: readonly string[]): GuardHit | null {
   return null;
 }
 
-const FORCE = /^(?:-f|--force|--force-with-lease(?:=.*)?|-[A-Za-z]*f[A-Za-z]*)$/;
+const FORCE = /^(?:--force|--force-with-lease(?:=.*)?)$/;
+const SHORT_FLAGS = /^-[A-Za-z]+$/;
+/** `-f`, bundled short flags with `f`, `--force`; the includes keeps the match linear. */
+const isForce = (a: string): boolean => FORCE.test(a) || (SHORT_FLAGS.test(a) && a.includes('f'));
 const PROTECTED_REF = /(?:^|:|\+)(?:refs\/heads\/)?(?:main|master)$/;
 
 function checkGit(args: readonly string[]): GuardHit | null {
@@ -104,7 +146,7 @@ function checkGit(args: readonly string[]): GuardHit | null {
     return null;
   }
   const rest = args.slice(push + 1);
-  const forced = rest.some((a) => FORCE.test(a)) || rest.some((a) => /^\+./.test(a));
+  const forced = rest.some(isForce) || rest.some((a) => /^\+./.test(a));
   if (forced && rest.some((a) => PROTECTED_REF.test(a))) {
     return { rule: 'git-force-push-main', reason: 'force-push to main or master' };
   }
@@ -132,11 +174,11 @@ function checkRedirects(words: readonly string[]): GuardHit | null {
 }
 
 /** `-c`, alone or bundled with other short flags (`-lc`, `-ec`). */
-const INLINE_FLAG = /^-[A-Za-z]*c[A-Za-z]*$/;
+const INLINE_FLAG = (a: string): boolean => /^-[A-Za-z]+$/.test(a) && a.includes('c');
 
 /** `bash -c "…"` or `bash -lc "…"` (how Codex runs commands): check the inline script too. */
 function checkInlineShell(cmd: string, args: readonly string[]): GuardHit | null {
-  const c = args.findIndex((a) => INLINE_FLAG.test(a));
+  const c = args.findIndex(INLINE_FLAG);
   const script = c === -1 ? undefined : args[c + 1];
   return SHELLS.has(cmd) && script !== undefined ? guardCommand(script) : null;
 }
@@ -180,10 +222,10 @@ function checkPipeToShell(segments: readonly Segment[]): GuardHit | null {
 }
 
 function checkRaw(command: string): GuardHit | null {
-  if (FORK_BOMB.test(command.replace(/\s+/g, ''))) {
+  if (hasForkBomb(command.replace(/\s+/g, ''))) {
     return { rule: 'fork-bomb', reason: 'fork bomb' };
   }
-  if (SHELL_SUBST_FETCH.test(command)) {
+  if (hasShellSubstFetch(command)) {
     return { rule: 'curl-pipe-shell', reason: 'runs a downloaded script in a shell' };
   }
   return null;

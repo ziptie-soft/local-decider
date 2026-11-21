@@ -16,7 +16,6 @@ export const LIMITS = {
   task: 4000,
   history: 12_000,
   lastMessage: 4000,
-  request: 6000,
   prompt: 6000,
 } as const;
 
@@ -215,9 +214,10 @@ export function buildTurnInput(
   };
 }
 
-function safeJson(value: unknown, max: number): string {
+/** The request body as JSON, uncut: the decide wrapper caps it with `capInput`. */
+function safeJson(value: unknown): string {
   try {
-    return head(JSON.stringify(value) ?? '', max);
+    return JSON.stringify(value) ?? '';
   } catch {
     return '';
   }
@@ -273,7 +273,7 @@ export function buildPermissionInput(
     history: tail(history, LIMITS.history / 2),
     task: head(task, LIMITS.task),
     tool: head(tool, 500),
-    request: safeJson(body, LIMITS.request),
+    request: safeJson(body),
     ...(subject === undefined ? {} : { subject }),
   };
 }

@@ -31,6 +31,7 @@ export {
   type RouteTarget,
 } from './decision.ts';
 export { inputHash } from './hash.ts';
+export { capInput, INPUT_CAPS } from './input-cap.ts';
 export {
   ALLOW_THRESHOLD_FLOOR,
   evaluateRules,

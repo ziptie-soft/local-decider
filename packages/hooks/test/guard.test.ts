@@ -84,6 +84,60 @@ describe('guardCommand', () => {
   }
 });
 
+describe('guardCommand fork bombs and adversarial input', () => {
+  const BOMBS = [
+    ':(){ :|:& };:',
+    'x(){ x|x& };x',
+    'bomb(){ bomb|bomb & }; bomb',
+    'bomb ( ) {\n bomb | bomb &\n } ;\n bomb',
+    'echo hi; :(){ :|:& };:',
+    'ls && :(){ :|:& };:',
+    "bash -c ':(){ :|:& };:'",
+    "bash -c 'x(){ x|x& };x'",
+    'function x(){ x|x& };x',
+    'time :(){ :|:& };:',
+    'sudo bomb(){ bomb|bomb& };bomb',
+    'a1(){ a1|a1& };a1',
+    'foo:bar(){ foo:bar|foo:bar& };foo:bar',
+    '1x(){ x|x& };x',
+    'x(){ x|x& };x'.padEnd(5000, ' ') + 'tail',
+    'echo a:b(){ a:b|a:b& };a:b',
+  ];
+  for (const command of BOMBS) {
+    it(`denies fork bomb ${JSON.stringify(command)}`, () => {
+      assert.equal(guardCommand(command)?.rule, 'fork-bomb');
+    });
+  }
+  it('lets a mismatched or lookalike definition through', () => {
+    assert.equal(guardCommand('x(){ y|y& };y'), null);
+    assert.equal(guardCommand('x(){ x|x& }; y'), null);
+  });
+
+  const MIB3 = 3 * 1024 * 1024;
+  const ADVERSARIAL: ReadonlyArray<readonly [string, string]> = [
+    ['x', 'x'.repeat(MIB3)],
+    [':', ':'.repeat(MIB3)],
+    ['spaces', ' '.repeat(MIB3)],
+    ['sh words', 'sh '.repeat(MIB3 / 3)],
+    ['subst', '$('.repeat(MIB3 / 2)],
+    ['semicolons', ';'.repeat(MIB3)],
+    ['quotes', '"'.repeat(MIB3)],
+    ['single quotes', "'".repeat(MIB3)],
+    ['parens', '(){'.repeat(MIB3 / 3)],
+    ['bomb prefix', 'x(){x|x&};'.repeat(MIB3 / 10)],
+    ['bash -c flag', `bash -${'c'.repeat(MIB3)}!`],
+    ['git force flag', `git push -${'f'.repeat(MIB3)}!`],
+    ['sh then subst', `sh ${'$( '.repeat(MIB3 / 3)}`],
+  ];
+  for (const [name, command] of ADVERSARIAL) {
+    it(`scans a 3 MiB ${name} input in linear time`, () => {
+      const start = performance.now();
+      guardCommand(command);
+      assert.ok(performance.now() - start < 2000, `${name} took too long`);
+    });
+  }
+});
+
 describe('splitShell', () => {
   it('honours quotes, escapes and pipes', () => {
     assert.deepEqual(splitShell(`a 'b c' "d;e" f\\ g | h || i`), [

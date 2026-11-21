@@ -19,6 +19,7 @@ import { isEnforcedAllow, type DecideResponse } from '../shared/decision.ts';
 import type { Gateway } from '../shared/gateway.ts';
 import { rowVisible, toRowData, type DecisionRow } from '../shared/row.ts';
 import { Background, detach } from './background.ts';
+import { capInput } from './core/input-cap.ts';
 import { errorText, type HookDeps } from './deps.ts';
 import {
   buildPermissionInput,
@@ -385,7 +386,7 @@ async function decidePermission(
       harness: 'paseo',
       sessionId: event.agent.id,
       workspace: { cwd: event.agent.cwd },
-      input: { ...input },
+      input: capInput({ ...input }),
     },
     { timeoutMs: DECIDE_TIMEOUT_MS, signal },
   );

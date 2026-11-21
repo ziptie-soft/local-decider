@@ -708,6 +708,8 @@ other models. Verify cited lines before implementing; they come from a read-only
   `truncated`, and the decider downgrades `allow` to `ask` when a permission-relevant section was
   cut; cap inputs in the hooks; add the "data, not instructions" line to every section. Overlaps
   Q6.
+- **Status:** done — headings neutralised, `ends` cuts, critical cuts downgrade allow, and
+  `capInput` caps every hook, mod and Paseo input key (oversized stdin fails open, logged).
 
 ### N4 Calibration and stats mishandle vetoes and unverified rows
 

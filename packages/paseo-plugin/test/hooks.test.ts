@@ -183,6 +183,21 @@ describe('agent.permission.before', () => {
     };
   };
 
+  it('caps a 3 MiB request input before it reaches the gateway', async () => {
+    const gw = fakeGateway(() => response({ policy: 'permission', action: 'ask' }));
+    const huge: AgentPermissionRequest = {
+      ...toolRequest,
+      input: { command: `START${'x'.repeat(3 * 1024 * 1024)}END` },
+    };
+    await permissionHandlers(deps(settings(), gw)).request(fakePaseo(turn), huge);
+    const sent = gw.calls[0]?.input;
+    assert.ok(JSON.stringify(sent).length < 256 * 1024);
+    const request = String((sent as Record<string, unknown>)['request']);
+    assert.ok(request.startsWith('{"input":{"command":"START'));
+    assert.match(request, /chars truncated/);
+    assert.equal('subject' in (sent as object), false, 'an over-cap subject is dropped');
+  });
+
   it('auto-allows only an enforced allow with the plugin in act', async () => {
     const gw = fakeGateway(() =>
       response({ policy: 'permission', action: 'allow', mode: 'act', enforced: true }),
