@@ -715,6 +715,96 @@ describe('Decider', () => {
   });
 });
 
+const failing = (error: Error): Engine => ({
+  id: 'f',
+  model: 'm',
+  start: () => Promise.resolve(),
+  health: () => ({ state: 'ready', model: 'm' }),
+  decide: () => Promise.reject(error),
+  stop: () => Promise.resolve(),
+});
+
+describe('Decider pass-through admission', () => {
+  const sys = { state: 's', questions: {} };
+
+  it('refuses pass-through with a 503 once the queue is full', async () => {
+    const g = Promise.withResolvers<void>();
+    const { decider } = setup('shadow', gated(g.promise));
+    const all = Array.from({ length: QUEUE_MAX + 2 }, () =>
+      decider.systemOne(sys, signal()).then(
+        () => 'ok',
+        (error: unknown) => (error instanceof EngineBusyError ? error.message : 'other'),
+      ),
+    );
+    g.resolve();
+    const results = await Promise.all(all);
+    assert.equal(results.filter((r) => r === 'engine queue full').length, 2);
+    assert.equal(results.filter((r) => r === 'ok').length, QUEUE_MAX);
+  });
+
+  it('runs a queued pass-through after a high-priority decision', async () => {
+    const g = Promise.withResolvers<void>();
+    const engine = gated(g.promise);
+    const order: string[] = [];
+    const inner = engine.respond;
+    engine.respond = async (r, s) => {
+      order.push(r.state === 's' ? 'pass' : 'decide');
+      return inner(r, s);
+    };
+    const { decider } = setup('act', engine);
+    const first = decider.systemOne(sys, signal());
+    const pass = decider.systemOne(sys, signal());
+    const decision = decider.decide('permission', toolReq(1), signal());
+    g.resolve();
+    await Promise.all([first, pass, decision]);
+    assert.deepEqual(order, ['pass', 'decide', 'pass']);
+  });
+
+  it('reports an engine error to the failure handler and success to the success handler', async () => {
+    const decider = deciderOn('shadow', failing(new Error('boom')));
+    let failures = 0;
+    decider.onEngineFailure(() => {
+      failures += 1;
+    });
+    await assert.rejects(decider.systemOne(sys, signal()), /boom/);
+    assert.equal(failures, 1);
+
+    const ok = setup('shadow').decider;
+    let successes = 0;
+    ok.onEngineSuccess(() => {
+      successes += 1;
+    });
+    await ok.systemOne(sys, signal());
+    assert.equal(successes, 1);
+  });
+
+  it('does not count a caller abort as an engine failure', async () => {
+    const abortError = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    const decider = deciderOn('shadow', failing(abortError));
+    let failures = 0;
+    decider.onEngineFailure(() => {
+      failures += 1;
+    });
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(decider.systemOne(sys, controller.signal));
+    assert.equal(failures, 0);
+  });
+
+  it('treats an engine 503 as busy, not a failure', async () => {
+    const busy = failing(
+      new EngineError('engine busy (503)', { status: 503, path: '/v1/systemone', body: '' }),
+    );
+    const decider = deciderOn('shadow', busy);
+    let failures = 0;
+    decider.onEngineFailure(() => {
+      failures += 1;
+    });
+    await assert.rejects(decider.systemOne(sys, signal()), EngineBusyError);
+    assert.equal(failures, 0);
+  });
+});
+
 describe('Decider under load', () => {
   it('finishes and logs a shadow decision after the caller aborts', async () => {
     const engine = new FakeEngine({ allow: 1 });
