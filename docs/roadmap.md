@@ -473,6 +473,9 @@ verified, thresholded answer.
 - **Direction:** one pass fixing each, plus `readOnlyHint: false`, required input keys in the
   MCP `policies` output, and bench default 3800.
 - **Open questions:** none.
+- **Status:** done (2026-11-21) — docs only: README retention 365 days, `AGENTS.md`
+  layout, 2 s routing timeout constant, `policies eval` on `off`; the `mcp.ts` hint and
+  calibration wording remain code changes.
 
 ### D2 Skills and onboarding
 
@@ -651,8 +654,7 @@ other models. Verify cited lines before implementing; they come from a read-only
   open), R6 client half.
 - **Wrong above:** I2 says bundles are committed, but `plugins/local-decider/dist` is built in CI;
   Q3 says the mod covers only Bash/Edit/Write, but it also covers MultiEdit and NotebookEdit. D1
-  still applies: the README says 30-day retention, and `AGENTS.md` names packages that were merged
-  into `packages/hooks`.
+  was done on 2026-11-21: the README retention and the `AGENTS.md` package list now match the code.
 
 ### Shipped with this review
 

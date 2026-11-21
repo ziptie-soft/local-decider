@@ -87,7 +87,7 @@ See [docs/architecture.md](docs/architecture.md) for the full pipeline.
 - **Measure before you enforce.** In `shadow` mode every decision is logged with what it *would*
   have done. `local-decider stats` reports agreement, Brier score, calibration buckets, advisory
   threshold hints and estimated savings; `--days N` selects a window from 1 day through the
-  configured retention period (30 days by default). Switch a policy to `act` when the numbers
+  configured retention period (365 days by default). Switch a policy to `act` when the numbers
   look right.
 - **Learns from your answers.** Exact-match precedent: after three verified allows of the same
   request in the same working directory, and no veto, a lower threshold (p ≥ 0.6) applies across
