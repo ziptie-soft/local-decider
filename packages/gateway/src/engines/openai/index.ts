@@ -12,6 +12,7 @@ import { z } from 'zod';
 
 import { defineEngine } from '../descriptor.ts';
 import { displayUrl, postJson, type JsonRequestOptions } from '../http.ts';
+import { isUnreachable, withTransientRetry } from '../retry.ts';
 import { EngineError, type Engine, type EngineHealth, type EngineState } from '../types.ts';
 import {
   optionMasses,
@@ -275,7 +276,9 @@ export class OpenAICompatibleEngine implements Engine {
       return systemOneResponse(this.model, result.answers, result.usage);
     } catch (error) {
       const message = this.#errorMessage(error);
-      if (!signal.aborted) {
+      // HTTP errors and busy mean the server answered; only a transport failure that survived
+      // the retries flips the engine.
+      if (!signal.aborted && isUnreachable(error)) {
         this.#state = 'failed';
         this.#detail = message;
       }
@@ -325,13 +328,34 @@ export class OpenAICompatibleEngine implements Engine {
 
   #complete(prompt: RenderedPrompt, signal?: AbortSignal): Promise<unknown> {
     const path = this.#config.api === 'chat' ? '/chat/completions' : '/completions';
-    return postJson(endpoint(this.#url, path), requestBody(this.#config, prompt), {
-      ...this.#requestOptions(signal),
+    const body = requestBody(this.#config, prompt);
+    let timedOut = false;
+    const attempt = async (): Promise<unknown> => {
+      const timeout = AbortSignal.timeout(this.#config.requestTimeoutMs);
+      try {
+        return await postJson(
+          endpoint(this.#url, path),
+          body,
+          this.#requestOptions(signal, timeout),
+        );
+      } catch (error) {
+        timedOut = timeout.aborted;
+        if (timedOut && isUnreachable(error)) {
+          // The request may have reached the model: not a transport failure, never retried.
+          throw new EngineError(
+            `engine timed out after ${String(this.#config.requestTimeoutMs)} ms`,
+          );
+        }
+        throw error;
+      }
+    };
+    // Only a transport failure is retried: the request never reached a model, so no tokens ran.
+    return withTransientRetry(attempt, signal, {
+      isTransient: (e) => !timedOut && isUnreachable(e),
     });
   }
 
-  #requestOptions(signal?: AbortSignal): JsonRequestOptions {
-    const timeout = AbortSignal.timeout(this.#config.requestTimeoutMs);
+  #requestOptions(signal: AbortSignal | undefined, timeout: AbortSignal): JsonRequestOptions {
     return {
       token: this.#token,
       signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]),

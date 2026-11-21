@@ -75,12 +75,13 @@ export class ManagedEngine implements Engine {
     if (state === 'ready') {
       return Promise.resolve();
     }
-    if (this.#loading === undefined || state === 'failed' || state === 'stopped') {
+    if (this.#loading === undefined) {
       this.#unloadedIdle = false;
-      this.#loading = this.#inner.start().finally(() => {
-        this.#loading = undefined;
-      });
     }
+    // The inner start() is idempotent and never rejects, so joining a load in flight is safe.
+    this.#loading ??= this.#inner.start().finally(() => {
+      this.#loading = undefined;
+    });
     this.#arm();
     return this.#loading;
   }

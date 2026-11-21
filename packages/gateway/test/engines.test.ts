@@ -65,14 +65,15 @@ describe('SystemOneRemoteEngine', () => {
     assert.equal(auth, 'Bearer secret');
   });
 
-  it('marks itself failed on HTTP errors and bad JSON', async () => {
+  it('stays ready on HTTP errors and bad JSON: the server answered', async () => {
     const engine = new SystemOneRemoteEngine({ type: 'systemone-remote', url, model: 'm' });
     await engine.start();
     mode = 'error';
     await assert.rejects(engine.decide(REQUEST, AbortSignal.timeout(2000)), /HTTP 422/);
-    assert.equal(engine.health().state, 'failed');
+    assert.equal(engine.health().state, 'ready');
     mode = 'garbage';
     await assert.rejects(engine.decide(REQUEST, AbortSignal.timeout(2000)), /invalid JSON/);
+    assert.equal(engine.health().state, 'ready');
     await engine.stop();
     assert.equal(engine.health().state, 'stopped');
   });
@@ -85,7 +86,7 @@ describe('SystemOneRemoteEngine', () => {
     });
     await engine.start();
     assert.equal(engine.health().state, 'failed');
-    await assert.rejects(engine.decide(REQUEST, AbortSignal.timeout(500)), /unreachable/);
+    await assert.rejects(engine.decide(REQUEST, AbortSignal.timeout(3000)), /unreachable/);
   });
 
   it('hides URL credentials and query values from failed health details', async () => {

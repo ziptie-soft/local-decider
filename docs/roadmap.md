@@ -162,17 +162,22 @@ verified, thresholded answer.
 ### R2 Engine supervision: crash, hang and restart
 
 - **Priority:** P1. **Size:** M.
+- **Status:** done (2026-11-21) — `#fail` kills the child, `start()` is idempotent with a
+  generation counter and a 60 s failed cooldown, the restart path is caught, a `/health` probe
+  after 3 decision timeouts restarts a hung engine, process guards log rejections and exit on an
+  uncaught exception, remote and openai retries are bounded (`engines/retry.ts`).
 - **Problem:** When the engine never becomes healthy the state is `failed` but the child is not
-  killed (`packages/gateway/src/engines/supervised.ts:193-195`), and `ManagedEngine.load()`
-  restarts on every call (`lazy.ts:69-73`), so each decision spawns another child. The restart
-  timer has no catch (`supervised.ts:172-176`) and there are no process-level handlers. A hung
-  but alive engine stays `ready` and every decision waits the full timeout. `remote.ts:72-88`
-  sets `failed` permanently on any error.
+  killed (`packages/gateway/src/engines/supervised.ts`, `#fail`), and `ManagedEngine.load()`
+  restarts on every call (`lazy.ts`), so each decision spawns another child. The restart
+  timer has no catch and there are no process-level handlers. A hung
+  but alive engine stays `ready` and every decision waits the full timeout. `remote.ts`
+  sets `failed` on any error.
 - **Direction:** kill the child in `#fail`; idempotent `start()` with a generation counter;
   catch the restart path; an `unhandledRejection` logger; an active `/health` probe after N
   consecutive timeouts that flips state and restarts; bounded retry for remote engines. Add
   `SupervisedEngine` tests (crash budget, restart race, failed-with-live-child, hang).
-- **Open questions:** should a hung engine trigger auto-fallback outside `auto` mode?
+- **Open questions:** resolved: no fallback outside `auto`; a hang restarts first and falls back
+  in `auto` only after the restart budget runs out.
 
 ### R3 Pass-through routes under the same admission
 
