@@ -27,6 +27,8 @@ export interface DecideRequest {
   readonly input: Readonly<Record<string, unknown>>;
   readonly workspace?: { readonly cwd: string };
   readonly models?: DecisionModels;
+  /** The caller's wait in ms; a longer estimated queue wait fails open at once ("busy"). */
+  readonly budgetMs?: number;
 }
 
 /** Models for savings stats (`provider/model`). Logged, never sent to the engine. */

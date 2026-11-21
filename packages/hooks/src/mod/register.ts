@@ -5,7 +5,7 @@
  * every other path returns what Claude Code decided. A failure skips the hook, so the classifier
  * decides as if the mod were not installed.
  */
-import { isEnforcedAllow, type DecideResponse } from '@ziptie-soft/local-decider-core';
+import { budgetFor, isEnforcedAllow, type DecideResponse } from '@ziptie-soft/local-decider-core';
 
 import {
   callAllows,
@@ -80,6 +80,7 @@ async function ask(
 ): Promise<DecideResponse | null> {
   const subagent = e.agentId !== undefined;
   const messages = subagent ? undefined : await $.session.messages();
+  const budget = budgetFor(env.budgetMs);
   return decide($, env, 'permission', {
     harness: 'claude-code',
     sessionId: await $.session.id(),
@@ -87,6 +88,7 @@ async function ask(
     workspace: { cwd },
     scope: 'claude-auto',
     call: { id, agent: subagent },
+    ...(budget === undefined ? {} : { budgetMs: budget }),
   });
 }
 

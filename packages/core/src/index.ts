@@ -12,6 +12,7 @@ export {
   type GatewayHealth,
 } from './client.ts';
 export {
+  budgetFor,
   HARNESSES,
   PERMISSION_MODES,
   SCOPES,

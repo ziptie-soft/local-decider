@@ -148,6 +148,13 @@ export interface EngineSelection {
 export type PostResult = { ok: true; body: unknown } | { ok: false; error: string };
 
 const DEFAULT_TIMEOUT_MS = 2000;
+/** Left between `budgetMs` and the call's timeout for the round trip. */
+const BUDGET_MARGIN_MS = 500;
+
+function budgetFor(timeoutMs: number): number | undefined {
+  const budget = Math.floor(timeoutMs - BUDGET_MARGIN_MS);
+  return Number.isFinite(budget) && budget > 0 ? budget : undefined;
+}
 const BENCHMARK_READ_MS = 3000;
 const BENCHMARK_POST_MS = 10_000;
 
@@ -298,7 +305,10 @@ export function createGateway(options: GatewayOptions = {}): Gateway | null {
     baseUrl,
     bearer: token !== undefined,
     async decide(policy, req, call) {
-      const res = await request('POST', `/v1/decide/${encodeURIComponent(policy)}`, req, call);
+      // The caller's wait, so a busy gateway can answer at once instead of timing out.
+      const budgetMs = req.budgetMs ?? budgetFor(call?.timeoutMs ?? timeoutMs);
+      const body = budgetMs === undefined ? req : { ...req, budgetMs };
+      const res = await request('POST', `/v1/decide/${encodeURIComponent(policy)}`, body, call);
       return isDecideResponse(res) ? res : null;
     },
     async reportOutcome(decisionId, outcome, source, call) {

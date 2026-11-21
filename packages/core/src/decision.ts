@@ -46,6 +46,20 @@ export interface DecideRequest {
   readonly scope?: Scope;
   /** Models for savings stats (`provider/model`). Logged, never sent to the engine. */
   readonly models?: DecisionModels;
+  /**
+   * How long the caller will wait, in ms (its timeout minus a margin). When the queue's estimated
+   * wait is longer, the gateway answers at once, fail open, with `error: "engine busy (503)"`.
+   */
+  readonly budgetMs?: number;
+}
+
+/** Margin a client keeps between `budgetMs` and its own timeout for the round trip. */
+const BUDGET_MARGIN_MS = 500;
+
+/** `budgetMs` for a client with `timeoutMs`; undefined when that leaves no positive budget. */
+export function budgetFor(timeoutMs: number): number | undefined {
+  const budget = Math.floor(timeoutMs - BUDGET_MARGIN_MS);
+  return Number.isFinite(budget) && budget > 0 ? budget : undefined;
 }
 
 export interface DecisionModels {

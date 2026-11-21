@@ -29,6 +29,8 @@ export function admissionLimit(priority: Priority, limits: QueueLimits): number 
 
 interface SerialQueueOptions {
   readonly abandonGraceMs?: number;
+  /** Jobs that may run at once; default 1. */
+  readonly concurrency?: number;
   readonly warn?: (message: string) => void;
 }
 
@@ -40,12 +42,17 @@ interface Waiting {
   readonly fail: (error: Error) => void;
 }
 
+function normaliseConcurrency(value: number | undefined): number {
+  return value === undefined || !Number.isInteger(value) || value < 1 ? 1 : value;
+}
+
 function abortReason(signal: AbortSignal): Error {
   return signal.reason instanceof Error ? signal.reason : new DOMException('aborted', 'AbortError');
 }
 
 /**
- * One request in flight per engine (engines answer one at a time). Waiting jobs run highest
+ * `concurrency` requests in flight per engine (default 1: most engines answer one at a time;
+ * strands-decider with `--max-concurrency N` answers N). Waiting jobs run highest
  * priority first, FIFO within a priority. A waiter whose signal fires leaves the queue at once.
  * With `limits`, `normal` jobs keep out of the high reserve and a `high` job arriving at the
  * maximum evicts the oldest waiting `low` one. A job that ignores its signal loses the slot
@@ -55,12 +62,14 @@ export class SerialQueue {
   readonly #waiting: Waiting[] = [];
   readonly #graceMs: number;
   readonly #warn: (message: string) => void;
-  #busy = false;
+  #concurrency: number;
+  #running = 0;
   #seq = 0;
   #warned = false;
 
   constructor(options: SerialQueueOptions = {}) {
     this.#graceMs = options.abandonGraceMs ?? ABANDON_GRACE_MS;
+    this.#concurrency = normaliseConcurrency(options.concurrency);
     // Look console.error up per call, so a test's mock.method(console, 'error') sees it.
     this.#warn =
       options.warn ??
@@ -70,7 +79,18 @@ export class SerialQueue {
   }
 
   get depth(): number {
-    return this.#waiting.length + (this.#busy ? 1 : 0);
+    return this.#waiting.length + this.#running;
+  }
+
+  /** Jobs that may run at once. */
+  get concurrency(): number {
+    return this.#concurrency;
+  }
+
+  /** Change the slot count; a lower one takes effect as running jobs finish. */
+  setConcurrency(concurrency: number | undefined): void {
+    this.#concurrency = normaliseConcurrency(concurrency);
+    this.#next();
   }
 
   run<T>(
@@ -128,7 +148,7 @@ export class SerialQueue {
     resolve: (value: T) => void,
     reject: (error: unknown) => void,
   ): void {
-    this.#busy = true;
+    this.#running += 1;
     let released = false;
     let timer: NodeJS.Timeout | undefined;
     const release = (): void => {
@@ -138,7 +158,7 @@ export class SerialQueue {
       released = true;
       clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
-      this.#busy = false;
+      this.#running -= 1;
       this.#next();
     };
     const onAbort = (): void => {
@@ -197,9 +217,12 @@ export class SerialQueue {
   }
 
   #next(): void {
-    if (this.#busy || this.#waiting.length === 0) {
-      return;
+    while (this.#running < this.#concurrency && this.#waiting.length > 0) {
+      this.#startBest();
     }
+  }
+
+  #startBest(): void {
     let best = 0;
     for (let i = 1; i < this.#waiting.length; i++) {
       const a = this.#waiting[i];
@@ -231,6 +254,17 @@ export class LatencyWindow {
     if (this.#samples.length > this.#size) {
       this.#samples.shift();
     }
+  }
+
+  clear(): void {
+    this.#samples.length = 0;
+  }
+
+  /** Mean of the window; undefined while empty. */
+  mean(): number | undefined {
+    return this.#samples.length === 0
+      ? undefined
+      : this.#samples.reduce((sum, ms) => sum + ms, 0) / this.#samples.length;
   }
 
   percentile(p: number): number | undefined {

@@ -62,6 +62,7 @@ function strandsSpec(
     model: config.model,
     url: config.url,
     startTimeoutSeconds: config.startTimeoutSeconds,
+    concurrency: config.maxConcurrency,
     healthPath: '/health',
     env: { PYTHONUNBUFFERED: '1', ...tools?.env },
     binary: () => {

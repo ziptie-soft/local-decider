@@ -38,6 +38,14 @@ measures the token and cost savings of a decision model over an LLM.
 
 `local-decider engine list` prints the engines and models as the gateway sees them.
 
+`strands-decider` accepts `maxConcurrency` (1-64, `serve --max-concurrency`, strands-decider
+0.4.0 or newer). The gateway runs as many engine calls at once as that value, so a fleet of
+agents is no longer serialised in front of an engine that can batch. Without it, and for every
+other engine, the gateway sends one request at a time. Queue places scale with it: 7 waiting
+places beyond the slots. Callers that send `budgetMs` fail open at once when the estimated wait
+is longer (see [architecture](architecture.md)). A cold managed engine's load time is not
+budgeted, so the first request after a load is admitted and may time out (fail-open).
+
 The llama Vulkan engine uses llama.cpp's native `/v1/systemone` endpoint with calibrated d3
 decision GGUFs. It needs a Vulkan-enabled `llama-server` installed separately; the engine-specific
 `engines.llama-vulkan.binary` override takes precedence over `tools.llamaServer`, which takes

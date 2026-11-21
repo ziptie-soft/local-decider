@@ -58,7 +58,26 @@ export const QUEUE_MAX = 8;
  * decision arriving at QUEUE_MAX evicts the oldest waiting `low` one.
  */
 const QUEUE_HIGH_RESERVE = 2;
-const QUEUE_LIMITS: QueueLimits = { max: QUEUE_MAX, highReserve: QUEUE_HIGH_RESERVE };
+
+/** Queue limits for an engine running `slots` jobs at once: the same 7 waiting places beyond them. */
+function queueLimits(slots: number): QueueLimits {
+  return { max: QUEUE_MAX - 1 + slots, highReserve: QUEUE_HIGH_RESERVE };
+}
+
+/** Recent engine jobs timed for the busy estimate; `replaceEngine` clears them. */
+const SERVICE_WINDOW = 50;
+
+/**
+ * Milliseconds a new job waits for a slot: each full wave of `slots` jobs ahead of it takes one
+ * mean service time. Zero while a slot is free or nothing has been timed yet.
+ */
+export function estimateWaitMs(
+  depth: number,
+  slots: number,
+  meanServiceMs: number | undefined,
+): number {
+  return meanServiceMs === undefined ? 0 : Math.floor(depth / slots) * meanServiceMs;
+}
 
 function precedentWindow(policies: ReadonlyMap<string, LoadedPolicy>): number | undefined {
   let days: number | undefined;
@@ -120,6 +139,14 @@ interface EngineResult {
   readonly error?: string;
 }
 
+/** How a decision enters the engine queue. */
+interface Admission {
+  readonly signal: AbortSignal;
+  readonly priority: Priority;
+  /** The caller's wait budget; a longer estimated queue wait refuses the decision as busy. */
+  readonly budgetMs?: number;
+}
+
 const PRIORITY_RANK: Readonly<Record<Priority, number>> = { low: 0, normal: 1, high: 2 };
 
 /** An engine call that identical concurrent requests share. */
@@ -164,6 +191,8 @@ export class Decider {
   /** Bumped by hold and replaceEngine: answers computed before it must not enter the cache. */
   #generation = 0;
   readonly #latency = new LatencyWindow();
+  /** Time inside the engine call only (no queue wait), for `budgetMs` admission. */
+  readonly #service = new LatencyWindow(SERVICE_WINDOW);
   readonly #cache = new Map<string, CacheEntry>();
   /** Engine calls running now by input hash; identical requests join instead of calling again. */
   readonly #inflight = new Map<string, SharedCall>();
@@ -175,7 +204,12 @@ export class Decider {
 
   constructor(options: DeciderOptions) {
     this.#engine = options.engine;
-    this.#queue = new SerialQueue({ abandonGraceMs: options.queueGraceMs ?? ABANDON_GRACE_MS });
+    this.#queue = new SerialQueue({
+      abandonGraceMs: options.queueGraceMs ?? ABANDON_GRACE_MS,
+      ...(options.engine.concurrency === undefined
+        ? {}
+        : { concurrency: options.engine.concurrency }),
+    });
     this.#policies = new Map(options.policies);
     this.#log = options.log;
     this.#timeoutMs = options.decisionTimeoutMs;
@@ -406,6 +440,8 @@ export class Decider {
   replaceEngine(next: Engine): Engine {
     const previous = this.#engine;
     this.#engine = next;
+    this.#queue.setConcurrency(next.concurrency);
+    this.#service.clear();
     this.#generation += 1;
     this.#cache.clear();
     this.#inflight.clear();
@@ -415,6 +451,11 @@ export class Decider {
   /** Decisions in the engine queue or waiting for the engine to load. */
   get queueDepth(): number {
     return this.#queue.depth + this.#preparing;
+  }
+
+  /** Engine calls that run at once, from the engine's own setting. */
+  get slots(): number {
+    return this.#queue.concurrency;
   }
 
   latency(p: number): number | undefined {
@@ -472,13 +513,12 @@ export class Decider {
     const input = redactDeep(request.input);
     const precedent = this.#precedentFor(policy, input, request.workspace?.cwd);
     const { state, questions, hash, truncated, criticalCut } = this.#state(policy, input);
-    const admitted = admission(mode, policy, signal);
+    const admitted = admission(mode, policy, signal, request.budgetMs);
     const result = await this.#answers(
       { state, questions },
       hash,
       policy.cache.ttlSeconds,
-      admitted.signal,
-      admitted.priority,
+      admitted,
     );
     // Cached answers are stored without this: the guard runs on every call, hits included.
     const match = guardTruncation(
@@ -566,9 +606,9 @@ export class Decider {
     request: SystemOneRequest,
     hash: string,
     ttlSeconds: number,
-    signal: AbortSignal,
-    priority: Priority = 'normal',
+    admitted: Admission,
   ): Promise<EngineResult> {
+    const { signal, priority, budgetMs } = admitted;
     const blocked = this.#blocked;
     if (blocked !== null) {
       return { answers: {}, latencyMs: 0, cached: false, error: blocked };
@@ -577,15 +617,16 @@ export class Decider {
     if (hit !== undefined && hit.expires > Date.now()) {
       return { answers: hit.answers, latencyMs: 0, cached: true };
     }
-    if (ttlSeconds <= 0) {
-      return this.#compute(request, hash, ttlSeconds, signal, priority);
+    const running = ttlSeconds <= 0 ? undefined : this.#inflight.get(hash);
+    // The queue cannot re-prioritise a running call: a more urgent request runs on its own.
+    if (running !== undefined && PRIORITY_RANK[priority] <= PRIORITY_RANK[running.priority]) {
+      return this.#join(running, signal);
     }
-    const running = this.#inflight.get(hash);
-    if (running !== undefined) {
-      // The queue cannot re-prioritise a running call: a more urgent request runs on its own.
-      if (PRIORITY_RANK[priority] <= PRIORITY_RANK[running.priority]) {
-        return this.#join(running, signal);
-      }
+    const busy = this.#overBudget(budgetMs);
+    if (busy !== undefined) {
+      return busy;
+    }
+    if (ttlSeconds <= 0 || running !== undefined) {
       return this.#compute(request, hash, ttlSeconds, signal, priority);
     }
     // The shared call has its own signal: it aborts only once every waiter has left.
@@ -603,6 +644,20 @@ export class Decider {
     };
     this.#inflight.set(hash, call);
     return this.#join(call, signal);
+  }
+
+  /**
+   * Refuse a request whose caller will not wait out the estimated queue time, before it takes a
+   * place: the same fail-open result as the engine's own 503, not an engine failure.
+   */
+  #overBudget(budgetMs: number | undefined): EngineResult | undefined {
+    if (budgetMs === undefined) {
+      return undefined;
+    }
+    const wait = estimateWaitMs(this.queueDepth, this.slots, this.#service.mean());
+    return wait > budgetMs
+      ? { answers: {}, latencyMs: 0, cached: false, error: ENGINE_BUSY_ERROR }
+      : undefined;
   }
 
   /** Wait for a shared call; return early (not abort it) when this caller's signal fires. */
@@ -669,10 +724,10 @@ export class Decider {
         bounded,
         () => {
           this.#assertCurrent(generation);
-          return this.#engine.decide(request, bounded);
+          return this.#timed(() => this.#engine.decide(request, bounded), bounded);
         },
         priority,
-        QUEUE_LIMITS,
+        queueLimits(this.slots),
       );
       const answers = normaliseAnswers(request.questions, response);
       const latencyMs = performance.now() - started;
@@ -691,6 +746,30 @@ export class Decider {
   }
 
   /**
+   * Run an engine call, adding its duration to the service window when it answers or when its
+   * signal fires (timeout or caller abort, so a hanging engine raises the mean). Immediate
+   * non-abort errors are not sampled. At most one sample per call.
+   */
+  async #timed<T>(call: () => Promise<T>, signal: AbortSignal): Promise<T> {
+    const started = performance.now();
+    let recorded = false;
+    const record = (): void => {
+      if (!recorded) {
+        recorded = true;
+        this.#service.add(performance.now() - started);
+      }
+    };
+    signal.addEventListener('abort', record, { once: true });
+    try {
+      const result = await call();
+      record();
+      return result;
+    } finally {
+      signal.removeEventListener('abort', record);
+    }
+  }
+
+  /**
    * Wait for a managed engine to load before taking a queue slot, so a cold load blocks no one.
    * Waiters count toward queueDepth and the same limits as the queue; `high` ones are never
    * refused here (they evict a waiting `low` once the engine is ready).
@@ -698,7 +777,10 @@ export class Decider {
   async #prepare(engine: Engine, signal: AbortSignal, priority: Priority): Promise<void> {
     // Checked apart from the queue's limits: a burst that finishes a cold load is re-checked by
     // the queue itself, and `high` waiting for the load is bounded only by decisionTimeoutMs.
-    if (priority !== 'high' && this.queueDepth >= admissionLimit(priority, QUEUE_LIMITS)) {
+    if (
+      priority !== 'high' &&
+      this.queueDepth >= admissionLimit(priority, queueLimits(this.slots))
+    ) {
       throw new QueueFullError();
     }
     this.#preparing += 1;
@@ -795,10 +877,12 @@ function admission(
   mode: Mode,
   policy: Policy,
   signal: AbortSignal,
-): { readonly signal: AbortSignal; readonly priority: Priority } {
+  budgetMs: number | undefined,
+): Admission {
+  // A shadow decision has no caller waiting, so a budget never refuses it.
   return mode === 'shadow'
     ? { signal: new AbortController().signal, priority: 'low' }
-    : { signal, priority: policy.priority };
+    : { signal, priority: policy.priority, ...(budgetMs === undefined ? {} : { budgetMs }) };
 }
 
 /** `scope`, `callId`, `permissionMode` and `subagent`, from the request's `scope` and `call`. */

@@ -47,6 +47,8 @@ export class FakeEngine implements Engine {
   readonly requests: SystemOneRequest[] = [];
   inFlight = 0;
   maxInFlight = 0;
+  /** Requests answered at once, as an engine with `--max-concurrency` reports. */
+  concurrency: number | undefined = undefined;
   respond: Responder;
 
   constructor(probs: Record<string, number> = {}) {
