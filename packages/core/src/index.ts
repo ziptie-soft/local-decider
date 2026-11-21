@@ -45,6 +45,7 @@ export {
   minMode,
   MODES,
   parsePolicy,
+  parsePolicyFile,
   PolicyError,
   policyQuestions,
   policyRoutes,

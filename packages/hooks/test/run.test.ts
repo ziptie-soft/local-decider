@@ -1,4 +1,4 @@
-import type { DecideRequest, DecideResponse } from '@ziptie-soft/local-decider-core';
+import type { Action, DecideRequest, DecideResponse } from '@ziptie-soft/local-decider-core';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -16,7 +16,7 @@ interface Call {
   readonly request: DecideRequest;
 }
 
-function response(action: string, enforced: boolean): DecideResponse {
+function response(action: Action, enforced: boolean): DecideResponse {
   return {
     decisionId: 'd-1',
     policy: 'p',
@@ -34,7 +34,7 @@ function response(action: string, enforced: boolean): DecideResponse {
   };
 }
 
-function fake(action: string, enforced: boolean): { decide: Decide; calls: Call[] } {
+function fake(action: Action, enforced: boolean): { decide: Decide; calls: Call[] } {
   const calls: Call[] = [];
   return {
     calls,
@@ -64,7 +64,7 @@ type EventName = keyof typeof HOOKS;
 async function stdoutOf(
   harness: string,
   event: EventName,
-  action: string,
+  action: Action,
   enforced: boolean,
 ): Promise<string> {
   const { decide } = fake(action, enforced);
@@ -258,7 +258,7 @@ describe('output translation', () => {
   it('prints nothing in shadow mode, whatever the action', async () => {
     for (const harness of ['claude', 'codex']) {
       for (const event of Object.keys(HOOKS) as EventName[]) {
-        for (const action of ['allow', 'deny', 'ask', 'route:fast', 'notify']) {
+        for (const action of ['allow', 'deny', 'ask', 'route:fast', 'notify'] as const) {
           assert.equal(await stdoutOf(harness, event, action, false), '', `${harness} ${event}`);
         }
       }
@@ -483,7 +483,7 @@ describe('output translation', () => {
 
   it('Stop: logs only, never outputs', async () => {
     for (const harness of ['claude', 'codex']) {
-      for (const action of ['log', 'notify', 'deny', 'allow']) {
+      for (const action of ['log', 'notify', 'deny', 'allow'] as const) {
         assert.equal(await stdoutOf(harness, 'Stop', action, true), '');
       }
     }
@@ -913,7 +913,7 @@ describe('tool call identity for the gateway', () => {
   });
 });
 
-const auto = (action: string, harness = 'claude', mode = 'auto'): Promise<string> => {
+const auto = (action: Action, harness = 'claude', mode = 'auto'): Promise<string> => {
   const { decide } = fake(action, true);
   return run(
     harness,

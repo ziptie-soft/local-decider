@@ -1,5 +1,6 @@
 import {
   parsePolicy,
+  type Action,
   type LogRecord,
   type ShadowRecord,
   type UsageRecord,
@@ -15,7 +16,7 @@ import { computeStats, formatStats, type CalibrationHint, type PolicyStats } fro
 
 function decision(
   id: string,
-  answer: string,
+  answer: Action,
   p: number,
   extra: Partial<ShadowRecord> = {},
 ): ShadowRecord {
@@ -401,7 +402,7 @@ const agreement = (input: LogRecord[]): ClassifierAgreement => {
 };
 
 describe('classifier agreement', () => {
-  const scoped = (id: string, action: string, extra: Partial<ShadowRecord> = {}): ShadowRecord =>
+  const scoped = (id: string, action: Action, extra: Partial<ShadowRecord> = {}): ShadowRecord =>
     decision(id, action === 'allow' ? 'allow' : 'ask', 0.9, {
       scope: 'claude-auto',
       action,

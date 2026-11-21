@@ -1,6 +1,7 @@
 import {
   mcpOpen,
-  parsePolicy,
+  parsePolicyFile,
+  PolicyError,
   SCOPES,
   type Mode,
   type Policy,
@@ -33,16 +34,31 @@ export interface LoadedPolicy {
   readonly source: string;
 }
 
+/**
+ * Read and validate one policy file: a valid policy (unique threshold keys included) whose id is
+ * its file name without the extension. Throws {@link PolicyError}.
+ */
+export function loadPolicyFile(file: string): Policy {
+  return parsePolicyFile(readFileSync(file, 'utf8'), file);
+}
+
 function readDir(dir: string): { file: string; policy: Policy }[] {
   if (!existsSync(dir)) {
     return [];
   }
+  const seen = new Map<string, string>();
   return readdirSync(dir)
     .filter((name) => name.endsWith('.yaml') || name.endsWith('.yml'))
     .toSorted()
     .map((name) => {
       const file = join(dir, name);
-      return { file, policy: parsePolicy(readFileSync(file, 'utf8'), file) };
+      const policy = loadPolicyFile(file);
+      const other = seen.get(policy.id);
+      if (other !== undefined) {
+        throw new PolicyError(`${file}: policy id "${policy.id}" is also defined by ${other}`);
+      }
+      seen.set(policy.id, file);
+      return { file, policy };
     });
 }
 

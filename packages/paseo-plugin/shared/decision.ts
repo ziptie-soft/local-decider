@@ -9,7 +9,7 @@
 export type Mode = 'off' | 'shadow' | 'act';
 
 /** `allow|ask|deny|log|abstain|notify|route:<preset>`. */
-export type Action = string;
+export type Action = 'allow' | 'ask' | 'deny' | 'log' | 'abstain' | 'notify' | `route:${string}`;
 
 export interface Answer {
   readonly type: 'noul' | 'choice' | 'score';

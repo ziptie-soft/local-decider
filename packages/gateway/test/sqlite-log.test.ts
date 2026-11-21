@@ -1,4 +1,4 @@
-import type { LogRecord, Policy, ShadowRecord } from '@ziptie-soft/local-decider-core';
+import type { Action, LogRecord, Policy, ShadowRecord } from '@ziptie-soft/local-decider-core';
 import assert from 'node:assert/strict';
 import {
   mkdirSync,
@@ -280,7 +280,7 @@ describe('SqliteLog', () => {
     const at = (agoMs: number): string => new Date(now - agoMs).toISOString();
     const keyed = (
       id: string,
-      action: string,
+      action: Action,
       agoMs: number,
       key: string | null = id,
     ): ShadowRecord =>

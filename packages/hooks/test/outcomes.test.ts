@@ -1,4 +1,4 @@
-import type { DecideResponse } from '@ziptie-soft/local-decider-core';
+import type { Action, DecideResponse } from '@ziptie-soft/local-decider-core';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,7 +18,7 @@ const BASE = { session_id: 's-1', cwd: '/work/app', transcript_path: '/t.jsonl' 
 const REQUEST = { ...BASE, tool_name: 'Bash', tool_input: { command: SECRET } };
 const POST = { ...REQUEST, tool_response: { stdout: 'ok' }, tool_use_id: 'toolu_1' };
 
-function response(action: string, enforced: boolean, decisionId = 'd-1'): DecideResponse {
+function response(action: Action, enforced: boolean, decisionId = 'd-1'): DecideResponse {
   return {
     decisionId,
     policy: 'permission',

@@ -1,4 +1,4 @@
-import type { OutcomeRecord, Policy, ShadowRecord } from '@ziptie-soft/local-decider-core';
+import type { Action, OutcomeRecord, Policy, ShadowRecord } from '@ziptie-soft/local-decider-core';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
@@ -95,7 +95,7 @@ describe('unverified vetoes', () => {
 function decision(
   decisionId: string,
   key = 'subject-hash',
-  action = 'ask',
+  action: Action = 'ask',
   ts = new Date(NOW).toISOString(),
 ): ShadowRecord {
   return makeShadowRecord(decisionId, {

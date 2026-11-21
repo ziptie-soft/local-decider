@@ -51,7 +51,7 @@ function make(
 
 describe('guardTruncation', () => {
   it('turns allow, log and abstain into ask only when a critical section was cut', () => {
-    for (const action of ['allow', 'log', 'abstain']) {
+    for (const action of ['allow', 'log', 'abstain'] as const) {
       assert.deepEqual(guardTruncation({ action, rule: 2 }, true), { action: 'ask', rule: 2 });
       assert.deepEqual(guardTruncation({ action, rule: 2 }, false), { action, rule: 2 });
     }

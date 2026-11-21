@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import {
   GatewayClient,
-  parsePolicy,
   SCOPES,
   CONTROL_HEADER,
   loopbackUrl,
@@ -54,7 +53,7 @@ import { parseEvalCases, runPolicyEval } from './eval.ts';
 import { installLlamaModel } from './llama-install.ts';
 import { parseMcpPolicies, serveMcpStdio, type McpBackend } from './mcp.ts';
 import { resolvePaths, type Paths } from './paths.ts';
-import { loadPolicies, policyDirs } from './policies.ts';
+import { loadPolicies, loadPolicyFile, policyDirs } from './policies.ts';
 import { installProcessGuards } from './process-guards.ts';
 import { readControlToken } from './report-token.ts';
 import { startGateway } from './runtime.ts';
@@ -509,7 +508,7 @@ async function calibrateCommand(ctx: Context): Promise<void> {
 }
 
 function checkPolicy(file: string): void {
-  const policy = parsePolicy(readFileSync(file, 'utf8'), file);
+  const policy = loadPolicyFile(file);
   const variant = policy.variantOf === undefined ? '' : `, variant of ${policy.variantOf}`;
   console.log(
     `${file}: ok (${policy.id}${variant}, ${String(Object.keys(policy.questions).length)} questions, ${String(policy.rules.length)} rules)`,

@@ -395,6 +395,13 @@ verified, thresholded answer.
 - **Direction:** validate unique threshold keys, coerce scalar answers, add `loadPolicyFile`
   with id and duplicate checks, `z.enum(HARNESSES)`, a template-literal `Action` type.
 - **Open questions:** none.
+- **Status:** done (2026-11-22) — the policy schema rejects duplicate non-precedent
+  `<question>.<answer>` keys (precedent rules are exempt: `permission` pairs one with a plain
+  rule), `answer` accepts booleans and numbers as strings, `harnesses` is `z.enum(HARNESSES)`
+  and `Action` is a template-literal type (also in the plugin's copied wire types). core has
+  `parsePolicyFile` (id equals file stem, no I/O) and the gateway `loadPolicyFile` uses it for
+  `loadPolicies` and `policies check`; `x.yaml` plus `x.yml` with one id is an error.
+  `schemas/policy.schema.json` regenerated. No vendored `server/core` copy changed.
 
 ### Harness integrations
 
