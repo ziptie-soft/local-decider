@@ -79,7 +79,17 @@ describe('published package', () => {
 });
 
 describe('server/core', () => {
-  for (const file of ['subject.ts', 'canonical.ts', 'truncate.ts', 'input-cap.ts']) {
+  for (const file of [
+    'subject.ts',
+    'canonical.ts',
+    'truncate.ts',
+    'input-cap.ts',
+    'shell.ts',
+    'paths.ts',
+    'patch.ts',
+    'block.ts',
+    'guard.ts',
+  ]) {
     it(`${file} is a verbatim copy of packages/core/src/${file}`, () => {
       const copy = readFileSync(join(root, 'server/core', file), 'utf8');
       const original = readFileSync(join(root, '../core/src', file), 'utf8');

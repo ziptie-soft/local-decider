@@ -2,9 +2,12 @@
  * DecideResponse → harness stdout. An empty string means "abstain": exit 0 with no output, so the
  * harness runs its normal flow. Only enforced decisions produce output (ADR-0005).
  */
-import { isEnforcedAllow, type DecideResponse } from '@ziptie-soft/local-decider-core';
+import {
+  isEnforcedAllow,
+  type DecideResponse,
+  type GuardHit,
+} from '@ziptie-soft/local-decider-core';
 
-import type { GuardHit } from './guard.ts';
 import type { HookHarness, PolicyEvent } from './mapping.ts';
 import { mayAutoAllow } from './permission-tools.ts';
 
@@ -35,7 +38,7 @@ function preToolUse(decision: 'deny' | 'ask', reason: string): string {
   });
 }
 
-export function guardDeny(hit: GuardHit): string {
+function guardDeny(hit: GuardHit): string {
   return preToolUse('deny', guardReason(hit));
 }
 

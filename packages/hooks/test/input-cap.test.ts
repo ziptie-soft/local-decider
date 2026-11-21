@@ -91,7 +91,7 @@ describe('hook input caps', () => {
   for (const harness of ['claude', 'codex']) {
     for (const [name, big] of [
       ['string', 'x'.repeat(MIB3)],
-      ['object', { command: 'x'.repeat(MIB3) }],
+      ['object', { data: 'x'.repeat(MIB3) }],
     ] as const) {
       it(`${harness}: a 3 MiB ${name} tool_input becomes a small body`, async () => {
         const body = await sentBody(harness, big);

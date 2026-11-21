@@ -5,16 +5,19 @@
 import {
   budgetFor,
   commandOf,
+  deterministicBlock,
+  guardCommand,
   isShellTool,
+  MAX_COMMAND_CHARS,
+  OVERSIZE_COMMAND,
   str,
   type DecideRequest,
   type DecideResponse,
+  type GuardHit,
   type HookInput,
 } from '@ziptie-soft/local-decider-core';
 
-import { deterministicBlock } from './block.ts';
 import { gatewayClient, type Env } from './gateway-config.ts';
-import { guardCommand } from './guard.ts';
 import {
   callOf,
   EVENT_POLICY,
@@ -28,7 +31,7 @@ import {
   type ReadTranscript,
 } from './mapping.ts';
 import { postToolUse, purgePending, rememberPermission, type OutcomeDeps } from './outcomes.ts';
-import { guardDeny, guardOutput, translate } from './output.ts';
+import { guardOutput, translate } from './output.ts';
 import { mayAutoAllow } from './permission-tools.ts';
 import { healthFromEnv, sessionStart, type Health } from './session-start.ts';
 import { agentLabel, isCompletedAgent, subagentInput } from './subagent.ts';
@@ -48,6 +51,12 @@ export interface RunDeps {
   readonly outcomes?: OutcomeDeps;
   /** Diagnostics sink, used only when `LOCAL_DECIDER_DEBUG=1`. */
   readonly stderr?: (line: string) => void;
+  /**
+   * Set by `main.ts` for oversized stdin. `large` (4–32 MiB): `stdinText` is the whole payload and
+   * only the deterministic guard runs. `huge` (over 32 MiB): `stdinText` is just the head, never
+   * parsed, and a PreToolUse asks (Claude) or denies (Codex).
+   */
+  readonly oversize?: 'large' | 'huge';
 }
 
 export interface RunResult {
@@ -90,13 +99,17 @@ function hostRuns(env: Env, policy: string): boolean {
   return (env[HOST_POLICIES_ENV] ?? '').split(',').some((p) => p.trim() === policy);
 }
 
-function shellGuard(hook: HookInput): string {
+function commandHit(command: string): GuardHit | null {
+  return command.length > MAX_COMMAND_CHARS ? OVERSIZE_COMMAND : guardCommand(command);
+}
+
+function shellGuard(harness: HookHarness, hook: HookInput): string {
   if (!isShellTool(hook)) {
     return '';
   }
   const command = commandOf(hook);
-  const hit = command === undefined ? null : guardCommand(command);
-  return hit === null ? '' : guardDeny(hit);
+  const hit = command === undefined ? null : commandHit(command);
+  return hit === null ? '' : guardOutput(harness, hit, hook['permission_mode'] === 'auto');
 }
 
 function writeGuardOutput(harness: HookHarness, hook: HookInput): string {
@@ -107,7 +120,7 @@ function writeGuardOutput(harness: HookHarness, hook: HookInput): string {
 function guardResult(ctx: Context): string {
   return ctx.env['LOCAL_DECIDER_GUARD'] === 'off'
     ? ''
-    : shellGuard(ctx.hook) || writeGuardOutput(ctx.harness, ctx.hook);
+    : shellGuard(ctx.harness, ctx.hook) || writeGuardOutput(ctx.harness, ctx.hook);
 }
 
 interface Context {
@@ -244,6 +257,43 @@ function logger(env: Env, deps: RunDeps): (msg: string) => void {
   };
 }
 
+const OVERSIZE_INPUT: GuardHit = {
+  rule: 'oversize-input',
+  reason: 'hook input too large to check',
+  ask: true,
+};
+const AUTO_MODE = /"permission_mode"\s*:\s*"auto"/;
+
+/**
+ * Oversized stdin: no gateway call and no model. PreToolUse still gets the guard (`large`) or an
+ * ask/deny (`huge`, which is never parsed); every other event fails open.
+ */
+function oversizeRun(
+  harnessName: string,
+  eventName: string,
+  stdinText: string,
+  env: Env,
+  tier: 'large' | 'huge',
+): RunResult {
+  const harness = parseHarness(harnessName);
+  if (
+    harness === undefined ||
+    parseEvent(eventName) !== 'PreToolUse' ||
+    env['LOCAL_DECIDER_GUARD'] === 'off'
+  ) {
+    return NOTHING;
+  }
+  if (tier === 'huge') {
+    return { stdout: guardOutput(harness, OVERSIZE_INPUT, AUTO_MODE.test(stdinText)), exitCode: 0 };
+  }
+  const hook = parseHook(stdinText);
+  if (hook === null) {
+    return NOTHING;
+  }
+  const ctx = { harness, event: 'PreToolUse', hook, env, deps: {}, log: () => undefined } as const;
+  return { stdout: guardResult(ctx), exitCode: 0 };
+}
+
 /** Run one hook invocation. Never throws; any failure abstains (empty stdout, exit 0). */
 export async function run(
   harnessName: string,
@@ -254,6 +304,9 @@ export async function run(
 ): Promise<RunResult> {
   const log = logger(env, deps);
   try {
+    if (deps.oversize !== undefined) {
+      return oversizeRun(harnessName, eventName, stdinText, env, deps.oversize);
+    }
     const harness = parseHarness(harnessName);
     const event = parseEvent(eventName);
     const hook = parseHook(stdinText);

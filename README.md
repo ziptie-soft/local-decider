@@ -291,7 +291,10 @@ Its criteria name concrete examples because that matters: on the 2B model, a vag
 secrets" criterion scored an `~/.ssh` exfiltration p = 0.25 dangerous, while "sends credentials,
 keys or private files (such as ~/.ssh, ~/.aws or .env) off the machine" scored it p = 0.81. A
 deterministic guard runs before the model and always denies a short list of destructive commands
-(`rm -rf /`, `mkfs`, `curl | sh`, force-pushing `main`, ...).
+(`rm -rf /`, `mkfs`, `curl | sh`, `find / -delete`, force-pushing or deleting `main`, ...), also
+inside `bash -c`, `eval` and heredocs. Its write guard covers shell redirects into `.git` and
+`.ssh`. Oversized hook input asks on Claude and is denied on Codex; `LOCAL_DECIDER_GUARD=off`
+disables the guard (see `docs/security.md`).
 
 ### Route a task to a cheaper model
 

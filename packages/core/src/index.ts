@@ -1,3 +1,4 @@
+export { deterministicBlock } from './block.ts';
 export { canonicalJson, sortKeysDeep } from './canonical.ts';
 export {
   DEFAULT_GATEWAY_URL,
@@ -31,7 +32,10 @@ export {
   type UsageRecord,
   type RouteTarget,
 } from './decision.ts';
+export { guardCommand, MAX_COMMAND_CHARS, OVERSIZE_COMMAND, type GuardHit } from './guard.ts';
 export { inputHash } from './hash.ts';
+export { patchTargets } from './patch.ts';
+export { pathParts } from './paths.ts';
 export { capInput, INPUT_CAPS } from './input-cap.ts';
 export {
   ALLOW_THRESHOLD_FLOOR,
@@ -73,6 +77,7 @@ export {
   type SystemOneResponse,
   type WireAnswer,
 } from './systemone.ts';
+export { baseName, commandWords, splitShell, type Segment } from './shell.ts';
 export {
   asRecord,
   commandOf,

@@ -3,11 +3,14 @@ import { describe, it } from 'node:test';
 
 import { writeGuard } from '../src/write-guard.ts';
 
+const LINEAR_BOUND_MS = 5000;
 const CWD = '/work/repo';
 const rule = (path: string): string | undefined =>
   writeGuard('Write', { file_path: path }, CWD)?.rule;
 const patch = (line: string): string | undefined =>
   writeGuard('apply_patch', { command: `*** Begin Patch\n${line}\n*** End Patch` }, CWD)?.rule;
+
+const bash = (command: string): string | null => writeGuard('Bash', { command }, CWD)?.rule ?? null;
 
 describe('writeGuard', () => {
   it('denies .git and .ssh, case-insensitively and anywhere in the path', () => {
@@ -31,8 +34,8 @@ describe('writeGuard', () => {
     assert.equal(patch('*** Move to: .git/x'), 'write-git');
     assert.equal(patch('*** Delete File: .ssh/id'), 'write-ssh');
     assert.equal(patch('*** Add File: .github/workflows/a.yml'), 'write-workflow');
-    const bash = { command: "apply_patch <<'EOF'\n*** Begin Patch\n*** Add File: .git/x\nEOF" };
-    assert.equal(writeGuard('Bash', bash, CWD)?.rule, 'write-git');
+    const viaBash = { command: "apply_patch <<'EOF'\n*** Begin Patch\n*** Add File: .git/x\nEOF" };
+    assert.equal(writeGuard('Bash', viaBash, CWD)?.rule, 'write-git');
     assert.equal(writeGuard('Bash', { command: 'ls .git' }, CWD), null);
   });
 
@@ -55,5 +58,41 @@ describe('writeGuard', () => {
     const pad = Array.from({ length: 1000 }, (_, i) => `*** Add File: src/f${i}.ts`).join('\n');
     const command = `*** Begin Patch\n${pad}\n*** Add File: .git/hooks/x\n*** End Patch`;
     assert.equal(writeGuard('apply_patch', { command }, CWD)?.rule, 'write-git');
+  });
+
+  it('reads Bash redirects and tee operands', () => {
+    assert.equal(bash('echo x > .git/config'), 'write-git');
+    assert.equal(bash('echo x>>.git/config'), 'write-git');
+    assert.equal(bash('echo x >| .git/config'), 'write-git');
+    assert.equal(bash('echo x &> .git/config'), 'write-git');
+    assert.equal(bash('echo x 2>.git/config'), 'write-git');
+    assert.equal(bash('cat a | tee -a .ssh/authorized_keys'), 'write-ssh');
+    assert.equal(bash('sudo tee .git/hooks/pre-commit < x'), 'write-git');
+    assert.equal(bash('cat <<EOF > .git/x\nbody\nEOF'), 'write-git');
+    assert.equal(bash('2>> .github/workflows/x'), 'write-workflow');
+    assert.equal(writeGuard('Bash', { command: 'echo > .github/workflows/x' }, CWD)?.ask, true);
+  });
+
+  it('lets ordinary redirects through', () => {
+    for (const command of [
+      'ls > /dev/null',
+      'ls > /dev/null 2>&1',
+      'echo x > out.txt',
+      'cat .git/config > out.txt',
+      'echo x | tee out.txt',
+      'echo x 2>&1 | cat',
+      'cat <<EOF\n> .git/x\nEOF',
+      "echo '> .git/x'",
+    ]) {
+      assert.equal(bash(command), null, command);
+    }
+  });
+
+  it('scans a 3 MiB redirect-heavy command in linear time', () => {
+    for (const command of ['> .git/x '.repeat(349_525), '> x '.repeat(786_432), '>'.repeat(3e6)]) {
+      const start = performance.now();
+      bash(command);
+      assert.ok(performance.now() - start < LINEAR_BOUND_MS);
+    }
   });
 });

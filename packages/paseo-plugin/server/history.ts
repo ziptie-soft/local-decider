@@ -242,7 +242,7 @@ function detailInput(request: AgentPermissionRequest): unknown {
   return undefined;
 }
 
-function subjectInput(request: AgentPermissionRequest): unknown {
+export function subjectInput(request: AgentPermissionRequest): unknown {
   const input = request.input ?? detailInput(request);
   if (!['Bash', 'shell', 'exec_command'].includes(request.name)) return input;
   const fields = asRecord(input);
@@ -250,7 +250,7 @@ function subjectInput(request: AgentPermissionRequest): unknown {
     return typeof input === 'string' || Array.isArray(input) ? { command: input } : input;
   }
   if (fields['command'] !== undefined) return input;
-  const argv = fields['argv'];
+  const argv = fields['argv'] ?? fields['cmd'];
   return typeof argv === 'string' || Array.isArray(argv) ? { ...fields, command: argv } : input;
 }
 

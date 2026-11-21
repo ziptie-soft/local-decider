@@ -2,11 +2,11 @@
  * Deterministic call checks: why the local decider must not be asked to allow a call. Pure, no
  * I/O, no `node:` imports (the Claude Code mod bundles it).
  */
-import { asRecord, commandOf } from '@ziptie-soft/local-decider-core';
-
+import { guardCommand } from './guard.ts';
 import { patchTargets } from './patch.ts';
 import { pathBlock } from './paths.ts';
 import { baseName, commandWords, splitShell, type Segment } from './shell.ts';
+import { asRecord, commandOf } from './subject.ts';
 
 /** Path-bearing tools and the input fields that name the path. */
 const PATH_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
@@ -114,6 +114,10 @@ function bashBlock(input: unknown, cwd: string): string | null {
   if (OPAQUE.test(command)) {
     return 'command substitution';
   }
+  const hit = guardCommand(command);
+  if (hit !== null) {
+    return hit.reason;
+  }
   for (const segment of splitShell(command)) {
     const block = segmentBlock(segment, cwd);
     if (block !== null) {
@@ -151,7 +155,7 @@ function patchBlock(input: unknown, cwd: string): string | null {
  * paths outside the working directory and in protected places are kept away from an allow.
  */
 export function deterministicBlock(tool: string, input: unknown, cwd: string): string | null {
-  if (tool === 'Bash') {
+  if (tool === 'Bash' || tool === 'shell' || tool === 'exec_command') {
     return bashBlock(input, cwd);
   }
   if (tool === 'apply_patch') {

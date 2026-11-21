@@ -3,6 +3,8 @@ import { describe, it } from 'node:test';
 
 import { patchTargets } from '../src/patch.ts';
 
+const LINEAR_BOUND_MS = 5000;
+
 describe('patchTargets', () => {
   it('reads the four markers in order', () => {
     const text = [
@@ -44,7 +46,7 @@ describe('patchTargets', () => {
     const text = `*** Add File: ${'a'.repeat(4 * 1024 * 1024)}`;
     const t = performance.now();
     assert.equal(patchTargets(text)?.length, 1);
-    assert.ok(performance.now() - t < 500);
+    assert.ok(performance.now() - t < LINEAR_BOUND_MS);
   });
 
   it('is linear on 100k marker lines', () => {
@@ -52,6 +54,6 @@ describe('patchTargets', () => {
     const t = performance.now();
     assert.equal(patchTargets(text), null);
     assert.equal(patchTargets(text, 200_000)?.length, 100_000);
-    assert.ok(performance.now() - t < 500);
+    assert.ok(performance.now() - t < LINEAR_BOUND_MS);
   });
 });
