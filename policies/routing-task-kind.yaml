@@ -14,7 +14,7 @@ state:
   maxTokens: 1500
   sections:
     - { label: Project, from: project, keep: head }
-    - { label: Task prompt, from: prompt, keep: middle }
+    - { label: Task prompt, from: prompt, keep: ends }
 questions:
   kind:
     type: choice

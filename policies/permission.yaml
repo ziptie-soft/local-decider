@@ -15,7 +15,7 @@ state:
     - { label: Recent conversation, from: history, keep: tail }
     - { label: Task, from: task, keep: head }
     - { label: Tool, from: tool, keep: head }
-    - { label: Request, from: request, keep: middle }
+    - { label: Request, from: request, keep: ends, critical: true }
 precedent:
   from: subject
   minAllows: 3

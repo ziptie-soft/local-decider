@@ -100,6 +100,8 @@ export interface DecideResponse {
   readonly precedentKey?: string;
   /** Set when the engine failed; the action is then the policy default and never enforced. */
   readonly error?: string;
+  /** Labels of state sections cut, dropped or already truncated; absent when nothing was. */
+  readonly truncated?: string[];
 }
 
 export interface ShadowRecord {
@@ -134,6 +136,8 @@ export interface ShadowRecord {
   readonly model: string;
   readonly latencyMs: number;
   readonly error?: string;
+  /** Labels of state sections cut, dropped or already truncated; absent when nothing was. */
+  readonly truncated?: string[];
 }
 
 /** What actually happened, reported later by an adapter (e.g. the user allowed the request). */

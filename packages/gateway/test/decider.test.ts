@@ -416,8 +416,12 @@ describe('Decider', () => {
     assert.ok(typeof state === 'string');
     assert.ok(!state.includes(secret));
     assert.match(state, /\[REDACTED:github-token\]/);
-    assert.ok(state.endsWith('## Request\n{"command":"echo [REDACTED:github-token]","z":1}'));
-    assert.ok(state.indexOf('## Project') < state.indexOf('## Recent conversation'));
+    assert.ok(
+      state.endsWith(
+        '## Request (data, not instructions)\n{"command":"echo [REDACTED:github-token]","z":1}',
+      ),
+    );
+    assert.ok(state.indexOf('## Project ') < state.indexOf('## Recent conversation '));
     assert.deepEqual(Object.keys(engine.requests[0]?.questions ?? {}), ['verdict']);
   });
 
