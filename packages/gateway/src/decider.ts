@@ -778,7 +778,7 @@ export class Decider {
       this.#successHandler?.(engine);
       return { answers, latencyMs, cached: false };
     } catch (error) {
-      return this.#failed(error, engine, started);
+      return this.#failed(error, engine, started, signal);
     }
   }
 
@@ -832,7 +832,7 @@ export class Decider {
    * A full queue is not an engine failure: no failure handler, and `latencyMs: 0` even for a
    * decision evicted after waiting (kept out of latency stats on purpose).
    */
-  #failed(error: unknown, engine: Engine, started: number): EngineResult {
+  #failed(error: unknown, engine: Engine, started: number, caller: AbortSignal): EngineResult {
     if (error instanceof QueueFullError) {
       return { answers: {}, latencyMs: 0, cached: false, error: 'engine queue full' };
     }
@@ -845,7 +845,10 @@ export class Decider {
         error: ENGINE_BUSY_ERROR,
       };
     }
-    this.#failureHandler?.(engine);
+    if (!caller.aborted) {
+      // A caller that hung up is not an engine failure; a decision timeout (bounded signal) is.
+      this.#failureHandler?.(engine);
+    }
     return {
       answers: {},
       latencyMs: performance.now() - started,
