@@ -121,6 +121,8 @@ verified, thresholded answer.
 ### S7 Deterministic guard coverage and bypasses
 
 - **Priority:** P1. **Size:** M.
+- **Status:** done (2026-11-21) — more guard rules, size tiers, write guard, shared core
+  checks; Paseo skips auto-allow on flagged calls.
 - **Problem:** Stdin over 4 MiB returns `''` and skips the guard entirely
   (`packages/hooks/src/main.ts:8,16-17`), so a huge Write bypasses it. Guard rules miss
   `git reset --hard`, `git clean -fdx`, `find -delete`, `xargs rm`, `push --delete`,
@@ -834,7 +836,7 @@ other models. Verify cited lines before implementing; they come from a read-only
 
 - **Status:** done (2026-11-21) — `write-guard.ts` denies `.git`/`.ssh` writes (workflows ask on
   Claude, deny on Codex) and `PermissionRequest` abstains on outside-cwd or protected targets;
-  input over 4 MiB still skips the guard (see S7).
+  input over 4 MiB runs the guard only, and over 32 MiB asks on Claude and denies on Codex (S7).
 - **Harness:** Codex. **Priority:** P2. **Size:** M.
 - **What:** port the mod's `deterministicBlock` and `insideCwd` checks to the Codex `PreToolUse`
   path and guard `apply_patch` targets (`.git`, `.github/workflows`, `.ssh`).

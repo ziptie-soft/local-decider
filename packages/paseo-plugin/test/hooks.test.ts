@@ -211,6 +211,34 @@ describe('agent.permission.before', () => {
     assert.equal(gw.outcomes.length, 0, 'own auto-allow is not ground truth');
   });
 
+  it('does not auto-allow calls the deterministic checks flag, but still records them', async () => {
+    const flagged: AgentPermissionRequest[] = [
+      { ...toolRequest, name: 'Write', input: { file_path: '/etc/hosts' } },
+      { ...toolRequest, input: { command: ['su', 'do ls'].join('') } },
+      { ...toolRequest, input: { command: ['rm -r', 'f /'].join('') } },
+      { ...toolRequest, name: 'shell', input: { cmd: ['su', 'do ls'].join('') } },
+    ];
+    for (const request of flagged) {
+      const gw = fakeGateway(() =>
+        response({ policy: 'permission', action: 'allow', mode: 'act', enforced: true }),
+      );
+      const paseo = fakePaseo(turn);
+      await permissionHandlers(deps(actMode, gw)).request(paseo, request);
+      assert.deepEqual(paseo.agent.responses, [], `${request.name} stays pending`);
+      assert.equal(paseo.agent.appended.length, 1, 'still recorded');
+    }
+  });
+
+  it('still auto-allows an edit inside the working directory', async () => {
+    const gw = fakeGateway(() =>
+      response({ policy: 'permission', action: 'allow', mode: 'act', enforced: true }),
+    );
+    const paseo = fakePaseo(turn);
+    const request = { ...toolRequest, name: 'Edit', input: { file_path: '/p/src/a.ts' } };
+    await permissionHandlers(deps(actMode, gw)).request(paseo, request);
+    assert.deepEqual(paseo.agent.responses, [{ requestId: 'r1', response: { behavior: 'allow' } }]);
+  });
+
   it('never denies and leaves the request pending otherwise', async () => {
     for (const [s, res] of [
       [actMode, response({ action: 'deny', mode: 'act', enforced: true })],

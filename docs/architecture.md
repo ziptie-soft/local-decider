@@ -123,9 +123,9 @@ Adapters change behaviour only when `enforced` is true, and only in ways their e
 | Paseo | `agent.turn.after` → `turn-outcome` | Highlight `notify` in the chat row; never sends a prompt |
 | Paseo | `agent.permission.before` → `permission` | Auto-allow a tool request; never denies |
 | Paseo | `agent.create.before` → `routing` | Switch provider, model, mode and thinking, or start from a profile (2 s client timeout, `DEFAULT_TIMEOUT_MS` in `paseo-plugin/shared/gateway.ts`) |
-| Claude Code | `PreToolUse` → guard, write guard, then `command-risk` | `deny` or `ask`; in auto mode `ask` prints nothing |
+| Claude Code | `PreToolUse` → guard, write guard (incl. Bash redirects), then `command-risk` | `deny` or `ask`; in auto mode `ask` prints nothing |
 | Claude Code, auto mode | mod `tool.check` → `permission` (scope `claude-auto`) | `allow` of a plain ask, in `act` only |
-| Codex | `PreToolUse` → guard, write guard (incl. `apply_patch`), then `command-risk` | `deny` only |
+| Codex | `PreToolUse` → guard, write guard (incl. `apply_patch`, redirects), then `command-risk` | `deny` only |
 | Claude Code, Codex | `PermissionRequest` → `permission` | `allow` only; abstains for outside-cwd, protected or risky targets |
 | Claude Code, Codex | `UserPromptSubmit` → `routing` | Add a hint that names the mapped model |
 | Claude Code, Codex | `Stop` → `turn-outcome` | Nothing: logged only, since Stop output would continue the turn |
@@ -162,6 +162,13 @@ The Paseo plugin needs both the gateway mode and its own setting at `act`. Insid
 Code and Codex agents also load the hooks. The Paseo plugin sets
 `LOCAL_DECIDER_HOST_POLICIES=turn-outcome,permission,routing` on agents it opens, so the hooks
 skip those and run only the guard and `command-risk`.
+Before it auto-allows, the plugin runs the same deterministic path and command check as the
+hooks (vendored from core); a flagged call stays pending for the user, and it never denies.
+
+The hook reads stdin in tiers: up to 4 MiB it runs the guard and the gateway; up to 32 MiB it
+parses the payload and runs only the deterministic guard (no gateway call); beyond that it stops
+reading and a `PreToolUse` asks (Claude) or is denied (Codex). Other events fail open. A shell
+command over 1 MiB asks or denies the same way. `LOCAL_DECIDER_GUARD=off` restores fail-open.
 
 ## Outcomes, usage and stats
 

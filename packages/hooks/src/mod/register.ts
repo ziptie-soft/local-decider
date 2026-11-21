@@ -5,9 +5,13 @@
  * every other path returns what Claude Code decided. A failure skips the hook, so the classifier
  * decides as if the mod were not installed.
  */
-import { budgetFor, isEnforcedAllow, type DecideResponse } from '@ziptie-soft/local-decider-core';
+import {
+  budgetFor,
+  deterministicBlock,
+  isEnforcedAllow,
+  type DecideResponse,
+} from '@ziptie-soft/local-decider-core';
 
-import { deterministicBlock } from '../block.ts';
 import {
   callAllows,
   classifierVerdict,

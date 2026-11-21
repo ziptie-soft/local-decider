@@ -19,12 +19,15 @@ import { isEnforcedAllow, type DecideResponse } from '../shared/decision.ts';
 import type { Gateway } from '../shared/gateway.ts';
 import { rowVisible, toRowData, type DecisionRow } from '../shared/row.ts';
 import { Background, detach } from './background.ts';
+import { deterministicBlock } from './core/block.ts';
 import { capInput } from './core/input-cap.ts';
+import { asRecord } from './core/subject.ts';
 import { errorText, type HookDeps } from './deps.ts';
 import {
   buildPermissionInput,
   firstOfType,
   mergeAssistantChunks,
+  subjectInput,
   taskText,
   transcript,
   type RecentContext,
@@ -222,6 +225,29 @@ function newPending(agent: AgentRef, event: PermissionEvent): Pending {
   };
 }
 
+/** The tool name the deterministic checks know, for Paseo requests named by their `detail`. */
+function checkedTool(request: AgentPermissionRequest): string {
+  const detail = request.detail?.type;
+  if (SHELL_TOOLS.includes(request.name) || EDIT_TOOLS.includes(request.name)) {
+    return request.name;
+  }
+  return detail === 'shell' ? 'Bash' : 'Edit';
+}
+
+/** Never auto-allow a call the deterministic checks flag (or one with no working directory). */
+function pathsSafe(event: PermissionEvent): boolean {
+  const cwd = event.agent.cwd;
+  const { request } = event;
+  if (typeof cwd !== 'string' || cwd === '') {
+    return false;
+  }
+  const input = subjectInput(request);
+  const fields = asRecord(input);
+  const path = fields?.['filePath'];
+  const checked = typeof path === 'string' ? { ...fields, file_path: path } : input;
+  return deterministicBlock(checkedTool(request), checked, cwd) === null;
+}
+
 async function handleRequest(
   deps: HookDeps,
   state: PermissionState,
@@ -251,6 +277,7 @@ async function handleRequest(
     enforced &&
     isEnforcedAllow(res) &&
     mayAutoAllow(event.request) &&
+    pathsSafe(event) &&
     entry.resolution === null
   ) {
     await autoAllow(state, entry, event.request);

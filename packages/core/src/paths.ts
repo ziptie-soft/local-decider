@@ -3,7 +3,7 @@
  * directory or names a protected place. Pure string work (no fs, so symlinks are not resolved) and
  * no `node:` imports, so the mod can bundle it.
  */
-import { resolveSegments } from '@ziptie-soft/local-decider-core';
+import { resolveSegments } from './subject.ts';
 
 const PROTECTED_DIRS = new Set(['.git', '.claude', '.vscode', '.idea', '.husky', '.ssh']);
 const PROTECTED_FILES = new Set([
