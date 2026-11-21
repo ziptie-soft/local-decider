@@ -26,6 +26,7 @@ import type { LogCounters } from './counters.ts';
 import type { LogStore } from './log-store.ts';
 import { ALLOW_VETO_REPLAY_MS } from './outcome-labels.ts';
 import type { Paths } from './paths.ts';
+import { processStartToken } from './process-start.ts';
 import { pruneDatabase } from './sqlite-prune.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -820,7 +821,7 @@ function acquireLock(path: string): Lock {
     try {
       const fd = openSync(path, 'wx', 0o600);
       try {
-        writeFileSync(fd, `${String(process.pid)}\n`);
+        writeFileSync(fd, lockContent());
         const { dev, ino } = fstatSync(fd);
         return { path, fd, dev, ino };
       } catch (error) {
@@ -837,17 +838,51 @@ function acquireLock(path: string): Lock {
   throw new Error(`SQLite database is locked by another writer (${path})`);
 }
 
+/** `<pid>` and, where the platform allows, `<start token>` of this process, one per line. */
+function lockContent(): string {
+  const start = processStartToken(process.pid);
+  return `${String(process.pid)}\n${start === undefined ? '' : `${start}\n`}`;
+}
+
+interface LockSnapshot {
+  readonly content: string;
+  readonly dev: number;
+  readonly ino: number;
+}
+
+/** Read the lock through one descriptor, so the identity and the content belong together. */
+function readLock(path: string): LockSnapshot {
+  const fd = openSync(path, 'r');
+  try {
+    const { dev, ino } = fstatSync(fd);
+    return { content: readFileSync(fd, 'utf8'), dev, ino };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** A lock is live only if its pid runs and, when a start token was recorded, still matches it. */
+function lockHolderIsLive(content: string): boolean {
+  const [pidLine, recordedStart] = content.split('\n');
+  const pid = Number.parseInt(pidLine ?? '', 10);
+  if (!Number.isInteger(pid) || !processIsAlive(pid)) {
+    return !Number.isInteger(pid);
+  }
+  if (recordedStart === undefined || recordedStart === '') {
+    return true;
+  }
+  const current = processStartToken(pid);
+  return current === undefined || current === recordedStart;
+}
+
 function removeStaleLock(path: string): boolean {
   try {
-    const beforeStat = lstatSync(path);
-    const before = readFileSync(path, 'utf8');
-    const pid = Number.parseInt(before, 10);
-    if (!Number.isInteger(pid) || processIsAlive(pid)) {
+    const before = readLock(path);
+    if (lockHolderIsLive(before.content)) {
       return false;
     }
-    const afterStat = lstatSync(path);
-    const after = readFileSync(path, 'utf8');
-    if (before !== after || beforeStat.dev !== afterStat.dev || beforeStat.ino !== afterStat.ino) {
+    const after = readLock(path);
+    if (before.content !== after.content || before.dev !== after.dev || before.ino !== after.ino) {
       return false;
     }
     unlinkSync(path);

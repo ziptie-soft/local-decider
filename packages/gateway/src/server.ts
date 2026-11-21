@@ -64,7 +64,15 @@ export interface ServerOptions {
   readonly stats?: StatsService | undefined;
   /** Diagnostics sink for internal failures that the client only sees generically. */
   readonly report?: ((line: string) => void) | undefined;
+  /** The decision deadline; the HTTP timeouts are derived from it. Default: the config default. */
+  readonly decisionTimeoutMs?: number | undefined;
 }
+
+const DEFAULT_DECISION_TIMEOUT_MS = 30_000;
+/** Slack over the decision deadline for a slow client sending the request, and for the reply. */
+const REQUEST_GRACE_MS = 30_000;
+/** Idle keep-alive: above the 4 s default of Node's fetch (undici) so it never reuses a closing socket. */
+const KEEP_ALIVE_TIMEOUT_MS = 10_000;
 
 class HttpError extends Error {
   readonly status: number;
@@ -760,27 +768,70 @@ function pathOf(target: string | undefined): string | null {
   }
 }
 
+/** Timeouts that stay above the longest legitimate request (a decision at its deadline). */
+export function serverTimeouts(decisionTimeoutMs: number): {
+  readonly headersTimeout: number;
+  readonly requestTimeout: number;
+  readonly keepAliveTimeout: number;
+} {
+  const requestTimeout = decisionTimeoutMs + REQUEST_GRACE_MS;
+  return {
+    headersTimeout: requestTimeout,
+    requestTimeout,
+    keepAliveTimeout: KEEP_ALIVE_TIMEOUT_MS,
+  };
+}
+
+function dispatch(req: IncomingMessage, res: ServerResponse, options: ServerOptions): void {
+  const path = pathOf(req.url);
+  if (path === null) {
+    send(res, 400, { error: 'bad request target' });
+    return;
+  }
+  if (!authorised(req, options.token)) {
+    send(res, 401, { error: 'unauthorised' });
+    return;
+  }
+  const refused = browserGuard(req, options.token);
+  if (refused !== undefined) {
+    send(res, 403, { error: refused });
+    return;
+  }
+  const handler = route(req.method ?? 'GET', path);
+  if (handler === undefined) {
+    send(res, 404, { error: 'not found' });
+    return;
+  }
+  handler(req, res, options).catch((error: unknown) => sendError(res, error, options.report));
+}
+
+/** A synchronous throw must not escape the listener: log it redacted, answer 500 generically. */
+function sendInternalError(
+  res: ServerResponse,
+  error: unknown,
+  report?: (line: string) => void,
+): void {
+  report?.(`request error: ${loggableDetail(error)}`);
+  if (res.headersSent) {
+    res.destroy();
+    return;
+  }
+  send(res, 500, { error: 'internal error' });
+}
+
 export function createGatewayServer(options: ServerOptions): Server {
-  return createServer((req, res) => {
-    const path = pathOf(req.url);
-    if (path === null) {
-      send(res, 400, { error: 'bad request target' });
-      return;
-    }
-    if (!authorised(req, options.token)) {
-      send(res, 401, { error: 'unauthorised' });
-      return;
-    }
-    const refused = browserGuard(req, options.token);
-    if (refused !== undefined) {
-      send(res, 403, { error: refused });
-      return;
-    }
-    const handler = route(req.method ?? 'GET', path);
-    if (handler === undefined) {
-      send(res, 404, { error: 'not found' });
-      return;
-    }
-    handler(req, res, options).catch((error: unknown) => sendError(res, error, options.report));
-  });
+  return createServer(
+    serverTimeouts(options.decisionTimeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS),
+    (req, res) => {
+      try {
+        dispatch(req, res, options);
+      } catch (error) {
+        try {
+          sendInternalError(res, error, options.report);
+        } catch {
+          res.destroy();
+        }
+      }
+    },
+  );
 }

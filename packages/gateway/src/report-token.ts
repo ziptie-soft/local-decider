@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import fs, { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { Paths } from './paths.ts';
@@ -24,10 +24,16 @@ function checkPrivate(file: string): void {
   }
 }
 
+/** The token file exists but holds nothing (a crash between create and write, or a truncation). */
+class EmptyTokenError extends Error {}
+
 /** Read and validate an existing token file; the message never contains its content. */
 function readExisting(file: string): string {
   checkPrivate(file);
   const token = readFileSync(file, 'utf8').trim();
+  if (token === '') {
+    throw new EmptyTokenError(`${file} is empty`);
+  }
   if (!isLocalToken(token)) {
     throw new Error(
       `${file} is not a valid local-decider token; delete it and start the gateway again`,
@@ -36,10 +42,16 @@ function readExisting(file: string): string {
   return token;
 }
 
-/** Publish a fully written token without replacing a concurrent winner; returns the token in effect. */
-function publish(file: string, token: string): string {
+/** A private temp file next to `file` holding the whole token. */
+function writeTemp(file: string, token: string): string {
   const temp = `${file}.${String(process.pid)}.${randomBytes(6).toString('hex')}.tmp`;
   writeFileSync(temp, token, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+  return temp;
+}
+
+/** Publish a fully written token without replacing a concurrent winner; returns the token in effect. */
+function publish(file: string, token: string): string {
+  const temp = writeTemp(file, token);
   try {
     fs.linkSync(temp, file);
     return token;
@@ -50,6 +62,21 @@ function publish(file: string, token: string): string {
   } finally {
     rmSync(temp, { force: true });
   }
+}
+
+/**
+ * Replace an empty token file with a complete one: write a private temp file, then rename it over
+ * the target so readers see the old (empty) or the new file, never a partial one. A concurrent
+ * replacer may win the rename, so the file is read back and its token is the one in effect.
+ */
+function replaceEmpty(file: string, token: string): string {
+  const temp = writeTemp(file, token);
+  try {
+    renameSync(temp, file);
+  } finally {
+    rmSync(temp, { force: true });
+  }
+  return readExisting(file);
 }
 
 function publishExclusively(file: string, token: string): string {
@@ -66,12 +93,14 @@ function publishExclusively(file: string, token: string): string {
 function ensureToken(paths: Paths, name: string): string {
   mkdirSync(paths.config, { recursive: true, mode: 0o700 });
   const file = join(paths.config, name);
+  const fresh = randomBytes(32).toString('base64url');
   try {
     return readExisting(file);
   } catch (error) {
+    if (error instanceof EmptyTokenError) return replaceEmpty(file, fresh);
     if (!hasCode(error, 'ENOENT')) throw error;
   }
-  return publish(file, randomBytes(32).toString('base64url'));
+  return publish(file, fresh);
 }
 
 function hasCode(error: unknown, code: string): boolean {

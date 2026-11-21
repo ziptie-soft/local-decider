@@ -100,6 +100,7 @@ export async function startGateway(options: StartOptions): Promise<Gateway> {
     controlToken: ensureControlToken(paths),
     engineControl,
     pricing: config.pricing,
+    decisionTimeoutMs: config.decisionTimeoutMs,
     stats,
     settings: () => engineControl?.settings ?? store.current,
   });

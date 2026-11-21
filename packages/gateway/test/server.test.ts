@@ -16,6 +16,7 @@ import { MemoryConfigStore } from '../src/config-file.ts';
 import { ENGINE_BENCHMARK_RUNNING_ERROR } from '../src/engine-busy.ts';
 import { EngineControl } from '../src/engine-control.ts';
 import { startGateway, type Gateway } from '../src/runtime.ts';
+import { createGatewayServer, serverTimeouts, type ServerOptions } from '../src/server.ts';
 import {
   controlHeaders,
   FakeEngine,
@@ -957,6 +958,45 @@ describe('engine status stamps', () => {
       assert.deepEqual(llamaModel?.measured, []);
     } finally {
       await gw.close();
+    }
+  });
+});
+
+describe('HTTP server hardening', () => {
+  it('derives header, request and keep-alive timeouts from the decision deadline', () => {
+    const server = createGatewayServer({ decisionTimeoutMs: 45_000 } as ServerOptions);
+    const expected = serverTimeouts(45_000);
+    assert.equal(server.headersTimeout, expected.headersTimeout);
+    assert.equal(server.requestTimeout, expected.requestTimeout);
+    assert.equal(server.keepAliveTimeout, expected.keepAliveTimeout);
+    assert.ok(server.requestTimeout > 45_000, 'above the longest legitimate decision');
+    assert.ok(server.headersTimeout > 45_000);
+    assert.ok(server.headersTimeout <= server.requestTimeout);
+    assert.ok(server.keepAliveTimeout > 0);
+  });
+
+  it('answers 500 with a generic body when the listener throws synchronously', async () => {
+    const SECRET = `sk-${'a'.repeat(40)}`;
+    const lines: string[] = [];
+    const options = { report: (line: string) => lines.push(line) } as unknown as ServerOptions;
+    Object.defineProperty(options, 'token', {
+      get() {
+        throw new Error(`boom ${SECRET}\nsecond line`);
+      },
+    });
+    const server = createGatewayServer(options);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const { port } = server.address() as { port: number };
+      const res = await fetch(`http://127.0.0.1:${String(port)}/health`);
+      assert.equal(res.status, 500);
+      assert.deepEqual(await res.json(), { error: 'internal error' });
+      assert.equal(lines.length, 1);
+      assert.match(lines[0] ?? '', /^request error: boom /);
+      assert.ok(!(lines[0] ?? '').includes(SECRET), 'secrets are redacted in the log');
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
 });
