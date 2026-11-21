@@ -188,6 +188,10 @@ verified, thresholded answer.
 - **Direction:** apply the same cap and priority (default `low`), report engine failures, and
   count them in health.
 - **Open questions:** should pass-through be disabled unless a control token is present (S4)?
+  Decided: not now; revisit with S4.
+- **Status:** done. Pass-through takes the `QUEUE_MAX` admission at priority `low` (full queue
+  or engine 503 answers 503) and reports failures and successes to the engine handlers. It
+  stays uncached and unlogged and carries no `budgetMs`.
 
 ### R4 SQLite off the hot path
 

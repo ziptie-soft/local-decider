@@ -64,6 +64,9 @@ function queueLimits(slots: number): QueueLimits {
   return { max: QUEUE_MAX - 1 + slots, highReserve: QUEUE_HIGH_RESERVE };
 }
 
+/** Pass-through jobs wait behind decisions. */
+const PASS_THROUGH_PRIORITY: Priority = 'low';
+
 /** Recent engine jobs timed for the busy estimate; `replaceEngine` clears them. */
 const SERVICE_WINDOW = 50;
 
@@ -462,19 +465,53 @@ export class Decider {
     return this.#latency.percentile(p);
   }
 
-  /** Pass-through `/v1/systemone`: keys sorted, strings redacted, one request at a time. */
+  /**
+   * Pass-through `/v1/systemone`: keys sorted, strings redacted. Admitted like a decision (same
+   * queue limits, priority `low`) and reported to the failure and success handlers; a full or
+   * busy engine throws `EngineBusyError` (503). Never cached or logged: the payload is the
+   * caller's.
+   */
   async systemOne(request: SystemOneRequest, signal: AbortSignal): Promise<SystemOneResponse> {
     this.#assertCurrent(this.#generation);
     const generation = this.#generation;
+    const engine = this.#engine;
     const clean = sortKeysDeep(redactDeep(request));
     const started = performance.now();
     const bounded = this.#signal(signal);
-    const response = await this.#queue.run(bounded, () => {
-      this.#assertCurrent(generation);
-      return this.#engine.decide(clean, bounded);
-    });
-    this.#latency.add(performance.now() - started);
-    return response;
+    try {
+      const response = await this.#queue.run(
+        bounded,
+        () => {
+          this.#assertCurrent(generation);
+          return this.#timed(() => this.#engine.decide(clean, bounded), bounded);
+        },
+        PASS_THROUGH_PRIORITY,
+        queueLimits(this.slots),
+      );
+      this.#latency.add(performance.now() - started);
+      this.#successHandler?.(engine);
+      return response;
+    } catch (error) {
+      throw this.#passThroughFailure(error, engine, signal);
+    }
+  }
+
+  /** Map a pass-through error: queue full and busy become 503s, others reach the handler. */
+  #passThroughFailure(error: unknown, engine: Engine, caller: AbortSignal): unknown {
+    if (error instanceof QueueFullError) {
+      return new EngineBusyError('engine queue full');
+    }
+    if (isEngineBusy(error)) {
+      return new EngineBusyError(ENGINE_BUSY_ERROR);
+    }
+    if (error instanceof EngineBusyError) {
+      return error;
+    }
+    if (!caller.aborted) {
+      // A caller that hung up is not an engine failure (a timeout is: it fires `bounded` only).
+      this.#failureHandler?.(engine);
+    }
+    return error;
   }
 
   async decide(

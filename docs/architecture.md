@@ -269,7 +269,7 @@ how to add an engine or a model, and the macOS notes
 | Route | Auth | Purpose |
 |---|---|---|
 | `POST /v1/decide/:policy` | Open | Run a policy on harness input |
-| `POST /v1/systemone`, `POST /invocations` | Open | Pass-through to the active engine (keys sorted, secrets redacted) |
+| `POST /v1/systemone`, `POST /invocations` | Open | Pass-through to the active engine (keys sorted, secrets redacted). Same queue admission as decisions at priority `low`, so a full queue or an engine 503 answers 503; engine errors reach the health and fallback handlers. Never cached or logged |
 | `POST /v1/outcomes`, `POST /v1/usage` | Report / open | Report what happened, and token usage, for a decision. Both return 404 for an unknown `decisionId`; an outcome must be `allow`, `deny`, `unsafe`, `decline`, `interrupted` or an answer label of the decision, else 400. Without the report token the rows are stored unverified and limited to 60 per minute per route (burst 30, then 429) |
 | `GET /v1/calls/:id` | Open | What each policy decided for a harness tool call (`call.id` of a decide request), its permission mode and the effective mode per scope; kept in memory for 10 minutes, 404 when unknown |
 | `GET /health`, `GET /ping`, `GET /v1/stats?days=N` | Open | Engine state and latency; stats as JSON (30-day default, bounded by retention) |
