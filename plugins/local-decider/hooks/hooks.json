@@ -51,6 +51,17 @@
             "async": true
           }
         ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/local-decider-hook.sh\" claude SubagentResult",
+            "timeout": 5,
+            "statusMessage": "local-decider: checking subagent result"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [

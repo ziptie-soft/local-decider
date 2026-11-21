@@ -123,6 +123,12 @@ every time. Details: [policies.md](policies.md#precedent).
 | Codex `exec` child | ✅ where PermissionRequest fires | ❌ | ❌ |
 | Codex MCP-server child | Unverified | Unverified | Unverified |
 
+Claude Code Task-tool results are checked after the fact: a synchronous `PostToolUse` hook on
+`Agent|Task` runs `turn-outcome` on the subagent's report and, with `policies.turn-outcome.mode:
+act`, tells the parent when it looks `stuck` or `needs_input`. It only notifies (shadow by
+default), adds up to `LOCAL_DECIDER_TIMEOUT_MS` (keep it under 4.5 s) to a foreground subagent
+result, and skips background launches.
+
 In Claude Code auto mode the `tool.check` mod never allows a Task subagent's call: it logs the
 decision (with the tool and request, but not the parent's conversation) and the classifier decides.
 

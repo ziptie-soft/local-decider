@@ -14,14 +14,24 @@ import {
 } from '@ziptie-soft/local-decider-core';
 
 import { permissionInput, projectLabel } from './permission-input.ts';
+import { subagentInput } from './subagent.ts';
 import { parseTurns, type TranscriptSlice } from './transcript.ts';
 import { firstUserText, historyText, lastAssistantText, lastUserText, type Turn } from './turns.ts';
 
 const HOOK_HARNESSES = ['claude', 'codex'] as const;
 export type HookHarness = (typeof HOOK_HARNESSES)[number];
 
-const POLICY_EVENTS = ['PreToolUse', 'PermissionRequest', 'Stop', 'UserPromptSubmit'] as const;
-/** Hook events that run a gateway policy. */
+const POLICY_EVENTS = [
+  'PreToolUse',
+  'PermissionRequest',
+  'Stop',
+  'UserPromptSubmit',
+  'SubagentResult',
+] as const;
+/**
+ * Hook events that run a gateway policy. `SubagentResult` is argv-only: Claude Code sends it as a
+ * `PostToolUse` event on the `Agent`/`Task` tools, and hooks.json routes that group here.
+ */
 export type PolicyEvent = (typeof POLICY_EVENTS)[number];
 
 const LIFECYCLE_EVENTS = ['SessionStart', 'PostToolUse'] as const;
@@ -41,6 +51,7 @@ export const EVENT_POLICY: Readonly<Record<PolicyEvent, string>> = {
   PermissionRequest: 'permission',
   Stop: 'turn-outcome',
   UserPromptSubmit: 'routing',
+  SubagentResult: 'turn-outcome',
 };
 
 export interface PolicyCall {
@@ -147,13 +158,15 @@ const BUILDERS: Record<PolicyEvent, InputBuilder> = {
   PermissionRequest: permissionHookInput,
   Stop: turnOutcomeInput,
   UserPromptSubmit: (hook) => routingInput(hook),
+  SubagentResult: (hook) => subagentInput(hook),
 };
 
 const CALL_ID = /^[\w-]{1,128}$/;
 
 /**
- * The Claude Code tool call a PreToolUse event is about (`tool_use_id`, `permission_mode`), so the
- * gateway can serve it to other callers; absent or malformed values are left out.
+ * The Claude Code tool call an event is about, so the gateway can serve it to other callers: for
+ * PreToolUse the `tool_use_id` and `permission_mode`; for SubagentResult the `tool_use_id`, marked
+ * as a subagent call. Absent or malformed values are left out.
  */
 export function callOf(
   harness: HookHarness,
@@ -161,8 +174,12 @@ export function callOf(
   hook: HookInput,
 ): DecideCall | undefined {
   const id = str(hook['tool_use_id']);
-  if (harness !== 'claude' || event !== 'PreToolUse' || id === undefined || !CALL_ID.test(id)) {
+  const known = event === 'PreToolUse' || event === 'SubagentResult';
+  if (harness !== 'claude' || !known || id === undefined || !CALL_ID.test(id)) {
     return undefined;
+  }
+  if (event === 'SubagentResult') {
+    return { id, agent: true };
   }
   const mode = hook['permission_mode'];
   const permissionMode = (PERMISSION_MODES as readonly unknown[]).includes(mode)

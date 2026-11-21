@@ -31,6 +31,7 @@ import { postToolUse, purgePending, rememberPermission, type OutcomeDeps } from 
 import { guardDeny, guardOutput, translate } from './output.ts';
 import { mayAutoAllow } from './permission-tools.ts';
 import { healthFromEnv, sessionStart, type Health } from './session-start.ts';
+import { agentLabel, isCompletedAgent, subagentInput } from './subagent.ts';
 import { readSlice } from './transcript.ts';
 import { writeGuard } from './write-guard.ts';
 
@@ -170,11 +171,23 @@ async function decideAndTranslate(ctx: Context): Promise<string> {
       : `${call.policy}: action=${res.action} enforced=${String(res.enforced)} id=${res.decisionId}`,
   );
   const autoMode = ctx.hook['permission_mode'] === 'auto';
-  const stdout = translate(ctx.harness, ctx.event, res, autoMode, tool);
+  const subject = ctx.event === 'SubagentResult' ? agentLabel(ctx.hook) : tool;
+  const stdout = translate(ctx.harness, ctx.event, res, autoMode, subject);
   if (ctx.event === 'PermissionRequest' && res !== null) {
     rememberPermission({ ...ctx, res, stdout, deps: ctx.deps.outcomes });
   }
   return stdout;
+}
+
+/** Why a SubagentResult has nothing to judge (so no gateway call), or null. */
+function subagentSkip(ctx: Context): string | null {
+  if (ctx.harness !== 'claude') {
+    return 'only Claude Code reports subagent results';
+  }
+  if (!isCompletedAgent(ctx.hook)) {
+    return 'not a completed foreground subagent';
+  }
+  return subagentInput(ctx.hook)['lastMessage'] === '' ? 'empty subagent report' : null;
 }
 
 async function handle(ctx: Context): Promise<string> {
@@ -188,6 +201,16 @@ async function handle(ctx: Context): Promise<string> {
   if (ctx.event === 'Stop' && ctx.hook['stop_hook_active'] === true) {
     ctx.log('stop_hook_active: skipping');
     return '';
+  }
+  if (ctx.event === 'SubagentResult') {
+    // No hostRuns skip: Paseo lists turn-outcome for the agents it launches, but it never sees the
+    // Task subagents inside them, so nothing else judges these results.
+    const skip = subagentSkip(ctx);
+    if (skip !== null) {
+      ctx.log(`subagent result: ${skip}; abstaining`);
+      return '';
+    }
+    return decideAndTranslate(ctx);
   }
   const policy = EVENT_POLICY[ctx.event];
   if (hostRuns(ctx.env, policy)) {
