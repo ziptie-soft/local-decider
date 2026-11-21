@@ -14,6 +14,7 @@ async function readStdin(): Promise<string> {
     const buf = chunk as Buffer;
     size += buf.length;
     if (size > MAX_STDIN_BYTES) {
+      process.stderr.write('local-decider: hook input over 4 MiB, failing open\n');
       return '';
     }
     chunks.push(buf);

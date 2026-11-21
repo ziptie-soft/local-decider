@@ -5,6 +5,7 @@
 import {
   commandOf,
   canonicalSubject,
+  capInput,
   PERMISSION_MODES,
   str,
   type DecideCall,
@@ -177,7 +178,7 @@ export function mapEvent(event: PolicyEvent, hook: HookInput, read: ReadTranscri
   const workspace = event === 'PermissionRequest' ? workspaceOf(hook) : undefined;
   return {
     policy: EVENT_POLICY[event],
-    input: compact(input),
+    input: compact(capInput(input)),
     ...(event === 'PermissionRequest' ? { hasRecentUserContext: transcript.hasRecentUser() } : {}),
     ...(workspace === undefined ? {} : { workspace }),
   };
