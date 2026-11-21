@@ -161,7 +161,7 @@ export function firstString(
 function stableToolInput(value: unknown): string {
   const fields = asRecord(value);
   if (fields === undefined) {
-    return canonicalJson(value) ?? '';
+    return canonicalJson(value);
   }
   const input = { ...fields };
   delete input['description'];
