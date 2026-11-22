@@ -6,9 +6,11 @@ import {
   EngineInstallUsageError,
   formatEngineList,
   planInstall,
+  wantsFlavorProbe,
   type InstallPlan,
 } from '../src/cli-engine.ts';
 import { parseConfig } from '../src/config.ts';
+import type { FlavorChoice } from '../src/engine-flavor.ts';
 import type { AutoInstall } from '../src/engine-install-auto.ts';
 import type { HostInfo } from '../src/engines/descriptor.ts';
 import type { HostCapabilities } from '../src/engines/host-capabilities.ts';
@@ -55,6 +57,37 @@ describe('engine install planning', () => {
       engine: 'strands-decider',
       flavor: 'cpu',
     });
+  });
+
+  it('takes the flavor from the hardware probe, with --flavor authoritative', () => {
+    const rocm: FlavorChoice = { flavor: 'rocm', reason: 'flavor rocm: AMD GPU detected' };
+    assert.deepEqual(planInstall([], linux, 'strands-decider', 'adapter/model', undefined, rocm), {
+      engine: 'strands-decider',
+      flavor: 'rocm',
+      model: 'adapter/model',
+      reason: rocm.reason,
+    });
+    // An explicit flavor overrides the probe and its explanation is dropped.
+    assert.deepEqual(
+      planInstall(['--flavor', 'cpu'], linux, 'strands-decider', 'adapter/model', undefined, rocm),
+      { engine: 'strands-decider', flavor: 'cpu', model: 'adapter/model' },
+    );
+    // Other engines ignore it.
+    assert.deepEqual(
+      planInstall(['--engine', 'llama-vulkan'], linux, 'strands-decider', 'm', undefined, rocm),
+      {
+        engine: 'llama-vulkan',
+        noDownload: false,
+      },
+    );
+  });
+
+  it('probes the hardware only for a strands-decider install without --flavor', () => {
+    assert.equal(wantsFlavorProbe([], 'strands-decider'), true);
+    assert.equal(wantsFlavorProbe(['--engine', 'strands-decider'], 'fastflowlm'), true);
+    assert.equal(wantsFlavorProbe(['--flavor', 'cpu'], 'strands-decider'), false);
+    assert.equal(wantsFlavorProbe([], 'fastflowlm'), false);
+    assert.equal(wantsFlavorProbe(['--bogus'], 'strands-decider'), false);
   });
 
   it('plans FastFlowLM on Linux x64 and rejects its flavor option', () => {

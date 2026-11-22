@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 
 import { DEFAULT_MODEL, type GatewayConfig } from './config.ts';
 import { isOpenAILike } from './engine-discovery.ts';
+import type { FlavorChoice } from './engine-flavor.ts';
 import { autoTarget, type AutoInstall, type AutoTarget } from './engine-install-auto.ts';
 import { defaultFlavor, type InstallFlavor } from './engine-install.ts';
 import type { HostInfo } from './engines/descriptor.ts';
@@ -176,20 +177,37 @@ function strandsPlan(
   host: HostInfo,
   model: string | undefined,
   auto?: AutoTarget,
+  hardware?: FlavorChoice,
 ): InstallPlan {
   if (values.flavor !== undefined && !FLAVORS.includes(values.flavor as InstallFlavor)) {
     throw new EngineInstallUsageError(`invalid strands-decider flavor "${values.flavor}"`);
   }
+  // `--flavor` is authoritative; otherwise the ranked pick, then the hardware probe, then the host default.
   const flavor =
     (values.flavor as InstallFlavor | undefined) ??
     auto?.flavor ??
+    hardware?.flavor ??
     defaultFlavor(host.platform, host.arch);
+  const reason = auto?.reason ?? (values.flavor === undefined ? hardware?.reason : undefined);
   return {
     engine: 'strands-decider',
     flavor,
     ...(values['no-download'] === true || model === undefined ? {} : { model }),
-    ...(auto === undefined ? {} : { reason: auto.reason }),
+    ...(reason === undefined ? {} : { reason }),
   };
+}
+
+/**
+ * Whether this install is a strands-decider one with no `--flavor`, so the flavor comes from a
+ * hardware probe. Parse errors are left for `planInstall` to report.
+ */
+export function wantsFlavorProbe(argv: readonly string[], configuredEngine: string): boolean {
+  try {
+    const values = parseInstallArgs(argv);
+    return values.flavor === undefined && (values.engine ?? configuredEngine) === 'strands-decider';
+  } catch {
+    return false;
+  }
 }
 
 function binaryPlan(
@@ -228,7 +246,8 @@ function resolveAuto(
 /**
  * Parse an install request and reject unsupported targets before installer I/O starts.
  * Precedence: CLI flags, then explicit config, then `auto` (the ranked recommendation), which
- * callers pass only when the config is not explicit.
+ * callers pass only when the config is not explicit. `hardware` (the flavor probed from the host)
+ * only fills in a strands-decider flavor that neither `--flavor` nor `auto` chose.
  */
 export function planInstall(
   argv: readonly string[],
@@ -236,6 +255,7 @@ export function planInstall(
   configuredEngine: string,
   configuredModel?: string,
   auto?: AutoInstall,
+  hardware?: FlavorChoice,
 ): InstallPlan {
   const values = parseInstallArgs(argv);
   const picked = resolveAuto(auto, host, values.engine);
@@ -244,7 +264,7 @@ export function planInstall(
     auto === undefined && engine === configuredEngine ? configuredModel : undefined;
   const model = values.model ?? fromConfig ?? picked?.model;
   return engine === 'strands-decider'
-    ? strandsPlan(values, host, model, picked)
+    ? strandsPlan(values, host, model, picked, hardware)
     : binaryPlan(engine, values, model, picked);
 }
 
