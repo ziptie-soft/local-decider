@@ -17,12 +17,20 @@
 // default plugins/local-decider), LD_E2E_USER_SETTINGS=1 (Claude: load your user settings and the
 // installed plugin instead), LD_E2E_KEEP=1 (keep the workspace), LD_E2E_TIMEOUT_S (per harness,
 // default 300).
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import {
+  makeWorkspace,
+  parseJsonl,
+  printResults,
+  runCaptured,
+  selectedHarnesses,
+} from './e2e-lib.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const GATEWAY = process.env.LD_E2E_GATEWAY ?? 'http://127.0.0.1:8765';
@@ -154,49 +162,19 @@ async function preflight(name) {
   }
 }
 
-function makeWorkspace(name) {
-  const dir = mkdtempSync(join(tmpdir(), `ld-e2e-${name}-`));
-  writeFileSync(join(dir, 'README.md'), '# local-decider e2e scratch workspace\n');
-  spawnSync('git', ['init', '-q'], { cwd: dir });
-  return dir;
-}
-
 /** Run the harness; resolve with its JSONL events (stdout) and a session id if it reported one. */
-function runHarness(spec, cwd, sessionId) {
-  return new Promise((done) => {
-    const env = { ...process.env, LD_E2E_APPROVER_LOG: join(cwd, APPROVER_LOG) };
-    const child = spawn(spec.bin, spec.args(sessionId), {
-      cwd,
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => (stdout += chunk));
-    child.stderr.on('data', (chunk) => (stderr += chunk));
-    const timer = setTimeout(() => child.kill('SIGTERM'), TIMEOUT_MS);
-    child.on('close', (code, signal) => {
-      clearTimeout(timer);
-      const events = parseJsonl(stdout);
-      const reported = events.map((e) => spec.sessionFrom(e)).find(Boolean);
-      done({ code, signal, events, stdout, stderr, sessionId: reported ?? sessionId });
-    });
+async function runHarness(spec, cwd, sessionId) {
+  const env = { ...process.env, LD_E2E_APPROVER_LOG: join(cwd, APPROVER_LOG) };
+  const run = await runCaptured({
+    bin: spec.bin,
+    args: spec.args(sessionId),
+    env,
+    cwd,
+    timeoutMs: TIMEOUT_MS,
   });
-}
-
-function parseJsonl(text) {
-  const out = [];
-  for (const line of text.split('\n')) {
-    if (line.trim() === '') {
-      continue;
-    }
-    try {
-      out.push(JSON.parse(line));
-    } catch {
-      // Non-JSON noise (warnings) is ignored.
-    }
-  }
-  return out;
+  const events = parseJsonl(run.stdout);
+  const reported = events.map((e) => spec.sessionFrom(e)).find(Boolean);
+  return { ...run, events, sessionId: reported ?? sessionId };
 }
 
 function dataDir() {
@@ -353,11 +331,7 @@ function check(ctx) {
 }
 
 function report(ctx, results) {
-  console.log('');
-  for (const r of results) {
-    const status = r.skipped ? 'SKIP' : r.ok ? 'PASS' : 'FAIL';
-    console.log(`  ${status}  ${String(r.label)}: ${r.detail}`);
-  }
+  printResults(results);
   for (const info of INFO) {
     console.log(`  INFO  ${info.label}: ${String(info.count(ctx))}`);
   }
@@ -399,11 +373,7 @@ async function runOne(name) {
   return results.every((r) => r.ok);
 }
 
-const target = process.argv[2] ?? 'all';
-const names = target === 'all' ? Object.keys(HARNESSES) : [target];
-if (!names.every((n) => n in HARNESSES)) {
-  fail(`usage: harness-e2e.mjs claude|codex|all (got ${target})`);
-}
+const names = selectedHarnesses('harness-e2e', HARNESSES);
 let ok = true;
 for (const name of names) {
   ok = (await runOne(name)) && ok;
