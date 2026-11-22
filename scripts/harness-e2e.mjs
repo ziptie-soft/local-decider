@@ -3,15 +3,23 @@
 // headless in a scratch git workspace, have it run a fixed list of steps, then assert from the
 // gateway's decision store that each hook reached the gateway and got a verdict.
 //
-//   node scripts/harness-e2e.mjs claude|codex|all
+//   node scripts/harness-e2e.mjs claude|claude-auto|codex|all
 //
 // Needs: a running gateway, a built plugin (Claude) or the plugin installed (Codex), and a
-// logged-in harness CLI. Every step only touches the scratch workspace; the dangerous-looking step
-// pipes a script from a `.invalid` host (never resolves) and must be denied by the guard.
+// logged-in harness CLI. `claude-auto` runs Claude in auto mode: the classifier decides most calls,
+// so it checks that the plugin's PermissionRequest hook fires only for the one forced ask rule
+// (`Bash(touch:*)`) and that the mod reported `permission` decisions in scope `claude-auto`.
+// Codex uses the plugin installed in your Codex with the hook trust bypassed, so trust is not
+// tested here (`mise run e2e:install` does). With OPENAI_API_KEY set it instead installs the
+// checkout into a temp CODEX_HOME and logs in with that key: your auth.json is never copied.
+//
+// Every step only touches the scratch workspace; the dangerous-looking step pipes a script from a
+// `.invalid` host (never resolves) and must be denied by the guard.
 //
 // Claude runs isolated from your own settings (`--setting-sources project`: no user allow rules,
 // sandbox auto-allow or user hooks) with the plugin loaded from plugins/local-decider, and
-// scripts/e2e-approve.mjs answers permission prompts in your place (denies `chmod`, allows the rest).
+// scripts/e2e-approve.mjs answers permission prompts in your place (denies `chmod`, allows the rest);
+// `claude-auto` has no approver, so the classifier and the plugin are all that decide.
 //
 // Env: LD_E2E_GATEWAY (default http://127.0.0.1:8765), LD_E2E_PLUGIN_DIR (Claude: plugin directory,
 // default plugins/local-decider), LD_E2E_USER_SETTINGS=1 (Claude: load your user settings and the
@@ -19,15 +27,26 @@
 // default 300).
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  makeMarketplace,
   makeWorkspace,
   parseJsonl,
+  PLUGIN_REF,
   printResults,
+  run as runCommand,
   runCaptured,
   selectedHarnesses,
 } from './e2e-lib.mjs';
@@ -46,6 +65,7 @@ const APPROVER_LOG = '.approver.jsonl';
 
 const STEPS = (harness) => [
   'Shell: `ls -a`',
+  ...(harness === 'claude-auto' ? ['Shell: `touch e2e.txt`'] : []),
   harness === 'codex'
     ? 'Create the file `notes.txt` containing `local-decider e2e` (use apply_patch).'
     : 'Create the file `notes.txt` containing `local-decider e2e` (use the Write tool).',
@@ -72,14 +92,17 @@ function prompt(harness) {
   ].join('\n');
 }
 
-function claudeArgs(sessionId) {
+/** Auto mode: no approver hook, and an ask rule so one call is forced past the classifier. */
+const AUTO_SETTINGS = { permissions: { ask: ['Bash(touch:*)'] } };
+
+function claudeArgs(sessionId, auto = false) {
   const args = [
     '-p',
-    prompt('claude'),
+    prompt(auto ? 'claude-auto' : 'claude'),
     '--session-id',
     sessionId,
     '--permission-mode',
-    'manual',
+    auto ? 'auto' : 'manual',
     '--permission-prompts',
     'none',
     '--output-format',
@@ -89,7 +112,7 @@ function claudeArgs(sessionId) {
     '--max-turns',
     '30',
     '--settings',
-    JSON.stringify(approverSettings()),
+    JSON.stringify(auto ? AUTO_SETTINGS : approverSettings()),
   ];
   const sources = USER_SETTINGS ? [] : ['--setting-sources', 'project'];
   const plugin = PLUGIN_DIR ? ['--plugin-dir', resolve(ROOT, PLUGIN_DIR)] : [];
@@ -115,14 +138,21 @@ function preflightClaude() {
 }
 
 const HARNESSES = {
-  claude: {
+  'claude': {
     bin: 'claude',
     harness: 'claude-code',
     args: claudeArgs,
     preflight: preflightClaude,
     sessionFrom: () => undefined,
   },
-  codex: {
+  'claude-auto': {
+    bin: 'claude',
+    harness: 'claude-code',
+    args: (sessionId) => claudeArgs(sessionId, true),
+    preflight: preflightClaude,
+    sessionFrom: () => undefined,
+  },
+  'codex': {
     bin: 'codex',
     harness: 'codex',
     args: () => [
@@ -133,11 +163,33 @@ const HARNESSES = {
       '--approve-for-me',
       prompt('codex'),
     ],
+    isolate: isolatedCodexEnv,
     sessionFrom(event) {
       return event.type === 'thread.started' ? event.thread_id : undefined;
     },
   },
 };
+
+/**
+ * With OPENAI_API_KEY: a temp CODEX_HOME with the packed checkout installed and that key logged
+ * in, so the run tests this checkout and never touches ~/.codex. Without it: your own Codex.
+ */
+function isolatedCodexEnv() {
+  const key = process.env.OPENAI_API_KEY;
+  if (key === undefined || key === '') {
+    return {};
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'ld-e2e-codex-'));
+  process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+  const codexHome = join(dir, '.codex');
+  mkdirSync(codexHome, { recursive: true });
+  const env = { ...process.env, CODEX_HOME: codexHome };
+  runCommand('codex', ['plugin', 'marketplace', 'add', makeMarketplace(dir)], { env });
+  runCommand('codex', ['plugin', 'add', PLUGIN_REF], { env });
+  runCommand('codex', ['login', '--with-api-key'], { env, input: key });
+  console.log(`codex: isolated CODEX_HOME ${codexHome} (checkout installed, OPENAI_API_KEY login)`);
+  return { CODEX_HOME: codexHome, LOCAL_DECIDER_URL: GATEWAY };
+}
 
 function fail(message) {
   console.error(`harness-e2e: ${message}`);
@@ -164,7 +216,11 @@ async function preflight(name) {
 
 /** Run the harness; resolve with its JSONL events (stdout) and a session id if it reported one. */
 async function runHarness(spec, cwd, sessionId) {
-  const env = { ...process.env, LD_E2E_APPROVER_LOG: join(cwd, APPROVER_LOG) };
+  const env = {
+    ...process.env,
+    LD_E2E_APPROVER_LOG: join(cwd, APPROVER_LOG),
+    ...spec.isolate?.(),
+  };
   const run = await runCaptured({
     bin: spec.bin,
     args: spec.args(sessionId),
@@ -282,6 +338,14 @@ function guardTest(ctx) {
   return { ok: found, detail: `"${GUARD_MARK}" ${found ? '' : 'not '}found in harness output` };
 }
 
+/** In auto mode the classifier decides; only the `touch` ask rule reaches the PermissionRequest hook. */
+function forcedAskTest(ctx) {
+  const n = ctx.run.events.filter(
+    (e) => e.subtype === 'hook_started' && e.hook_event === 'PermissionRequest',
+  ).length;
+  return { ok: n === 1, detail: `${String(n)} PermissionRequest hook run(s), need exactly 1` };
+}
+
 function approverTest(ctx) {
   const denies = ctx.approvals.filter((a) => a.behavior === 'deny').length;
   const total = ctx.approvals.length;
@@ -304,11 +368,14 @@ const CHECKS = [
     policyCount((d) => d.policy === 'command-risk'),
     3,
   ),
-  countCheck(
-    'permission (PermissionRequest)',
-    policyCount((d) => d.policy === 'permission'),
-    3,
-  ),
+  {
+    ...countCheck(
+      'permission (PermissionRequest)',
+      policyCount((d) => d.policy === 'permission'),
+      3,
+    ),
+    only: ['claude', 'codex'],
+  },
   countCheck(
     'turn-outcome (Stop)',
     policyCount((d) => d.policy === 'turn-outcome'),
@@ -316,6 +383,15 @@ const CHECKS = [
   ),
   { label: 'guard denies curl | sh', test: guardTest },
   { label: 'approver decided', only: 'claude', test: approverTest },
+  { label: 'PermissionRequest fires once (forced ask)', only: 'claude-auto', test: forcedAskTest },
+  {
+    ...countCheck(
+      'permission, scope claude-auto (mod)',
+      policyCount((d) => d.policy === 'permission' && d.scope === 'claude-auto'),
+      1,
+    ),
+    only: 'claude-auto',
+  },
   { ...countCheck('outcomes (PostToolUse)', permissionOutcomes, 1, 'outcome(s)'), only: 'claude' },
 ];
 
@@ -324,8 +400,8 @@ const INFO = [];
 
 function check(ctx) {
   return CHECKS.map((c) =>
-    c.only && c.only !== ctx.name
-      ? { label: c.label, ok: true, skipped: true, detail: `${c.only} only` }
+    c.only && ![c.only].flat().includes(ctx.name)
+      ? { label: c.label, ok: true, skipped: true, detail: `${[c.only].flat().join('/')} only` }
       : { label: c.label, ...c.test(ctx) },
   );
 }
