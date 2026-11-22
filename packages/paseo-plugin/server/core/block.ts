@@ -52,22 +52,53 @@ const PUBLISHERS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
 const OPAQUE = /\$\(|`|<\(|>\(/;
 const RECURSIVE_FLAG = /^-[a-zA-Z]*[rR]/;
 
+export type CommandFlagKind = 'blocked' | 'push' | 'publish' | 'rm-r' | 'shell-c';
+
+export interface CommandFlag {
+  readonly kind: CommandFlagKind;
+  /** The reason the guard gives for it, e.g. `git push` or `curl is never allowed here`. */
+  readonly reason: string;
+}
+
+/** Every reason a command word and its arguments are kept away from an allow, in rule order. */
+export function commandFlags(command: string, args: readonly string[]): CommandFlag[] {
+  const flags = args.filter((a) => a.startsWith('-'));
+  const candidates: [boolean, CommandFlag][] = [
+    [
+      BLOCKED_COMMANDS.has(command),
+      { kind: 'blocked', reason: `${command} is never allowed here` },
+    ],
+    [command === 'git' && args.includes('push'), { kind: 'push', reason: 'git push' }],
+    [
+      PUBLISHERS.has(command) && args.includes('publish'),
+      { kind: 'publish', reason: `${command} publish` },
+    ],
+    [
+      command === 'rm' && flags.some((f) => RECURSIVE_FLAG.test(f) || f === '--recursive'),
+      { kind: 'rm-r', reason: 'rm -r' },
+    ],
+    [
+      SHELLS.has(command) && flags.some((f) => /^-[a-zA-Z]*c/.test(f)),
+      { kind: 'shell-c', reason: `${command} -c script` },
+    ],
+  ];
+  return candidates.filter(([hit]) => hit).map(([, flag]) => flag);
+}
+
+/** True for the constructs the splitter cannot see through: substitutions, process substitution. */
+export function hasSubstitution(command: string): boolean {
+  return OPAQUE.test(command);
+}
+
 function commandBlock(command: string, args: readonly string[]): string | null {
   if (BLOCKED_COMMANDS.has(command)) {
     return `${command} is never allowed here`;
   }
-  const flags = args.filter((a) => a.startsWith('-'));
-  const reasons: [boolean, string][] = [
-    [command === 'git' && args.includes('push'), 'git push'],
-    [PUBLISHERS.has(command) && args.includes('publish'), `${command} publish`],
-    [command === 'rm' && flags.some((f) => RECURSIVE_FLAG.test(f) || f === '--recursive'), 'rm -r'],
-    [SHELLS.has(command) && flags.some((f) => /^-[a-zA-Z]*c/.test(f)), `${command} -c script`],
-  ];
-  return reasons.find(([hit]) => hit)?.[1] ?? null;
+  return commandFlags(command, args)[0]?.reason ?? null;
 }
 
 /** The path a word names, with `>file`, `--out=/x` and `-C/x` shapes unwrapped; null when it names none. */
-function wordPath(word: string): string | null | undefined {
+export function wordPath(word: string): string | null | undefined {
   const bare = word.replace(/^\d*>{1,2}/, '').replace(/^--?[\w-]+=/, '');
   if (bare === '' || bare.startsWith('-')) {
     return undefined;
@@ -92,13 +123,27 @@ function wordsBlock(words: readonly string[], cwd: string): string | null {
   return null;
 }
 
-function segmentBlock(segment: Segment, cwd: string): string | null {
+export interface SegmentParts {
+  /** `sudo` or `doas` when stripped as a prefix to find the real command. */
+  readonly elevated: string | undefined;
+  readonly command: string;
+  readonly args: readonly string[];
+}
+
+/** A segment's real command (base name), its arguments and any `sudo`/`doas` prefix. */
+export function segmentParts(segment: Segment): SegmentParts {
   const words = commandWords(segment.words);
   // `sudo`/`doas` are stripped as prefixes to find the real command; they still block.
   const prefixes = segment.words.slice(0, segment.words.length - words.length).map(baseName);
-  const elevated = prefixes.find((p) => p === 'sudo' || p === 'doas');
-  const command = baseName(words[0] ?? '');
-  const args = words.slice(1);
+  return {
+    elevated: prefixes.find((p) => p === 'sudo' || p === 'doas'),
+    command: baseName(words[0] ?? ''),
+    args: words.slice(1),
+  };
+}
+
+function segmentBlock(segment: Segment, cwd: string): string | null {
+  const { elevated, command, args } = segmentParts(segment);
   return (
     (elevated === undefined ? null : `${elevated} is never allowed here`) ??
     commandBlock(command, args) ??

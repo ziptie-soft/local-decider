@@ -1,3 +1,4 @@
+import { FACT_GROUPS, type FactGroup } from '@ziptie-soft/local-decider-core';
 /**
  * Replay `policies/fixtures/*.jsonl` against a live `/v1/systemone` server and score them.
  *
@@ -9,8 +10,8 @@
  *
  * `--out <dir>` writes `<policy>.json` (a recording) and `<policy>.results.json` (`EvalResult[]`)
  * there instead of to `policies/fixtures/recorded/`, for `eval-compare.ts`. `--facts <groups>` (a
- * comma-separated list) is parsed and validated but inert until the gateway derives call facts; it
- * cannot be combined with `--record`, so only the shipped set is recorded.
+ * comma-separated list) selects the fact groups the gateway derives (they reach the model only through a
+ * policy `facts` section); it cannot be combined with `--record`, so only the shipped set is recorded.
  */
 import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -72,24 +73,27 @@ function fixturePolicies(only: string | undefined): string[] {
   return chosen;
 }
 
-const FACT_GROUPS = ['kind', 'paths', 'commands', 'notes', 'git-refs', 'hints', 'content'] as const;
+function isFactGroup(group: string): group is FactGroup {
+  return (FACT_GROUPS as readonly string[]).includes(group);
+}
 
 /** Parse a comma-separated `--facts` list; unknown groups are a usage error. */
-function parseFacts(value: string | undefined): readonly string[] {
+function parseFacts(value: string | undefined): readonly FactGroup[] {
   const groups = (value ?? '')
     .split(',')
     .map((group) => group.trim())
     .filter((group) => group !== '');
-  const unknown = groups.filter((group) => !(FACT_GROUPS as readonly string[]).includes(group));
+  const unknown = groups.filter((group) => !isFactGroup(group));
   if (unknown.length > 0) {
     throw new Error(`unknown --facts group(s): ${unknown.join(', ')} (${FACT_GROUPS.join(', ')})`);
   }
-  return groups;
+  return groups.filter(isFactGroup);
 }
 
 interface RunOptions {
   readonly record: boolean;
   readonly outDir: string | undefined;
+  readonly facts: readonly FactGroup[];
 }
 
 async function runPolicy(policyId: string, target: Target, options: RunOptions): Promise<boolean> {
@@ -102,6 +106,7 @@ async function runPolicy(policyId: string, target: Target, options: RunOptions):
   const recorder = new RecordingEngine(remote);
   console.log(`\n== ${policyId}`);
   const results = await evalFixture(policyId, recorder, {
+    facts: options.facts,
     report: (line) => console.log(line),
     onCase: (id) => {
       recorder.label = id;
@@ -162,6 +167,7 @@ async function main(): Promise<number> {
     // With --out, the recording goes to the directory rather than the repo.
     record: record && values.out === undefined,
     outDir: values.out,
+    facts,
   };
   if (record && values.force !== true && !isReferenceModel(target.model)) {
     throw new Error(
@@ -170,7 +176,7 @@ async function main(): Promise<number> {
   }
   console.log(`engine ${target.engine} model ${target.model} at ${target.url}`);
   if (facts.length > 0) {
-    console.log(`facts ${facts.join(',')} (inert: the gateway derives no facts yet)`);
+    console.log(`facts ${facts.join(',')}`);
   }
   let ok = true;
   for (const policyId of fixturePolicies(values.policy)) {
