@@ -2,6 +2,8 @@
 # e2e-install): MISE_ENV=e2e layers this over mise.toml, and mise.e2e.lock pins it. Kept out of the
 # default tools so `mise install` stays light. Bump a version together with its lock:
 # `MISE_ENV=e2e mise lock -p linux-x64,linux-arm64,macos-arm64,macos-x64 claude-code github:openai/codex`.
+# The release has several linux archives (argument-comment-lint, bwrap, app-server…) and mise
+# would pick the wrong one, so the asset is named for each platform.
 [tools]
 claude-code = "2.1.319"
-"github:openai/codex" = "rust-v0.167.0"
+"github:openai/codex" = { version = "rust-v0.167.0", bin = "codex", platforms = { linux-x64 = { asset_pattern = "codex-x86_64-unknown-linux-musl.tar.gz" }, linux-arm64 = { asset_pattern = "codex-aarch64-unknown-linux-musl.tar.gz" }, macos-x64 = { asset_pattern = "codex-x86_64-apple-darwin.tar.gz" }, macos-arm64 = { asset_pattern = "codex-aarch64-apple-darwin.tar.gz" } } }
