@@ -7,7 +7,7 @@ import { after, before, describe, it } from 'node:test';
 
 import { mapEvent, parseEvent } from '../src/mapping.ts';
 import { translate } from '../src/output.ts';
-import { PERMISSION_ALLOW_TOOLS } from '../src/permission-tools.ts';
+import { PERMISSION_ALLOW_TOOLS, PRE_TOOL_USE_TOOLS } from '../src/permission-tools.ts';
 import { run, type Decide } from '../src/run.ts';
 import type { TranscriptSlice } from '../src/transcript.ts';
 
@@ -366,6 +366,18 @@ describe('output translation', () => {
       };
       const matcher = json.hooks.PermissionRequest[0]?.matcher ?? '';
       assert.deepEqual(new Set(matcher.split('|')), PERMISSION_ALLOW_TOOLS[harness], file);
+    }
+  });
+
+  it('hooks.json PreToolUse matchers list exactly the documented tools', () => {
+    const files = { claude: 'hooks.json', codex: 'codex-hooks.json' } as const;
+    for (const [harness, file] of Object.entries(files) as [keyof typeof files, string][]) {
+      const url = new URL(`../../../plugins/local-decider/hooks/${file}`, import.meta.url);
+      const json = JSON.parse(readFileSync(url, 'utf8')) as {
+        hooks: { PreToolUse: { matcher: string }[] };
+      };
+      const matcher = json.hooks.PreToolUse[0]?.matcher ?? '';
+      assert.deepEqual(matcher.split('|'), PRE_TOOL_USE_TOOLS[harness], file);
     }
   });
 

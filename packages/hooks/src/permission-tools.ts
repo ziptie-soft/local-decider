@@ -31,3 +31,22 @@ export const PERMISSION_ALLOW_TOOLS: Readonly<Record<HookHarness, ReadonlySet<st
 export function mayAutoAllow(harness: HookHarness, tool: string | undefined): boolean {
   return tool !== undefined && PERMISSION_ALLOW_TOOLS[harness].has(tool);
 }
+
+/**
+ * The `PreToolUse` matcher alternatives of each hooks file (`mcp__.*` is a pattern, the rest are
+ * tool names). Read, Glob, Grep, WebFetch, WebSearch and Agent are deliberately absent:
+ * - `command-risk` has `default: ask` and shell-shaped criteria, so every unsure Read would
+ *   prompt in act mode, and in Claude's auto mode a hook `ask` forces a prompt past the
+ *   classifier (headless runs deny it);
+ * - Read is the most frequent tool, and each model check costs about 1.5 s on CPU engines;
+ * - a subagent's own tool calls pass through the parent session's `PreToolUse`, so Agent is
+ *   covered transitively;
+ * - Codex has no Read or WebFetch tool to hook (it reads through the shell), so adding them on
+ *   Claude would break parity.
+ * Changing the criteria needs `mise run eval:record`. Keep the hooks files in step: a test pins
+ * them to this list.
+ */
+export const PRE_TOOL_USE_TOOLS: Readonly<Record<HookHarness, readonly string[]>> = {
+  claude: ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'mcp__.*'],
+  codex: ['Bash', 'apply_patch', 'mcp__.*'],
+};

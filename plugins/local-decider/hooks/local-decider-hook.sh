@@ -26,6 +26,7 @@ notice() {
 }
 
 node_bin=$(command -v node 2>/dev/null)
+run_from_root=
 if [ -z "$node_bin" ]; then
   for candidate in \
     "$HOME/.local/share/mise/shims/node" \
@@ -33,6 +34,7 @@ if [ -z "$node_bin" ]; then
     /usr/local/bin/node; do
     if [ -x "$candidate" ]; then
       node_bin=$candidate
+      run_from_root=1
       break
     fi
   done
@@ -45,6 +47,14 @@ fi
 # a healthy Codex install skips starting node.
 if [ "$harness" = codex ] && [ "$event" = SessionStart ]; then
   exit 0
+fi
+
+# A mise shim resolves node for the project in the current directory, which is the agent's
+# workspace: it may install a node of its own (slower than the hook timeout), pin one the bundle
+# does not support, or sit in an untrusted mise.toml. The bundle takes cwd from the hook payload,
+# so run the shim from the plugin root, where the global node applies.
+if [ -n "$run_from_root" ]; then
+  cd -- "$root" || exit 0
 fi
 
 exec "$node_bin" "$root/dist/local-decider-hook.mjs" "$@"
