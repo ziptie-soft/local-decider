@@ -671,17 +671,17 @@ verified, thresholded answer.
 - **Priority:** P2. **Size:** S.
 - **Problem:** Two skills exist (`plugins/local-decider/skills/*/SKILL.md`); both assume
   `local-decider` on PATH. Missing: explain a decision by id (the id is in the reason text,
-  `packages/hooks/src/output.ts:469`), mark a decline as not-a-safety-issue, doctor/status,
+  `packages/hooks/src/output.ts:130`), mark an allowed request unsafe, doctor/status,
   onboarding. The settings skill omits that `decisionTimeoutMs` must stay below the hook budget.
-- **Direction:** `explain`, `doctor` and `mark-decline` skills with a `command -v` first step;
+- **Direction:** `explain`, `doctor` and `mark-unsafe` skills with a `command -v` first step;
   a note on timeouts; a short onboarding flow (shadow, stats, act).
 - **Status:** done (2026-11-22) — `local-decider-doctor` (wraps `gateway status`, `engine list`,
   `decide`, `config check`, `policies`; Codex `/hooks` re-trust) and `local-decider-onboarding`
   (shadow, stats, act) skills; every skill starts with a `command -v local-decider` step; the
   settings skill notes the hook budget (hooks 5 s, SessionStart 3 s, client 1.5 s).
-  `explain` and `mark-decline` are not built: no CLI command looks a decision up by id or posts an
-  outcome label (`/v1/outcomes` needs the report token), so they wait on F6.
-- **Open questions:** should `explain` be a CLI command first (F6) and the skill a thin wrapper?
+  `local-decider-explain` and `local-decider-mark-unsafe` now exist too (done with F6): thin
+  wrappers of `local-decider explain` and `local-decider label <id> unsafe --yes`; mark-unsafe
+  shows `explain` first and confirms with the user, and both say a decline needs no label.
 
 ### D3 Test gaps
 
@@ -767,6 +767,14 @@ verified, thresholded answer.
   redaction counts); `local-decider review --days N` listing disagreements; optionally a
   loopback-only static page served by the gateway behind the control token (S4). Hash-only data,
   no state text.
+- **Status:** done (2026-11-22) — schema 6 stores the matched rule, cache flag, precedent tally,
+  redaction label counts, rules hash and tool per decision; `local-decider explain <id|call-id>`
+  (read-only, works with the gateway down), `GET /v1/decisions/:id` and `?call=` behind the control
+  token (`?view=agent` for the agent projection), `local-decider review` (allow-vetoed,
+  classifier-denied, answer-mismatch, unverified-mismatch, each decision once) and
+  `local-decider label <id> unsafe` (loopback only, report token never printed). All hash-only;
+  redaction output unchanged. The static page was not built. The installed gateway must restart
+  once to migrate the store.
 - **Open questions:** keep the redacted subject line for N days to make review useful, or stay
   hash-only?
 
@@ -980,7 +988,8 @@ other models. Verify cited lines before implementing; they come from a read-only
 
 ### X2 Token readout for explanations and calibration
 
-- **Harness:** all; `explain` (F6) and the Paseo row expand (H1). **Priority:** P2. **Size:** M.
+- **Harness:** all; `explain` (F6, shipped: unblocked) and the Paseo row expand (H1).
+  **Priority:** P2. **Size:** M.
 - **What:** store per-option token mass from the v2 token readout next to probabilities;
   `calibrate` fits temperature on it; `explain <id>` shows the margin. Store option tokens only,
   never state tokens.
@@ -1039,13 +1048,15 @@ other models. Verify cited lines before implementing; they come from a read-only
 - **Harness:** Paseo schedules and heartbeats. **Priority:** P3. **Size:** S.
 - **What:** a daily schedule runs `local-decider review --days 1` and posts disagreements and
   calibration drift; a heartbeat replays queued shadow decisions only when idle (F9). Read-only.
+  Unblocked: `review` (F6) shipped with `--json`.
 
 ### X9 Per-agent tool channel instead of MCP injection
 
 - **Harness:** Paseo. **Priority:** P2. **Size:** M.
 - **What:** expose `decide` and `explain` through the plugin session's tools with a preapproved
   tool policy, so no gateway URL or token lands in agent MCP config (answers S5's open question).
-  Serve shadow-only answers to agents (N8).
+  Serve shadow-only answers to agents (N8). Unblocked: `GET /v1/decisions/:id?view=agent` (F6)
+  is the agent-safe projection.
 
 ### U1 Strands v2 checkpoints
 
