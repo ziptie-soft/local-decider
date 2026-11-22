@@ -3,7 +3,12 @@ import { FACT_GROUPS, type FactGroup } from '@ziptie-soft/local-decider-core';
  * Replay `policies/fixtures/*.jsonl` against a live `/v1/systemone` server and score them.
  *
  *   LOCAL_DECIDER_EVAL_URL=http://127.0.0.1:PORT node --conditions=source test/eval-live.ts \
- *     [--policy <id>] [--record] [--force] [--model <name>] [--out <dir>] [--facts <groups>]
+ *     [--policy <id>] [--record] [--replay] [--fixtures <dir>] [--force] [--model <name>] [--out <dir>] [--facts <groups>]
+ *
+ * `--replay` answers from `policies/fixtures/recorded/` instead of a server (seconds, no engine;
+ * a case with no recording is `unavailable`), for rule, threshold and default candidates.
+ * `--fixtures <dir>` scores another fixture directory (a `<policy>.jsonl` each) instead of
+ * `policies/fixtures`.
  *
  * `--record` also writes `policies/fixtures/recorded/<policy>.json`, which the CI gate replays. It
  * refuses a model other than the pinned reference unless `--force` is given.
@@ -13,14 +18,20 @@ import { FACT_GROUPS, type FactGroup } from '@ziptie-soft/local-decider-core';
  * comma-separated list) selects (with `--facts-position before|after` the request) the fact groups the gateway derives (they reach the model only through a
  * policy `facts` section); it cannot be combined with `--record`, so only the shipped set is recorded.
  */
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { getHealth } from '../src/engines/http.ts';
 import { SystemOneRemoteEngine } from '../src/engines/remote.ts';
+import type { Engine } from '../src/engines/types.ts';
 import { formatEvalSummary, scoreEval, type EvalResult } from '../src/eval.ts';
-import { RecordingEngine, serializeRecording, type Recording } from './eval-engines.ts';
+import {
+  RecordingEngine,
+  ReplayEngine,
+  serializeRecording,
+  type Recording,
+} from './eval-engines.ts';
 import {
   EVAL_REFERENCE,
   FIXTURES_DIR,
@@ -62,8 +73,8 @@ async function resolveTarget(modelFlag: string | undefined): Promise<Target> {
   };
 }
 
-function fixturePolicies(only: string | undefined): string[] {
-  const all = readdirSync(FIXTURES_DIR)
+function fixturePolicies(dir: string, only: string | undefined): string[] {
+  const all = readdirSync(dir)
     .filter((name) => name.endsWith('.jsonl'))
     .map((name) => basename(name, '.jsonl'))
     .toSorted();
@@ -93,12 +104,26 @@ function parseFacts(value: string | undefined): readonly FactGroup[] {
 
 interface RunOptions {
   readonly record: boolean;
+  /** Answer from `recorded/<policy>.json` instead of a server; no engine is needed. */
+  readonly replay: boolean;
+  readonly fixturesDir: string;
   readonly outDir: string | undefined;
   readonly facts?: readonly FactGroup[];
   readonly factsPosition: FactsPosition;
 }
 
-async function runPolicy(policyId: string, target: Target, options: RunOptions): Promise<boolean> {
+interface Answerer {
+  readonly engine: Engine;
+  /** Set when a live engine's answers are kept. */
+  readonly recorder?: RecordingEngine;
+}
+
+function replayAnswerer(policyId: string): Answerer {
+  const file = join(RECORDED_DIR, `${policyId}.json`);
+  return { engine: new ReplayEngine(JSON.parse(readFileSync(file, 'utf8')) as Recording) };
+}
+
+async function liveAnswerer(target: Target): Promise<Answerer> {
   const remote = new SystemOneRemoteEngine({
     type: 'systemone-remote',
     url: target.url,
@@ -106,18 +131,35 @@ async function runPolicy(policyId: string, target: Target, options: RunOptions):
   });
   await remote.start();
   const recorder = new RecordingEngine(remote);
+  return { engine: recorder, recorder };
+}
+
+async function runPolicy(
+  policyId: string,
+  target: Target | undefined,
+  options: RunOptions,
+): Promise<boolean> {
+  const { engine, recorder } =
+    options.replay || target === undefined ? replayAnswerer(policyId) : await liveAnswerer(target);
   console.log(`\n== ${policyId}`);
-  const results = await evalFixture(policyId, recorder, {
+  const results = await evalFixture(policyId, engine, {
     ...(options.facts === undefined ? {} : { facts: options.facts }),
     factsPosition: options.factsPosition,
+    fixturesDir: options.fixturesDir,
     report: (line) => console.log(line),
     onCase: (id) => {
-      recorder.label = id;
+      if (recorder !== undefined) {
+        recorder.label = id;
+      }
     },
   });
   const summary = scoreEval(results, floorsFor(policyId));
   console.log(formatEvalSummary(summary));
-  if (options.record || options.outDir !== undefined) {
+  if (
+    recorder !== undefined &&
+    target !== undefined &&
+    (options.record || options.outDir !== undefined)
+  ) {
     writeRecording(policyId, target, recorder, options.outDir ?? RECORDED_DIR);
   }
   if (options.outDir !== undefined) {
@@ -127,6 +169,7 @@ async function runPolicy(policyId: string, target: Target, options: RunOptions):
 }
 
 function writeResults(dir: string, policyId: string, results: readonly EvalResult[]): void {
+  mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${policyId}.results.json`), `${JSON.stringify(results, null, 2)}\n`);
 }
 
@@ -149,43 +192,71 @@ function writeRecording(
   console.log(`recorded ${String(recorder.cases.size)} cases for ${policyId}`);
 }
 
-async function main(): Promise<number> {
+function parseOptions(): {
+  options: RunOptions;
+  model: string | undefined;
+  force: boolean;
+  policy: string | undefined;
+} {
   const { values } = parseArgs({
     options: {
       'policy': { type: 'string' },
       'record': { type: 'boolean' },
+      'replay': { type: 'boolean' },
       'force': { type: 'boolean' },
       'model': { type: 'string' },
       'out': { type: 'string' },
+      'fixtures': { type: 'string' },
       'facts': { type: 'string' },
       'facts-position': { type: 'string' },
     },
   });
   const facts = parseFacts(values.facts);
-  const target = await resolveTarget(values.model);
   const record = values.record === true;
+  const replay = values.replay === true;
   if (record && values.facts !== undefined) {
     throw new Error('--facts cannot be combined with --record: only the shipped set is recorded');
   }
-  const options: RunOptions = {
-    // With --out, the recording goes to the directory rather than the repo.
-    record: record && values.out === undefined,
-    outDir: values.out,
-    // Without --facts the shipped groups apply.
-    ...(facts.length === 0 ? {} : { facts }),
-    factsPosition: values['facts-position'] === 'after' ? 'after' : 'before',
+  if (record && (replay || values.fixtures !== undefined)) {
+    throw new Error(
+      '--record needs a live run over the shipped fixtures (no --replay, --fixtures)',
+    );
+  }
+  return {
+    model: values.model,
+    force: values.force === true,
+    policy: values.policy,
+    options: {
+      // With --out, the recording goes to the directory rather than the repo.
+      record: record && values.out === undefined,
+      replay,
+      fixturesDir: values.fixtures === undefined ? FIXTURES_DIR : resolve(values.fixtures),
+      outDir: values.out,
+      // Without --facts the shipped groups apply.
+      ...(facts.length === 0 ? {} : { facts }),
+      factsPosition: values['facts-position'] === 'after' ? 'after' : 'before',
+    },
   };
-  if (record && values.force !== true && !isReferenceModel(target.model)) {
+}
+
+async function main(): Promise<number> {
+  const { options, model, force, policy } = parseOptions();
+  const target = options.replay ? undefined : await resolveTarget(model);
+  if (target === undefined) {
+    console.log(`replaying ${RECORDED_DIR}`);
+  } else {
+    console.log(`engine ${target.engine} model ${target.model} at ${target.url}`);
+  }
+  if (options.record && target !== undefined && !force && !isReferenceModel(target.model)) {
     throw new Error(
       `refusing to record with ${target.model}: the reference is ${EVAL_REFERENCE.model} (use --force)`,
     );
   }
-  console.log(`engine ${target.engine} model ${target.model} at ${target.url}`);
-  if (facts.length > 0) {
-    console.log(`facts ${facts.join(',')}`);
+  if (options.facts !== undefined) {
+    console.log(`facts ${options.facts.join(',')}`);
   }
   let ok = true;
-  for (const policyId of fixturePolicies(values.policy)) {
+  for (const policyId of fixturePolicies(options.fixturesDir, policy)) {
     ok = (await runPolicy(policyId, target, options)) && ok;
   }
   return ok ? 0 : 1;
