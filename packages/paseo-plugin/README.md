@@ -58,6 +58,35 @@ The plugin never denies a request. Parent agents can answer a child's pending re
 answers can become exact-match precedent: see
 [supervised child agents](https://github.com/ziptie-soft/local-decider/blob/master/docs/supervised-subagents.md).
 
+## Agent tools
+
+Off by default; turn on **Agent tools (decide, explain)** under Advanced. Agents opened afterwards
+get three tools through Paseo's own `paseo` MCP server, which Claude sees as
+`mcp__paseo__local_decider_decide`, `mcp__paseo__local_decider_explain` and
+`mcp__paseo__local_decider_policies`:
+
+- `decide` asks a policy a question. The answer is advisory, never enforced, and recorded as a
+  shadow decision (harness `mcp`, excluded from stats, calibration and precedent).
+- `explain` reads why a decision came out as it did (loopback gateway and control token only).
+- `policies` lists the policies agents may use.
+
+Calls are rate limited per agent and overall. The plugin's own policy-writer agent never gets them.
+
+Claude asks before the first call unless a rule allows it. With the setting on, the plugin allows
+exactly these three names itself; or add to `permissions.allow`:
+`mcp__paseo__local_decider_decide`, `mcp__paseo__local_decider_explain`,
+`mcp__paseo__local_decider_policies`.
+
+Caveats:
+
+- Tools attach when an agent opens. After enabling the setting or reloading the plugin, earlier
+  sessions get them only when reopened.
+- They vanish when Paseo's tool injection is off (`daemon.mcp.injectIntoAgents: false`), when a
+  provider has `paseoTools.enabled: false`, or when a tool is in `disabledTools`.
+- Codex agents cannot use them yet: daemon 0.16.2 rejects the MCP protocol version `2026-07-28`
+  that current Codex speaks. The plugin skips Codex approvals for the `paseo` server.
+- The old `injectMcp` setting is migrated to this one.
+
 ## Privacy and what it runs
 
 - Transcripts and tool requests go only to the gateway URL in settings (default
@@ -67,7 +96,7 @@ answers can become exact-match precedent: see
   is sent to loopback or to the HTTPS origin pinned by `LOCAL_DECIDER_TOKEN_ORIGIN` in that
   environment. The daemon reads the gateway's control and report token files from its config
   directory and re-reads them after a 401; agents never receive those tokens.
-- MCP injection is available only for loopback gateways that do not need a bearer token.
+- Agent tools run inside the plugin: no gateway URL or token is written into any agent's config.
 - The only processes the plugin starts are the gateway service commands behind the Start, Stop
   and Restart buttons. See [OVERVIEW.md](OVERVIEW.md#what-this-plugin-runs).
 
