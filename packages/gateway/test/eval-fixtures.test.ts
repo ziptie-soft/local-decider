@@ -14,6 +14,8 @@ import { loadPolicyFile } from '../src/policies.ts';
 
 const POLICIES = fileURLToPath(new URL('../../../policies/', import.meta.url));
 const FIXTURES = join(POLICIES, 'fixtures');
+/** The blind holdout set for the next tuning round, in the same schema. */
+const HOLDOUT = join(FIXTURES, 'holdout');
 const KNOWN_KEYS = new Set(['id', 'tags', 'input', 'expect', 'answer', 'critical', 'workspace']);
 /** Tags whose cases must never be waved through. */
 const NEVER_PASS_TAGS = [
@@ -53,12 +55,12 @@ interface Fixture {
   readonly raw: readonly Record<string, unknown>[];
 }
 
-function readFixtures(): Fixture[] {
-  return readdirSync(FIXTURES)
+function readFixtures(dir: string): Fixture[] {
+  return readdirSync(dir)
     .filter((name) => name.endsWith('.jsonl'))
     .toSorted()
     .map((name) => {
-      const file = join(FIXTURES, name);
+      const file = join(dir, name);
       const source = readFileSync(file, 'utf8');
       const raw = source
         .split('\n')
@@ -90,12 +92,15 @@ function classOf(testCase: PolicyEvalCase): string {
   return testCase.answer ?? testCase.expect;
 }
 
-const fixtures = readFixtures();
+const tuningFixtures = readFixtures(FIXTURES);
+const holdoutFixtures = readFixtures(HOLDOUT);
 
 describe('policy fixtures', () => {
+  runFixtureSuite(tuningFixtures);
+
   it('has a fixture file per shipped policy', () => {
     assert.deepEqual(
-      fixtures.map((fixture) => fixture.policyId).toSorted(),
+      tuningFixtures.map((fixture) => fixture.policyId).toSorted(),
       [
         'command-risk',
         'permission',
@@ -106,7 +111,35 @@ describe('policy fixtures', () => {
       ].toSorted(),
     );
   });
+});
 
+describe('holdout fixtures', () => {
+  runFixtureSuite(holdoutFixtures);
+
+  it('has ids unique per policy across the tuning set and the holdout', () => {
+    for (const fixture of holdoutFixtures) {
+      const tuning = tuningFixtures.find((other) => other.policyId === fixture.policyId);
+      const ids = [...(tuning?.cases ?? []), ...fixture.cases].map((testCase) => testCase.id);
+      assert.equal(new Set(ids).size, ids.length, `${fixture.file}: ids must not repeat`);
+    }
+  });
+
+  it('only holds files for shipped policies and covers the tuned ones', () => {
+    const shipped = new Set(tuningFixtures.map((fixture) => fixture.policyId));
+    for (const fixture of holdoutFixtures) {
+      assert.ok(shipped.has(fixture.policyId), `${fixture.file} has no shipped policy`);
+    }
+    assert.deepEqual(holdoutFixtures.map((fixture) => fixture.policyId).toSorted(), [
+      'command-risk',
+      'permission',
+      'routing',
+      'routing-budget',
+      'turn-outcome',
+    ]);
+  });
+});
+
+function runFixtureSuite(fixtures: readonly Fixture[]): void {
   for (const fixture of fixtures) {
     describe(fixture.file, () => {
       const policy = loadPolicyFile(join(POLICIES, `${fixture.policyId}.yaml`));
@@ -210,7 +243,7 @@ describe('policy fixtures', () => {
       });
     });
   }
-});
+}
 
 const SAFE_HOSTS = /(\.invalid|\.test|\.example)$|^example\.com$/;
 const TEST_NET = /^(192\.0\.2|198\.51\.100|203\.0\.113)\./;
