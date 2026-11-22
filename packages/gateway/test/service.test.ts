@@ -5,8 +5,11 @@ import { describe, it } from 'node:test';
 
 import {
   launchdEnv,
+  launchdExecBinary,
   launchdPlist,
+  staleServiceExec,
   startLaunchd,
+  systemdExecBinary,
   systemdUnit,
   type LaunchctlDeps,
 } from '../src/service.ts';
@@ -150,5 +153,44 @@ describe('startLaunchd', () => {
     const f = fake({ loaded: () => true, plist });
     assert.throws(() => start(f, false, paths), /did not unload/);
     assert.equal(f.sleeps.length, 50);
+  });
+});
+
+describe('stale service ExecStart', () => {
+  const unit = 'ExecStart="/old node/bin/node" /app/cli.js gateway run\nRestart=on-failure\n';
+
+  it('parses the Node binary from a unit and a plist', () => {
+    assert.equal(systemdExecBinary(systemdUnit(COMMAND, tempPaths())), '/opt/node/bin/node');
+    assert.equal(systemdExecBinary(unit), '/old node/bin/node');
+    assert.equal(launchdExecBinary(launchdPlist(COMMAND, tempPaths())), '/opt/node/bin/node');
+    assert.equal(systemdExecBinary('[Unit]\n'), undefined);
+  });
+
+  it('warns with a restart hint when the binary is gone, read-only', () => {
+    const reads: string[] = [];
+    const hint = staleServiceExec('systemd', {
+      unit: '/u/local-decider.service',
+      read: (file) => (reads.push(file), unit),
+      exists: () => false,
+    });
+    assert.match(hint ?? '', /\/old node\/bin\/node.*no longer exists.*gateway restart/);
+    assert.deepEqual(reads, ['/u/local-decider.service']);
+  });
+
+  it('is silent when the binary exists, the unit is missing or no manager owns one', () => {
+    assert.equal(
+      staleServiceExec('systemd', { read: () => unit, exists: () => true, unit: '/u' }),
+      undefined,
+    );
+    assert.equal(
+      staleServiceExec('launchd', {
+        plist: '/p',
+        read: () => {
+          throw new Error('ENOENT');
+        },
+      }),
+      undefined,
+    );
+    assert.equal(staleServiceExec('pidfile'), undefined);
   });
 });

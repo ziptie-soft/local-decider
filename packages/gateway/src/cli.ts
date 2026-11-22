@@ -8,7 +8,6 @@ import {
   type DecideRequest,
   type Scope,
 } from '@ziptie-soft/local-decider-core';
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -31,6 +30,7 @@ import {
   SettingsUsageError,
   useVariant,
 } from './cli-settings.ts';
+import { fetchPolicyList, parseInputJson, runFlmStep, UsageError } from './cli-support.ts';
 import { ConfigFile } from './config-file.ts';
 import { DEFAULT_FLM_MODEL, DEFAULT_PORT, loadConfig, type GatewayConfig } from './config.ts';
 import type { AutoInstall } from './engine-install-auto.ts';
@@ -66,6 +66,7 @@ import { startGateway } from './runtime.ts';
 import {
   detectManager,
   serviceState,
+  staleServiceExec,
   startService,
   stopService,
   uninstallService,
@@ -74,6 +75,7 @@ import { installShutdown } from './shutdown.ts';
 import { parseDays, runStatsFromFile } from './stats-job.ts';
 import { formatStats } from './stats.ts';
 import { probe, toolchain } from './toolchain.ts';
+import { GATEWAY_VERSION } from './version.ts';
 
 const USAGE = `local-decider — local decision models for coding-agent harnesses
 
@@ -100,6 +102,7 @@ Usage:
   local-decider routing map <harness> <preset> [model] [--thinking <level>] [--mode <mode>] [--profile <id>]
   local-decider routing unmap <harness> <preset>
   local-decider config [path|schema [dir]|check|reload]  config.yaml location, JSON Schemas, validation
+  local-decider --version                           print the gateway version
 
 Settings live in config.yaml (\`local-decider config path\`); the gateway applies edits to it and
 to policy files as they happen.
@@ -170,7 +173,7 @@ function refusedMessage(ctx: Context): string {
 }
 
 async function fetchPolicies(ctx: Context): Promise<unknown> {
-  return (await gatewayFetch(ctx, '/v1/policies', { timeoutMs: 3000 })).json();
+  return fetchPolicyList((path, init) => gatewayFetch(ctx, path, init), refusedMessage(ctx));
 }
 
 async function gatewayRun(ctx: Context): Promise<void> {
@@ -223,6 +226,10 @@ async function gatewayService(ctx: Context, action: string): Promise<void> {
     console.log(
       `gateway ${gatewayUrl(ctx.config)}: ${health === null ? 'unreachable' : JSON.stringify(health)}`,
     );
+    const stale = staleServiceExec(manager);
+    if (stale !== undefined) {
+      console.log(stale);
+    }
   }
 }
 
@@ -241,9 +248,9 @@ function installFastFlowLM(ctx: Context, model: string | undefined, noDownload: 
     return;
   }
   console.log(`Using FastFlowLM at ${flm}`);
-  execFileSync(flm, ['validate'], { stdio: 'inherit' });
+  runFlmStep(flm, ['validate']);
   if (!noDownload) {
-    execFileSync(flm, ['pull', model ?? DEFAULT_FLM_MODEL], { stdio: 'inherit' });
+    runFlmStep(flm, ['pull', model ?? DEFAULT_FLM_MODEL]);
   }
   console.log(
     'Switch to it: Settings → Local decider, or POST /v1/engine {"engine":"fastflowlm","model":"d3:nano"}',
@@ -456,8 +463,7 @@ function parseInput(args: readonly string[]): DecideRequest['input'] {
     options: { input: { type: 'string' } },
     allowPositionals: true,
   });
-  const input: Record<string, unknown> =
-    values.input === undefined ? {} : (JSON.parse(values.input) as Record<string, unknown>);
+  const input = values.input === undefined ? {} : parseInputJson(values.input);
   for (const pair of positionals) {
     const eq = pair.indexOf('=');
     if (eq <= 0) {
@@ -667,8 +673,6 @@ async function mcp(ctx: Context): Promise<void> {
   await serveMcpStdio(backend);
 }
 
-class UsageError extends Error {}
-
 async function dispatch(command: string, ctx: Context): Promise<void> {
   if (command === 'gateway') {
     const [action, ...rest] = ctx.args;
@@ -712,6 +716,10 @@ async function main(argv: readonly string[]): Promise<void> {
   const [command, ...args] = argv;
   if (command === undefined || command === '--help' || command === '-h' || command === 'help') {
     console.log(USAGE);
+    return;
+  }
+  if (command === '--version' || command === '-v' || command === 'version') {
+    console.log(GATEWAY_VERSION);
     return;
   }
   const paths = resolvePaths();

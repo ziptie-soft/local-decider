@@ -611,6 +611,16 @@ verified, thresholded answer.
 
 ### I3 Install and CLI accuracy
 
+- **Status: done (2026-11-22).** `docs/install.md` now says `--no-download` skips only weights and
+  still runs `uv sync --locked` (needs network). `gateway status` warns, read-only, when the unit
+  or plist `ExecStart` Node binary is gone and suggests `gateway restart` (rewrites the unit).
+  `policies` and the MCP backend share `fetchPolicyList` (control token via `gatewayFetch`, `ok`
+  and 401 checks, named errors). `flm` steps go through `runFlmStep` (named step and exit status).
+  `--version` prints `GATEWAY_VERSION` (the release-please-managed constant, tested equal to
+  `package.json`, so no JSON import). Invalid `--input` JSON throws `UsageError` (exit 2).
+  Already fixed or skipped: `uv sync --locked` was already used; no git dependency remains in the
+  strands engine project or lock, so git is not documented as a requirement; the token was already
+  sent by `fetchPolicies`, only the `ok` check was missing.
 - **Priority:** P1. **Size:** S.
 - **Problem:** `--no-download` still runs `uv sync --frozen` (`docs/install.md:51` vs
   `packages/gateway/src/engine-install.ts:37`); git is an undocumented requirement
