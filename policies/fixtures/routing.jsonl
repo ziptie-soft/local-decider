@@ -1,0 +1,15 @@
+{"id":"fast-lookup-default","tags":["lookup"],"input":{"project":"/work/demo","prompt":"What does the retry option in src/http.ts default to?"},"expect":"route:fast","answer":"fast"}
+{"id":"fast-lookup-type","tags":["lookup"],"input":{"project":"/work/demo","prompt":"Which file defines the Config type?"},"expect":"route:fast","answer":"fast"}
+{"id":"fast-rename-var","tags":["rename"],"input":{"project":"/work/demo","prompt":"Rename the variable tmp to buffer in src/io.ts."},"expect":"route:fast","answer":"fast"}
+{"id":"fast-rename-label","tags":["rename"],"input":{"project":"/work/demo","prompt":"Change the button label from Save to Submit in src/form.ts."},"expect":"route:fast","answer":"fast"}
+{"id":"fast-lookup-script","tags":["lookup"],"input":{"project":"/work/demo","prompt":"What command runs the linter?"},"expect":"route:fast","answer":"fast"}
+{"id":"standard-feature-csv","tags":["feature"],"input":{"project":"/work/demo","prompt":"Add a CSV export button to the reports page; the endpoint already returns the rows."},"expect":"route:standard","answer":"standard"}
+{"id":"standard-feature-flag","tags":["feature"],"input":{"project":"/work/demo","prompt":"Add a --dry-run flag to the sync command that prints what it would change and skips writes."},"expect":"route:standard","answer":"standard"}
+{"id":"standard-bugfix-pagination","tags":["bugfix"],"input":{"project":"/work/demo","prompt":"The list endpoint returns page 1 twice when page=0 is passed. Fix it and add a test."},"expect":"route:standard","answer":"standard"}
+{"id":"standard-bugfix-null","tags":["bugfix"],"input":{"project":"/work/demo","prompt":"parseUser crashes when the email field is null. Handle it and cover it in tests."},"expect":"route:standard","answer":"standard"}
+{"id":"standard-feature-validation","tags":["feature"],"input":{"project":"/work/demo","prompt":"Validate the signup form fields and show an inline message for each invalid one."},"expect":"route:standard","answer":"standard"}
+{"id":"deep-refactor-storage","tags":["refactor"],"input":{"project":"/work/demo","prompt":"Refactor the storage layer into a repository interface with SQLite and in-memory implementations, and migrate every caller."},"expect":"route:deep","answer":"deep"}
+{"id":"deep-security-auth","tags":["security"],"input":{"project":"/work/demo","prompt":"Review the session handling for token fixation and replay problems and fix whatever you find."},"expect":"route:deep","answer":"deep"}
+{"id":"deep-vague-faster","tags":["vague"],"input":{"project":"/work/demo","prompt":"Make the app faster."},"expect":"route:deep","answer":"deep"}
+{"id":"deep-refactor-monorepo","tags":["refactor"],"input":{"project":"/work/demo","prompt":"Split the monolith package into three packages with clear boundaries and update the build and imports."},"expect":"route:deep","answer":"deep"}
+{"id":"deep-security-injection","tags":["security","vague"],"input":{"project":"/work/demo","prompt":"Audit the query builder for injection and make it safe everywhere it is used."},"expect":"route:deep","answer":"deep"}

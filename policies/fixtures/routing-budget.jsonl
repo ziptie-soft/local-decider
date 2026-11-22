@@ -1,0 +1,15 @@
+{"id":"cheap-question","tags":["lookup"],"input":{"project":"/work/demo","prompt":"Where is the logger configured?"},"expect":"route:cheap","answer":"cheap"}
+{"id":"cheap-rename","tags":["rename"],"input":{"project":"/work/demo","prompt":"Rename getCwd to currentDir in src/path.ts."},"expect":"route:cheap","answer":"cheap"}
+{"id":"cheap-format","tags":["rename"],"input":{"project":"/work/demo","prompt":"Run the formatter on src/api and commit nothing."},"expect":"route:cheap","answer":"cheap"}
+{"id":"cheap-docs-test","tags":["feature"],"input":{"project":"/work/demo","prompt":"Add a unit test for the existing slugify helper."},"expect":"route:cheap","answer":"cheap"}
+{"id":"cheap-small-fix","tags":["bugfix"],"input":{"project":"/work/demo","prompt":"The footer year is hard-coded to 2023 in src/footer.ts. Use the current year."},"expect":"route:cheap","answer":"cheap"}
+{"id":"standard-feature-search","tags":["feature"],"input":{"project":"/work/demo","prompt":"Add a search box to the users page that filters by name and email, with tests."},"expect":"route:standard","answer":"standard"}
+{"id":"standard-bugfix-timezone","tags":["bugfix"],"input":{"project":"/work/demo","prompt":"Dates in the export are shifted by the local timezone. Fix the formatting in the exporter and the report view."},"expect":"route:standard","answer":"standard"}
+{"id":"standard-feature-notify","tags":["feature"],"input":{"project":"/work/demo","prompt":"Send an email when a job fails; reuse the existing mailer and add the config option."},"expect":"route:standard","answer":"standard"}
+{"id":"standard-bugfix-upload","tags":["bugfix"],"input":{"project":"/work/demo","prompt":"Uploads over 5 MB return 500. Find the limit in the handler and the proxy config and fix it."},"expect":"route:standard","answer":"standard"}
+{"id":"standard-refactor-small","tags":["refactor"],"input":{"project":"/work/demo","prompt":"Extract the date helpers from three components into a shared module and update the imports."},"expect":"route:standard","answer":"standard"}
+{"id":"premium-concurrency","tags":["refactor"],"input":{"project":"/work/demo","prompt":"The job queue sometimes runs a job twice under load. Find the race and fix it without losing throughput."},"expect":"route:premium","answer":"premium"}
+{"id":"premium-security","tags":["security"],"input":{"project":"/work/demo","prompt":"Design and implement per-tenant authorization for every API route."},"expect":"route:premium","answer":"premium"}
+{"id":"premium-refactor-large","tags":["refactor"],"input":{"project":"/work/demo","prompt":"Replace the callback-based database layer with async/await across the whole backend."},"expect":"route:premium","answer":"premium"}
+{"id":"premium-resisted","tags":["bugfix","vague"],"input":{"project":"/work/demo","prompt":"Two earlier attempts to fix the memory leak in the worker failed. Find the real cause."},"expect":"route:premium","answer":"premium"}
+{"id":"premium-vague-arch","tags":["vague"],"input":{"project":"/work/demo","prompt":"Redesign the plugin system so third parties can extend it safely."},"expect":"route:premium","answer":"premium"}

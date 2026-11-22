@@ -49,7 +49,13 @@ import { hasVulkanDevice } from './engines/llama/status.ts';
 import { ENGINES } from './engines/registry.ts';
 import { rankEngines } from './engines/selector.ts';
 import { strandsBinary } from './engines/strands/server.ts';
-import { parseEvalCases, runPolicyEval } from './eval.ts';
+import {
+  EvalPolicyOffError,
+  formatEvalSummary,
+  parseEvalCases,
+  runPolicyEval,
+  scoreEval,
+} from './eval.ts';
 import { installLlamaModel } from './llama-install.ts';
 import { parseMcpPolicies, serveMcpStdio, type McpBackend } from './mcp.ts';
 import { resolvePaths, type Paths } from './paths.ts';
@@ -85,7 +91,7 @@ Usage:
   local-decider calibrate [--json]   report temperature fit and allow thresholds
   local-decider logs backup <file> | export [--since YYYY-MM-DD] <dir>
   local-decider policies [check <file>]             list policies, or validate a policy file
-  local-decider policies eval <policy> <file>       report decisions on JSONL fixtures
+  local-decider policies eval <policy> <file> [--strict] [--min-pass 0.8]  score JSONL fixtures
   local-decider policies use <policy> <variant>     answer <policy> with one of its variants
   local-decider policies mode <policy> off|shadow|act [--scope claude-auto]
   local-decider policies reload                     re-read policy files without a restart
@@ -546,15 +552,46 @@ function requiredPolicyArg(value: string | undefined): string {
   return value;
 }
 
+const DEFAULT_MIN_PASS = 0.8;
+
+function parseMinPass(value: string | undefined): number {
+  if (value === undefined) {
+    return DEFAULT_MIN_PASS;
+  }
+  const minPass = value.trim() === '' ? Number.NaN : Number(value);
+  if (!(minPass >= 0 && minPass <= 1)) {
+    throw new SettingsUsageError('--min-pass must be a number between 0 and 1');
+  }
+  return minPass;
+}
+
 async function evalPolicy(
   ctx: Context,
   policy: string | undefined,
   file: string | undefined,
 ): Promise<void> {
+  const { values } = parseArgs({
+    args: ctx.args.slice(1),
+    options: { 'strict': { type: 'boolean' }, 'min-pass': { type: 'string' } },
+    allowPositionals: true,
+  });
+  const minPass = parseMinPass(values['min-pass']);
   const path = requiredPolicyArg(file);
+  const policyId = requiredPolicyArg(policy);
   const cases = parseEvalCases(readFileSync(path, 'utf8'), path);
   const gw = client(ctx, ctx.config.decisionTimeoutMs);
-  await runPolicyEval(requiredPolicyArg(policy), cases, (id, request) => gw.decide(id, request));
+  try {
+    const results = await runPolicyEval(policyId, cases, (id, request) => gw.decide(id, request));
+    const summary = scoreEval(results, { minPass: () => minPass });
+    console.log(formatEvalSummary(summary));
+    if (values.strict === true && !summary.passed) {
+      process.exitCode = 1;
+    }
+  } catch (error) {
+    if (!(error instanceof EvalPolicyOffError)) throw error;
+    console.error(error.message);
+    if (values.strict === true) process.exitCode = 1;
+  }
 }
 
 async function promptPolicy(ctx: Context, policy: string | undefined): Promise<void> {

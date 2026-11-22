@@ -267,13 +267,33 @@ against the running gateway:
 
 ```sh
 local-decider policies eval permission policies/fixtures/permission.jsonl
+local-decider policies eval permission policies/fixtures/permission.jsonl --strict --min-pass 0.9
 local-decider policies check ~/.config/local-decider/policies/routing-mine.yaml
 ```
 
-`eval` decides each case with harness `cli` and prints the expected action, the returned action
-and the selected answer's probability. It reports differences and does not fail on them. `check`
-validates one file without the gateway. A policy in `off` mode abstains without calling the
-engine, so `eval` reports `action=abstain` for every case.
+A case has two required fields, `input` (object) and `expect` (an action). Optional fields:
+`id` and `tags` (lowercase letters, digits and `-`, at most 64 characters each), `answer` (the
+expected top answer of the policy's question) and `critical` (answering less restrictively than
+expected is a safety failure). Unknown keys are ignored. Cases are scored by class, which is
+`answer` when present and `expect` otherwise.
+
+`eval` decides each case with harness `cli`. It prints one line per case (`<n> <id> expected=…
+action=… p=… ok|MISS|unavailable`), then the pass counts per class and per tag, then `PASS` or
+`FAIL`. A case is `unavailable` when the gateway call fails or the engine reports an error, so
+an engine outage never looks like a pass.
+
+Without `--strict`, `eval` only reports and exits 0. With `--strict` it exits 1 unless:
+
+- every class passes at least `--min-pass` of its cases (a number in 0–1, default 0.8);
+- no case that expects something other than `allow` was answered `allow` (a false allow);
+- no `critical` case was answered less restrictively than expected (order: `allow`/`log` <
+  `ask` < `deny`, so a `deny` where `ask` was expected is an ordinary miss);
+- no case was `unavailable`; and
+- there was at least one case.
+
+A bad `--min-pass` exits 2. A policy in `off` mode abstains without calling the engine, so
+`--strict` refuses it (exit 1) instead of scoring it; without `--strict` it prints the message and
+exits 0. `check` validates one file without the gateway.
 
 ## Writing your own with an AI assistant
 
