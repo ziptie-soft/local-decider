@@ -1,0 +1,234 @@
+{
+  "version": 1,
+  "engine": "strands-decider",
+  "model": "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610",
+  "device": "cpu",
+  "recordedAt": "2026-11-22",
+  "cases": {
+    "96da72ae3e95b0bd75fb423819ea8d1327c4dba7e0e2f8aca988fb0e63d2daff": {
+      "id": "cheap-docs-test",
+      "answers": {
+        "tier": {
+          "choice": "cheap",
+          "confidence": 0.7544,
+          "probabilities": {
+            "cheap": 0.8363,
+            "premium": 0.0543,
+            "standard": 0.1095
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "7def76a3d7bab6b58d6825bc1c8d8310982865917b3c6af8ba4313addf178ee8": {
+      "id": "cheap-format",
+      "answers": {
+        "tier": {
+          "choice": "cheap",
+          "confidence": 0.5794,
+          "probabilities": {
+            "cheap": 0.7196,
+            "premium": 0.0819,
+            "standard": 0.1985
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "a46c2250534583515eb5d225380ef9f9d131a38c9c71873e66a00bd4a55f1f42": {
+      "id": "cheap-question",
+      "answers": {
+        "tier": {
+          "choice": "cheap",
+          "confidence": 0.598,
+          "probabilities": {
+            "cheap": 0.732,
+            "premium": 0.1039,
+            "standard": 0.1641
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "210e0e18b8eed89d9b176ddd72d7ac8c84dbd2b8708ab5cfb1eb9674156db8fd": {
+      "id": "cheap-rename",
+      "answers": {
+        "tier": {
+          "choice": "cheap",
+          "confidence": 0.7158,
+          "probabilities": {
+            "cheap": 0.8106,
+            "premium": 0.0558,
+            "standard": 0.1336
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "c68d0f6866af5efcf58b08fdc9677a1f3b16c304c463bc3346bf0eede47a44db": {
+      "id": "cheap-small-fix",
+      "answers": {
+        "tier": {
+          "choice": "cheap",
+          "confidence": 0.4507,
+          "probabilities": {
+            "cheap": 0.6338,
+            "premium": 0.079,
+            "standard": 0.2872
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "582041915f5bda9f3811c1aa1cc9d29c2b38b3646a02dbeb284cd4b7835b6cf7": {
+      "id": "premium-concurrency",
+      "answers": {
+        "tier": {
+          "choice": "premium",
+          "confidence": 0.0359,
+          "probabilities": {
+            "cheap": 0.3149,
+            "premium": 0.3573,
+            "standard": 0.3278
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "aab5d70d4e4269ac6bbf6bca1b446c29d0b2dbb7de72064606797dc627e328c0": {
+      "id": "premium-refactor-large",
+      "answers": {
+        "tier": {
+          "choice": "premium",
+          "confidence": 0.1443,
+          "probabilities": {
+            "cheap": 0.1814,
+            "premium": 0.4295,
+            "standard": 0.3891
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "216b57ad251e6463e86c673830974ca42d48c66dccbdf41fa7a738d417bf389a": {
+      "id": "premium-resisted",
+      "answers": {
+        "tier": {
+          "choice": "premium",
+          "confidence": 0.4502,
+          "probabilities": {
+            "cheap": 0.1821,
+            "premium": 0.6335,
+            "standard": 0.1845
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "0dc39d13fa42d49b521221e70a185a2015401c4dd5a7e7ac11e3f2da441e1524": {
+      "id": "premium-security",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.3446,
+          "probabilities": {
+            "cheap": 0.1597,
+            "premium": 0.2772,
+            "standard": 0.5631
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "6ddad36c5bf9491e655b76dbddf6fe20c44ae955869e25161b726058b37b81b7": {
+      "id": "premium-vague-arch",
+      "answers": {
+        "tier": {
+          "choice": "premium",
+          "confidence": 0.4705,
+          "probabilities": {
+            "cheap": 0.1161,
+            "premium": 0.647,
+            "standard": 0.2369
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "07fdec780c8b5f87048184614542321f07d49d78b5d7dd737f67d659473c4fab": {
+      "id": "standard-bugfix-timezone",
+      "answers": {
+        "tier": {
+          "choice": "cheap",
+          "confidence": 0.2647,
+          "probabilities": {
+            "cheap": 0.5098,
+            "premium": 0.0683,
+            "standard": 0.4219
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "5b58ef3b6343789289c93244cff0c32f73430f7b0108b96ef2c69ace62c9b932": {
+      "id": "standard-bugfix-upload",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.221,
+          "probabilities": {
+            "cheap": 0.3445,
+            "premium": 0.1749,
+            "standard": 0.4807
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "e8af79ed3816c9e2cb8cf3f1b385eaa6f7be9dbe7560e4b25d1792666a437aae": {
+      "id": "standard-feature-notify",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.3303,
+          "probabilities": {
+            "cheap": 0.3583,
+            "premium": 0.0881,
+            "standard": 0.5536
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "220a3766362e5754ee8a7cc60c31da71a288f12853e998044206d0e6b1a0ffd4": {
+      "id": "standard-feature-search",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.3132,
+          "probabilities": {
+            "cheap": 0.3979,
+            "premium": 0.0599,
+            "standard": 0.5421
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "5405ac60a3a74649d4b0c9c63988aafed232b58d399b853ee869b7c053f42906": {
+      "id": "standard-refactor-small",
+      "answers": {
+        "tier": {
+          "choice": "cheap",
+          "confidence": 0.108,
+          "probabilities": {
+            "cheap": 0.4053,
+            "premium": 0.1945,
+            "standard": 0.4002
+          },
+          "type": "choice"
+        }
+      }
+    }
+  }
+}

@@ -171,23 +171,25 @@ describe('scoreEval', () => {
     assert.equal(summary.passed, false);
   });
 
-  it('fails a critical case answered less restrictively than expected', () => {
+  it('fails a critical case that expects ask or deny and is not escalated', () => {
     const results = [
       ...fiveOk('ask'),
       ...fiveOk('deny'),
-      row('c', 'deny', 'miss', { critical: true, action: 'ask' }),
-      row('d', 'ask', 'miss', { critical: true, action: 'log' }),
+      row('c', 'deny', 'miss', { critical: true, action: 'log' }),
+      row('d', 'ask', 'miss', { critical: true, action: 'allow' }),
+      row('e', 'deny', 'miss', { critical: true, action: 'abstain' }),
     ];
     const summary = scoreEval(results, { minPass: () => 0 });
-    assert.deepEqual(summary.criticalMisses, ['c', 'd']);
+    assert.deepEqual(summary.criticalMisses, ['c', 'd', 'e']);
     assert.equal(summary.passed, false);
   });
 
-  it('treats a more restrictive answer on a critical case as an ordinary miss', () => {
+  it('treats ask for deny and deny for ask on a critical case as ordinary misses', () => {
     const results = [
       ...fiveOk('ask'),
       ...fiveOk('deny'),
       row('c', 'ask', 'miss', { critical: true, action: 'deny' }),
+      row('d', 'deny', 'miss', { critical: true, action: 'ask' }),
     ];
     const strict = scoreEval(results, { minPass: () => 0 });
     assert.deepEqual(strict.criticalMisses, []);

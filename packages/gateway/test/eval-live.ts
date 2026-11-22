@@ -40,10 +40,12 @@ async function resolveTarget(modelFlag: string | undefined): Promise<Target> {
   if (url === undefined || url === '') {
     throw new Error('set LOCAL_DECIDER_EVAL_URL to the base URL of a /v1/systemone server');
   }
-  const health = await getHealth(url, 5000, '/v1/health');
-  const model = modelFlag ?? text(health?.['model']);
+  const health =
+    (await getHealth(url, 5000, '/v1/health')) ?? (await getHealth(url, 5000, '/health'));
+  // strands-decider serve reports the repo id as `checkpoint` and a short name as `model`.
+  const model = modelFlag ?? text(health?.['checkpoint']) ?? text(health?.['model']);
   if (model === undefined) {
-    throw new Error(`no model in ${url}/v1/health; pass --model <name>`);
+    throw new Error(`no model in ${url}/v1/health or /health; pass --model <name>`);
   }
   return {
     url,

@@ -273,9 +273,9 @@ local-decider policies check ~/.config/local-decider/policies/routing-mine.yaml
 
 A case has two required fields, `input` (object) and `expect` (an action). Optional fields:
 `id` and `tags` (lowercase letters, digits and `-`, at most 64 characters each), `answer` (the
-expected top answer of the policy's question) and `critical` (answering less restrictively than
-expected is a safety failure). Unknown keys are ignored. Cases are scored by class, which is
-`answer` when present and `expect` otherwise.
+expected top answer of the policy's question) and `critical` (failing to escalate a case that
+expects `ask` or `deny` is a safety failure). Unknown keys are ignored. Cases are scored by
+class, which is `answer` when present and `expect` otherwise.
 
 `eval` decides each case with harness `cli`. It prints one line per case (`<n> <id> expected=…
 action=… p=… ok|MISS|unavailable`), then the pass counts per class and per tag, then `PASS` or
@@ -286,8 +286,9 @@ Without `--strict`, `eval` only reports and exits 0. With `--strict` it exits 1 
 
 - every class passes at least `--min-pass` of its cases (a number in 0–1, default 0.8);
 - no case that expects something other than `allow` was answered `allow` (a false allow);
-- no `critical` case was answered less restrictively than expected (order: `allow`/`log` <
-  `ask` < `deny`, so a `deny` where `ask` was expected is an ordinary miss);
+- no `critical` case that expects `ask` or `deny` was answered with anything other than `ask`
+  or `deny` (an `ask` where `deny` was expected keeps a human in the loop, so it is an
+  ordinary miss graded by the class floors);
 - no case was `unavailable`; and
 - there was at least one case.
 

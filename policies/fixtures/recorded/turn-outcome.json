@@ -1,0 +1,329 @@
+{
+  "version": 1,
+  "engine": "strands-decider",
+  "model": "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610",
+  "device": "cpu",
+  "recordedAt": "2026-11-22",
+  "cases": {
+    "c23422b45b2db5c672695c5ef9f6e3a3d6fc63afb5789c6e9f969e03badf5616": {
+      "id": "done-dependency-bump",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.9044,
+          "probabilities": {
+            "done": 0.9283,
+            "failed": 0.024,
+            "needs_input": 0.0377,
+            "stuck": 0.01
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "5d727fcb58b636c85965313261d2cab3196346ebafa78e47a6f62c248f59bbf9": {
+      "id": "done-explain",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.8628,
+          "probabilities": {
+            "done": 0.8971,
+            "failed": 0.0217,
+            "needs_input": 0.0574,
+            "stuck": 0.0238
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "db91ba3105eb6d78545e4c0415c891e6f13299652ef9c0a353cbde08f781700c": {
+      "id": "done-flag-added",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.8736,
+          "probabilities": {
+            "done": 0.9052,
+            "failed": 0.0235,
+            "needs_input": 0.0588,
+            "stuck": 0.0124
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "e24961475707ef18658a1763172d39379dd195fb3ff12f06f49d8b7b5d02611f": {
+      "id": "done-rename",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.8748,
+          "probabilities": {
+            "done": 0.9061,
+            "failed": 0.0294,
+            "needs_input": 0.0513,
+            "stuck": 0.0132
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "79cdbd475592d9e94388f68a0c061edae1a8900bfdbc1917ca44c34dc64bba20": {
+      "id": "done-typo",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.8794,
+          "probabilities": {
+            "done": 0.9095,
+            "failed": 0.0178,
+            "needs_input": 0.0593,
+            "stuck": 0.0134
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "3648539ab9af8f3525aece7ad3bfdb07fcbe2088f69e16ca591e9052d89d73b2": {
+      "id": "failed-bundle",
+      "answers": {
+        "outcome": {
+          "choice": "failed",
+          "confidence": 0.8738,
+          "probabilities": {
+            "done": 0.0466,
+            "failed": 0.9054,
+            "needs_input": 0.032,
+            "stuck": 0.0161
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "8fa41afd004171a95852f8b9e2d748bda29186292f0162040ccc8e6e83b6e6e1": {
+      "id": "failed-registry-403",
+      "answers": {
+        "outcome": {
+          "choice": "failed",
+          "confidence": 0.8553,
+          "probabilities": {
+            "done": 0.0715,
+            "failed": 0.8914,
+            "needs_input": 0.0251,
+            "stuck": 0.012
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "e2438ee1f2b6d26b3d6bed98fa8cfc07821721d922d30aafecfff67deea6e32b": {
+      "id": "failed-snapshot-tests",
+      "answers": {
+        "outcome": {
+          "choice": "failed",
+          "confidence": 0.7661,
+          "probabilities": {
+            "done": 0.0785,
+            "failed": 0.8246,
+            "needs_input": 0.0773,
+            "stuck": 0.0196
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "b54966e0a29853c9c1def16341170f7194c3824100539e63d9fdaa8dd9890444": {
+      "id": "failed-tests-red",
+      "answers": {
+        "outcome": {
+          "choice": "failed",
+          "confidence": 0.7176,
+          "probabilities": {
+            "done": 0.1039,
+            "failed": 0.7882,
+            "needs_input": 0.0801,
+            "stuck": 0.0278
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "1b1af344f0b80fc19ecab41f331eca2fe14d1d4b567423e8feca8cea0f3eff2a": {
+      "id": "failed-type-errors",
+      "answers": {
+        "outcome": {
+          "choice": "failed",
+          "confidence": 0.7119,
+          "probabilities": {
+            "done": 0.0798,
+            "failed": 0.7839,
+            "needs_input": 0.0973,
+            "stuck": 0.039
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "511db6aa3bd411b010b5fe3c96737881e6ec918a211c3a995787c5dfa1f55998": {
+      "id": "needs-input-api-version",
+      "answers": {
+        "outcome": {
+          "choice": "needs_input",
+          "confidence": 0.8604,
+          "probabilities": {
+            "done": 0.0708,
+            "failed": 0.0129,
+            "needs_input": 0.8953,
+            "stuck": 0.021
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "37f4dab54b82fa6e34ad1c0fe582d0cb6dadaa4a7231afcfbfcae333701fda29": {
+      "id": "needs-input-config",
+      "answers": {
+        "outcome": {
+          "choice": "needs_input",
+          "confidence": 0.8719,
+          "probabilities": {
+            "done": 0.0694,
+            "failed": 0.0119,
+            "needs_input": 0.9039,
+            "stuck": 0.0147
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "f0768c49746959df315efd05b2ecd54c1afbcf54c22a9e7df710066be2d30ec0": {
+      "id": "needs-input-database",
+      "answers": {
+        "outcome": {
+          "choice": "needs_input",
+          "confidence": 0.9217,
+          "probabilities": {
+            "done": 0.0385,
+            "failed": 0.0079,
+            "needs_input": 0.9413,
+            "stuck": 0.0124
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "bc95b840151d614978b8191ec21cf6673790a79e35c0e65f6cfa452ed8a91203": {
+      "id": "needs-input-delete-migrations",
+      "answers": {
+        "outcome": {
+          "choice": "needs_input",
+          "confidence": 0.9037,
+          "probabilities": {
+            "done": 0.0534,
+            "failed": 0.0076,
+            "needs_input": 0.9278,
+            "stuck": 0.0113
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "b8263ad84ff6476a2b02583721b913d26e3f48df1c7d7839e6dd50716bfd037f": {
+      "id": "needs-input-push",
+      "answers": {
+        "outcome": {
+          "choice": "needs_input",
+          "confidence": 0.6267,
+          "probabilities": {
+            "done": 0.2614,
+            "failed": 0.0085,
+            "needs_input": 0.72,
+            "stuck": 0.01
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "fd29ff515f8371ac1a4d14776138759d110b98b082aaa81795372b32ebda71b2": {
+      "id": "stuck-gave-up",
+      "answers": {
+        "outcome": {
+          "choice": "stuck",
+          "confidence": 0.6212,
+          "probabilities": {
+            "done": 0.0607,
+            "failed": 0.1966,
+            "needs_input": 0.0268,
+            "stuck": 0.7159
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "989aacd67e4777d28ac3837a01c10bb8c233c3a85e1e8036f7818e7d34b234d6": {
+      "id": "stuck-repeat-listing",
+      "answers": {
+        "outcome": {
+          "choice": "stuck",
+          "confidence": 0.4746,
+          "probabilities": {
+            "done": 0.2151,
+            "failed": 0.0378,
+            "needs_input": 0.1412,
+            "stuck": 0.606
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "50cc296fb764d26414b9e50742fea7c8211e83c23622685f9c51d3312b9e6f01": {
+      "id": "stuck-retry-build",
+      "answers": {
+        "outcome": {
+          "choice": "failed",
+          "confidence": 0.607,
+          "probabilities": {
+            "done": 0.0289,
+            "failed": 0.7053,
+            "needs_input": 0.028,
+            "stuck": 0.2378
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "2794edaa1575ec423a450a26ae0db65856d95a9376d49de66388c82d48b1c2f5": {
+      "id": "stuck-same-fix",
+      "answers": {
+        "outcome": {
+          "choice": "failed",
+          "confidence": 0.5198,
+          "probabilities": {
+            "done": 0.0505,
+            "failed": 0.6399,
+            "needs_input": 0.0458,
+            "stuck": 0.2639
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "1946e5589bc4ef004e42b643a590e562850d0dc0893804a610cdca571fa65eb5": {
+      "id": "stuck-stopped-partway",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.631,
+          "probabilities": {
+            "done": 0.7233,
+            "failed": 0.0371,
+            "needs_input": 0.1128,
+            "stuck": 0.1267
+          },
+          "type": "choice"
+        }
+      }
+    }
+  }
+}

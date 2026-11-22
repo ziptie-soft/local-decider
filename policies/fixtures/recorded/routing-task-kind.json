@@ -1,0 +1,434 @@
+{
+  "version": 1,
+  "engine": "strands-decider",
+  "model": "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610",
+  "device": "cpu",
+  "recordedAt": "2026-11-22",
+  "cases": {
+    "e0d3f2afb97d413be77142c3bc09278ab8fb02a8a57fbf7e9f5a2928b6a54540": {
+      "id": "code-add-endpoint",
+      "answers": {
+        "kind": {
+          "choice": "code",
+          "confidence": 0.9374,
+          "probabilities": {
+            "code": 0.9499,
+            "debug": 0.0124,
+            "docs": 0.0093,
+            "plan": 0.0215,
+            "ui": 0.0068
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "c98947309ae0efdb34f6192dd4a0dcbd226890c32ed76f83d74584ecbad347f4": {
+      "id": "code-null-fix",
+      "answers": {
+        "kind": {
+          "choice": "code",
+          "confidence": 0.8835,
+          "probabilities": {
+            "code": 0.9068,
+            "debug": 0.0655,
+            "docs": 0.0078,
+            "plan": 0.0134,
+            "ui": 0.0065
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "c8bb097fabdaea3b4b8dee800ec64b29a4a0a1bc5e939cef1dcfd52ff24ac394": {
+      "id": "code-pagination",
+      "answers": {
+        "kind": {
+          "choice": "code",
+          "confidence": 0.9562,
+          "probabilities": {
+            "code": 0.965,
+            "debug": 0.0096,
+            "docs": 0.0063,
+            "plan": 0.0138,
+            "ui": 0.0053
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "228a24375479bd18555be0298ea9b2e7eb7a3fb0abd6e22208927ed85bb8ee9f": {
+      "id": "code-refactor-known",
+      "answers": {
+        "kind": {
+          "choice": "code",
+          "confidence": 0.9582,
+          "probabilities": {
+            "code": 0.9666,
+            "debug": 0.0108,
+            "docs": 0.0072,
+            "plan": 0.0105,
+            "ui": 0.0049
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "6b038c03e86ff1001dfb11cac33631c0d090db373ae71707f0ffd2bef4cddc03": {
+      "id": "code-unit-tests",
+      "answers": {
+        "kind": {
+          "choice": "code",
+          "confidence": 0.942,
+          "probabilities": {
+            "code": 0.9536,
+            "debug": 0.0169,
+            "docs": 0.0079,
+            "plan": 0.0165,
+            "ui": 0.0051
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "9401c37b294364d0a2e7a1d2af769400b23085981eebe366b997c072f8e5d6f0": {
+      "id": "debug-crash",
+      "answers": {
+        "kind": {
+          "choice": "debug",
+          "confidence": 0.9224,
+          "probabilities": {
+            "code": 0.0516,
+            "debug": 0.9379,
+            "docs": 0.0034,
+            "plan": 0.0047,
+            "ui": 0.0024
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "568bdef52a2c22e187744e9dce7dba2af701541d987bc062d53a079b176d6ea6": {
+      "id": "debug-flaky-test",
+      "answers": {
+        "kind": {
+          "choice": "debug",
+          "confidence": 0.9752,
+          "probabilities": {
+            "code": 0.0138,
+            "debug": 0.9802,
+            "docs": 0.002,
+            "plan": 0.0024,
+            "ui": 0.0016
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "218b08ec8dd73894dd18d31e1c092042b4e007e746440e22b77a909391848e42": {
+      "id": "debug-memory-growth",
+      "answers": {
+        "kind": {
+          "choice": "debug",
+          "confidence": 0.9103,
+          "probabilities": {
+            "code": 0.052,
+            "debug": 0.9283,
+            "docs": 0.0063,
+            "plan": 0.0099,
+            "ui": 0.0035
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "a15315b2ce5a99cb8d06ccaf6d26f221610fa20b5c2a695e2e6fcc3747b5b409": {
+      "id": "debug-slow-query",
+      "answers": {
+        "kind": {
+          "choice": "debug",
+          "confidence": 0.9411,
+          "probabilities": {
+            "code": 0.0182,
+            "debug": 0.9529,
+            "docs": 0.0061,
+            "plan": 0.0056,
+            "ui": 0.0172
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "4d33a9fb457b2dd464b01f764ad58c5bb6a47be58d4407c77fafadb8b541710d": {
+      "id": "debug-wrong-total",
+      "answers": {
+        "kind": {
+          "choice": "debug",
+          "confidence": 0.8082,
+          "probabilities": {
+            "code": 0.1296,
+            "debug": 0.8465,
+            "docs": 0.0068,
+            "plan": 0.012,
+            "ui": 0.0051
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "739fbc679d7b37cffabe68c82664e7e5027b01649ff79f93ea5db6e8e263a6a0": {
+      "id": "docs-api-guide",
+      "answers": {
+        "kind": {
+          "choice": "docs",
+          "confidence": 0.8381,
+          "probabilities": {
+            "code": 0.0874,
+            "debug": 0.009,
+            "docs": 0.8705,
+            "plan": 0.0236,
+            "ui": 0.0095
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "ac8aaaa0bd7a587185104ba3ab45d995ea92de1124ddd7948051bf7d160361cc": {
+      "id": "docs-changelog",
+      "answers": {
+        "kind": {
+          "choice": "docs",
+          "confidence": 0.9629,
+          "probabilities": {
+            "code": 0.014,
+            "debug": 0.0041,
+            "docs": 0.9703,
+            "plan": 0.0071,
+            "ui": 0.0044
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "3de73e845af81babe4b18f0116cd2f7864d064b42477b35e27a5789d5525361a": {
+      "id": "docs-commit-message",
+      "answers": {
+        "kind": {
+          "choice": "docs",
+          "confidence": 0.9436,
+          "probabilities": {
+            "code": 0.0249,
+            "debug": 0.0058,
+            "docs": 0.9548,
+            "plan": 0.0093,
+            "ui": 0.0051
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "ebf3cd08cb456e2130683504fd7af6ed7a40f7a827eab8629567abe657b61b95": {
+      "id": "docs-jsdoc",
+      "answers": {
+        "kind": {
+          "choice": "docs",
+          "confidence": 0.6437,
+          "probabilities": {
+            "code": 0.2675,
+            "debug": 0.0057,
+            "docs": 0.715,
+            "plan": 0.0071,
+            "ui": 0.0048
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "f73f344b48eb25d11edab0a9e3d758b8471a605dd6d50b99227ea3b96fbb76ab": {
+      "id": "docs-readme-install",
+      "answers": {
+        "kind": {
+          "choice": "docs",
+          "confidence": 0.9189,
+          "probabilities": {
+            "code": 0.0482,
+            "debug": 0.004,
+            "docs": 0.9351,
+            "plan": 0.0084,
+            "ui": 0.0042
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "0ee763852815097ca69cb97cf34b7574ca98dcd568c1da612ed544cfd83a3c6b": {
+      "id": "plan-auth-design",
+      "answers": {
+        "kind": {
+          "choice": "plan",
+          "confidence": 0.9751,
+          "probabilities": {
+            "code": 0.011,
+            "debug": 0.0027,
+            "docs": 0.0036,
+            "plan": 0.9801,
+            "ui": 0.0025
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "65db27684b9bbfa1b0faae5e59c6cb0f5210ca580fe14230e58cd3164194383a": {
+      "id": "plan-caching-options",
+      "answers": {
+        "kind": {
+          "choice": "plan",
+          "confidence": 0.912,
+          "probabilities": {
+            "code": 0.0499,
+            "debug": 0.0132,
+            "docs": 0.0044,
+            "plan": 0.9296,
+            "ui": 0.0029
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "af9a4eb32d901e0de0df07209aeffa7a0cf3ad7f12fff6ff645f105da5e3fcd5": {
+      "id": "plan-migration-strategy",
+      "answers": {
+        "kind": {
+          "choice": "plan",
+          "confidence": 0.9546,
+          "probabilities": {
+            "code": 0.0187,
+            "debug": 0.0034,
+            "docs": 0.0103,
+            "plan": 0.9637,
+            "ui": 0.0039
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "297524ae4f72ae9a278941ce743b09e24c8f794f602379175d1552a03a3a2eb4": {
+      "id": "plan-queue-options",
+      "answers": {
+        "kind": {
+          "choice": "plan",
+          "confidence": 0.9748,
+          "probabilities": {
+            "code": 0.011,
+            "debug": 0.0036,
+            "docs": 0.0034,
+            "plan": 0.9799,
+            "ui": 0.0022
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "202b3089d3df9d55a49581199737088c8c2ed6820257232ce4405367efecf45d": {
+      "id": "plan-review-architecture",
+      "answers": {
+        "kind": {
+          "choice": "plan",
+          "confidence": 0.8761,
+          "probabilities": {
+            "code": 0.021,
+            "debug": 0.0087,
+            "docs": 0.0454,
+            "plan": 0.9009,
+            "ui": 0.0239
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "98ca704f9367be31484e2c262265c6e429627baee313ed1b7ef213a256c487d6": {
+      "id": "ui-aria-labels",
+      "answers": {
+        "kind": {
+          "choice": "ui",
+          "confidence": 0.8926,
+          "probabilities": {
+            "code": 0.0756,
+            "debug": 0.0034,
+            "docs": 0.0029,
+            "plan": 0.004,
+            "ui": 0.9141
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "ee92dc387be352f30fbdf72cdeb897b4dad7b3ff95abcbe30e5f91a027986aa9": {
+      "id": "ui-card-component",
+      "answers": {
+        "kind": {
+          "choice": "ui",
+          "confidence": 0.9018,
+          "probabilities": {
+            "code": 0.0655,
+            "debug": 0.003,
+            "docs": 0.0022,
+            "plan": 0.0078,
+            "ui": 0.9215
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "3ecc63cb3c97da6013ff011481d40f7d10a632c57e90b0d1a1655c6e631272c3": {
+      "id": "ui-center-modal",
+      "answers": {
+        "kind": {
+          "choice": "ui",
+          "confidence": 0.8393,
+          "probabilities": {
+            "code": 0.1079,
+            "debug": 0.0114,
+            "docs": 0.0033,
+            "plan": 0.006,
+            "ui": 0.8714
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "3d17897467942c9f026984960ec3be57cbca78ba8c10aae5cbbb1bbed3450f33": {
+      "id": "ui-dark-mode",
+      "answers": {
+        "kind": {
+          "choice": "ui",
+          "confidence": 0.9068,
+          "probabilities": {
+            "code": 0.0585,
+            "debug": 0.0047,
+            "docs": 0.0043,
+            "plan": 0.0072,
+            "ui": 0.9254
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "4232d222b49da84dda06d9ea10e0ce6bc89748699fa141f072773dfd5ea282e5": {
+      "id": "ui-table-sorting",
+      "answers": {
+        "kind": {
+          "choice": "code",
+          "confidence": 0.599,
+          "probabilities": {
+            "code": 0.6792,
+            "debug": 0.0067,
+            "docs": 0.0045,
+            "plan": 0.0079,
+            "ui": 0.3017
+          },
+          "type": "choice"
+        }
+      }
+    }
+  }
+}
