@@ -60,3 +60,21 @@ export function pathBlock(cwd: string, path: string): string | null {
   }
   return isProtected(relative) ? `protected path: ${path}` : null;
 }
+
+export interface PathLocation {
+  readonly where: 'inside' | 'protected' | 'outside';
+  /** The path under `cwd` (`.` for `cwd` itself) when inside; else the path as given. */
+  readonly shown: string;
+}
+
+/** Where `path` is relative to `cwd`, for describing a call; pure string work like `pathBlock`. */
+export function locatePath(cwd: string, path: string): PathLocation {
+  const relative = insideCwd(cwd, path.replaceAll('\\', '/'));
+  if (relative === null) {
+    return { where: 'outside', shown: path };
+  }
+  return {
+    where: isProtected(relative) ? 'protected' : 'inside',
+    shown: relative.length === 0 ? '.' : relative.join('/'),
+  };
+}

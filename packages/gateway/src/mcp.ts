@@ -43,7 +43,7 @@ export function policyInfo(policy: Policy): McpPolicyInfo {
     id: policy.id,
     description: policy.description,
     mcp: mcpOpen(policy),
-    inputKeys: [...new Set(policy.state.sections.map((s) => s.from))],
+    inputKeys: [...new Set(policy.state.sections.map((s) => s.from))].filter((k) => k !== 'facts'),
     questions: Object.fromEntries(
       Object.entries(policy.questions).map(([id, question]) => [
         id,

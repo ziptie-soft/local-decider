@@ -1,6 +1,9 @@
 import {
   buildState,
   type BuiltState,
+  callFacts,
+  type FactGroup,
+  SHIPPED_FACTS,
   canonicalJson,
   CHARS_PER_TOKEN,
   evaluateRules,
@@ -145,6 +148,8 @@ export interface DeciderOptions {
   readonly now?: () => Date;
   /** How long an engine job that ignores its deadline keeps the engine; default 1 s. For tests. */
   readonly queueGraceMs?: number;
+  /** Fact groups derived for policies with a `facts` section; default {@link SHIPPED_FACTS}. */
+  readonly facts?: readonly FactGroup[];
 }
 
 interface CacheEntry {
@@ -209,6 +214,7 @@ export class Decider {
   readonly #log: LogStore;
   readonly #timeoutMs: number;
   readonly #now: () => Date;
+  readonly #factGroups: ReadonlySet<FactGroup>;
   readonly #queue: SerialQueue;
   /** Decisions waiting for a managed engine to load (outside the queue). */
   #preparing = 0;
@@ -245,6 +251,7 @@ export class Decider {
     this.#log = options.log;
     this.#timeoutMs = options.decisionTimeoutMs;
     this.#now = options.now ?? (() => new Date());
+    this.#factGroups = new Set(options.facts ?? SHIPPED_FACTS);
     this.#precedent = new PrecedentStore(
       (id) => this.#policies.get(id)?.policy.precedent,
       () => this.#now().getTime(),
@@ -605,7 +612,11 @@ export class Decider {
     }
     const input = redactDeep(request.input);
     const precedent = this.#precedentFor(policy, input, request.workspace?.cwd);
-    const { state, questions, hash, truncated, criticalCut } = this.#state(policy, input);
+    const { state, questions, hash, truncated, criticalCut } = this.#state(
+      policy,
+      input,
+      request.workspace?.cwd,
+    );
     const admitted = admission(mode, policy, signal, request.budgetMs);
     const result = await this.#answers(
       { state, questions },
@@ -656,13 +667,40 @@ export class Decider {
     }
   }
 
+  /** Derived facts for a policy that reads them, redacted again; `''` when none apply. */
+  #facts(
+    policy: Policy,
+    input: Readonly<Record<string, unknown>>,
+    cwd: string | undefined,
+  ): string {
+    if (!policy.state.sections.some((s) => s.from === 'facts')) {
+      return '';
+    }
+    const request = input['request'];
+    const tool = typeof input['tool'] === 'string' ? input['tool'] : undefined;
+    const text = callFacts(
+      tool,
+      typeof request === 'object' && request !== null ? request : input['command'],
+      cwd,
+      this.#factGroups,
+    );
+    return redactSecrets(text).text;
+  }
+
   /** What the model reads for `input` (redacted), the questions, their hash and what was cut. */
   #state(
     policy: Policy,
     input: Readonly<Record<string, unknown>>,
+    cwd: string | undefined,
   ): BuiltState & { questions: Questions; hash: string; state: string } {
     const modelInput = { ...input };
     delete modelInput['subject'];
+    // `facts` is derived here from the redacted input; a client-sent value is never used.
+    delete modelInput['facts'];
+    const facts = this.#facts(policy, input, cwd);
+    if (facts !== '') {
+      modelInput['facts'] = facts;
+    }
     if (policy.precedent !== undefined) {
       delete modelInput[policy.precedent.from];
     }

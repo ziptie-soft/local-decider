@@ -79,6 +79,21 @@ describe('MCP tools', () => {
     assert.deepEqual(called, ['turn-outcome']);
   });
 
+  it("keeps the reserved facts key out of a policy's input keys", () => {
+    const base = policy('with-facts');
+    const withFacts = {
+      ...base,
+      state: {
+        ...base.state,
+        sections: [
+          { label: 'Call facts', from: 'facts', keep: 'head' as const, critical: false },
+          ...base.state.sections,
+        ],
+      },
+    };
+    assert.deepEqual(policyInfo(withFacts).inputKeys, ['request']);
+  });
+
   it('lists only open policies, with questions and options but no thresholds', async () => {
     const client = await connect([]);
     const raw = text(await client.callTool({ name: 'policies', arguments: {} }));

@@ -1,4 +1,4 @@
-import type { DecideRequest } from '@ziptie-soft/local-decider-core';
+import type { DecideRequest, FactGroup } from '@ziptie-soft/local-decider-core';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,7 +53,11 @@ const NO_LOG: LogStore = {
 };
 
 /** One policy in shadow mode with caching off, answered by `engine`. */
-function deciderFor(policyId: string, engine: Engine): Decider {
+function deciderFor(
+  policyId: string,
+  engine: Engine,
+  facts: readonly FactGroup[] | undefined,
+): Decider {
   const policy = loadPolicyFile(join(POLICIES_DIR, `${policyId}.yaml`));
   const loaded: LoadedPolicy = {
     policy: { ...policy, cache: { ttlSeconds: 0 } },
@@ -65,6 +69,7 @@ function deciderFor(policyId: string, engine: Engine): Decider {
     policies: new Map([[policyId, loaded]]),
     log: NO_LOG,
     decisionTimeoutMs: EVAL_TIMEOUT_MS,
+    ...(facts === undefined ? {} : { facts }),
   });
 }
 
@@ -77,6 +82,8 @@ export interface EvalFixtureOptions {
   readonly report?: (line: string) => void;
   /** Called with the case id before its decision, e.g. to label a recording. */
   readonly onCase?: (id: string) => void;
+  /** Fact groups the decider derives for policies with a `facts` section; default the shipped set. */
+  readonly facts?: readonly FactGroup[];
 }
 
 /** Decide every case of `policies/fixtures/<policyId>.jsonl` through `engine`. */
@@ -89,7 +96,7 @@ export async function evalFixture(
   const ids = new Map<DecideRequest['input'], string>(
     cases.map((testCase, index) => [testCase.input, testCase.id ?? String(index + 1)]),
   );
-  const decider = deciderFor(policyId, engine);
+  const decider = deciderFor(policyId, engine, options.facts);
   return runPolicyEval(
     policyId,
     cases,

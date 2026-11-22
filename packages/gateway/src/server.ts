@@ -599,7 +599,7 @@ function route(method: string, path: string): Handler | undefined {
           description: policy.description,
           mcp: mcpOpen(policy),
           questions: policyInfo(policy).questions,
-          inputKeys: policy.state.sections.map((s) => s.from),
+          inputKeys: policy.state.sections.map((s) => s.from).filter((k) => k !== 'facts'),
           routes: policyRoutes(policy),
           thresholds: decider.thresholdsOf(policy.id),
           ...(policy.variantOf === undefined

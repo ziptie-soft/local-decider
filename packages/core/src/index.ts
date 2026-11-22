@@ -1,4 +1,5 @@
 export { deterministicBlock } from './block.ts';
+export { callFacts, FACT_GROUPS, FACTS_MAX_CHARS, SHIPPED_FACTS, type FactGroup } from './facts.ts';
 export { canonicalJson, sortKeysDeep } from './canonical.ts';
 export {
   DEFAULT_GATEWAY_URL,
