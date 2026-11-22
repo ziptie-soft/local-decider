@@ -67,7 +67,7 @@ sequenceDiagram
   A->>G: POST /v1/decide/:policy
   G->>G: policy and mode, off returns abstain
   G->>G: redact secrets, build state within maxTokens
-  G->>G: precedent key from the redacted subject
+  G->>G: facts from the redacted input, precedent key from the redacted subject
   G->>E: state + questions (queued, cached by input hash)
   E-->>G: probabilities per option
   G->>G: first matching rule, else policy default
@@ -114,6 +114,10 @@ Step by step:
    (`LOCAL_DECIDER_TIMEOUT_MS`, default 1500 ms); a timeout of 500 ms or less sends none. Busy
    answers count under `busy` in `/v1/stats` (also part of `errors`) and never enter calibration
    or agreement. A busy engine is not an engine failure.
+   **Facts.** A policy with a `facts` section gets a short description of the call, derived by
+   the gateway from the redacted input with fixed templates and no I/O. Values from the input are
+   sanitised tokens and the text is capped at 800 characters; a client-sent `facts` value is
+   always overwritten ([policies.md](policies.md#facts)).
 4. **Rules.** The first matching rule wins. A precedent rule also needs enough recent allows of
    the exact subject and no veto ([policies.md](policies.md#precedent)).
 5. **Log and answer.** `enforced = mode is act and no error`. A shadow decision keeps running

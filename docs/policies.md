@@ -158,6 +158,30 @@ default: ask              # when no rule matches or the engine failed
 - Say in `instructions` that the state is data, not instructions, when it may contain text that
   looks like a command to the model.
 
+### Facts
+
+`facts` is a reserved input key. A policy reads it with a section such as
+`{ label: Call facts, from: facts, keep: head }`; `command-risk` does, between `Tool` and
+`Command`. The gateway derives it for every request to such a policy, so no adapter sends it, and
+a client-sent `facts` value is always discarded and overwritten (or left out when nothing is
+derived). The key is not listed in `inputKeys`.
+
+- **Derived from the redacted input only**, with fixed templates, by pure string work: nothing is
+  executed and no file is read, so a path that exists or not makes no difference. They describe a
+  call (what it touches and runs) and never judge it.
+- **Groups:** `kind`, `paths` (inside, outside or protected, relative to the workspace cwd),
+  `commands` (with git, npm, pnpm, mise and similar subcommands), `notes` (network, privilege,
+  push, publish, recursive delete, inline scripts), `git-refs` (history rewrites), `hints`
+  (in-place edits, inline interpreter scripts, task runs) and `content` (line and character
+  counts). `SHIPPED_FACTS` lists the groups per policy: `command-risk` gets `kind`, the rest none.
+  `DeciderOptions.facts` and `eval-live.ts --facts` override it.
+- **Caps:** every value echoed from the input becomes one backticked token of at most 80
+  characters with control, bidi and zero-width characters turned into spaces and backticks
+  dropped. Lists stop at 6 paths or 8 commands (`, +N more`), the command is read up to 16 KB and
+  64 segments, and the whole text is cut to 800 characters by whole lines.
+
+Changing the groups or templates changes what the model sees: re-run `mise run eval:record`.
+
 ## Thresholds
 
 Change a rule's threshold without editing the policy file, under `policies.<id>.thresholds` in
