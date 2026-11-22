@@ -522,6 +522,15 @@ verified, thresholded answer.
 ### H3 Codex and Claude Code end-to-end parity
 
 - **Priority:** P1. **Size:** S.
+- **Status:** done (2026-11-22) — the Codex hooks file uses `PLUGIN_ROOT` (native) with
+  `CLAUDE_PLUGIN_ROOT` as the fallback; the launcher runs the mise node shim from the plugin root,
+  so a project's `mise.toml` cannot trigger a node download or pin an unsupported node. A secret-free
+  install e2e (`mise run e2e:install`, CI job `e2e-install`, pinned CLIs in `mise.e2e.toml`) installs
+  the packed plugin into both harnesses and checks trust, routing and the bare-`PATH` fallback
+  against a stub gateway. The live e2e gained `e2e:claude-auto` and an isolated Codex run behind
+  `OPENAI_API_KEY`. The plugin README has the per-harness enforcement table, and a test pins the
+  `PreToolUse` matchers. Read, WebFetch and Agent stay unchecked on purpose (see the README).
+  Live runs are recorded in `docs/demos.md`.
 - **Problem:** Unverified: Codex runs hooks from marketplace-installed plugins, sets
   `CLAUDE_PLUGIN_ROOT` (`plugins/local-decider/hooks/codex-hooks.json:10`), and whether mise
   node shims resolve inside hook processes. Claude `PermissionRequest` may not fire in auto mode.
@@ -531,7 +540,40 @@ verified, thresholded answer.
   plugin root relative to the script; document the enforcement matrix in the plugin README;
   decide whether Read/WebFetch/Task should be risk-checked. Planned in:
   `docs/research/claude-codex-hooks.md`.
-- **Open questions:** does Codex re-trust hooks after every release (hash-based trust)?
+- **Answered:** Codex runs marketplace plugin hooks (CLI too) only once trusted, and re-trusts
+  after every release because the approval hashes every file of the plugin. In Claude auto mode
+  `PermissionRequest` fires only for rule, hook or setting asks; the mod covers the rest.
+
+### H4 Scripted fake-model e2e in CI
+
+- **Priority:** P2. **Size:** M.
+- **Problem:** The install e2e stops at `UserPromptSubmit`, so `PreToolUse`, `PermissionRequest`
+  and `Stop` are only checked by live runs that need logins and money.
+- **Direction:** a stub Anthropic Messages and OpenAI Responses SSE server that returns fixed tool
+  calls, so CI covers the tool events without secrets. The SSE formats drift with CLI releases:
+  pin the CLIs and update the stub with them.
+- **Open questions:** is the upkeep per CLI release worth it, next to the manual live runs?
+
+### H5 `doctor` check for Codex hook trust
+
+- **Priority:** P2. **Size:** S.
+- **Problem:** Every plugin update silently switches the Codex hooks off until `/hooks` is
+  reviewed again.
+- **Direction:** `local-decider doctor` reads `hooks.state` for `local-decider@*` in
+  `~/.codex/config.toml`, recomputes the `codex-plugin-bundle-v1` content hash of the cached plugin
+  and says "run /hooks". It copies a private Codex algorithm, so pin it to a Codex version and
+  keep the install e2e's untrusted-hooks check as the drift alarm.
+- **Open questions:** does Codex expose the hash or a trust status command?
+
+### H6 Guard for credential-store reads on Claude
+
+- **Priority:** P2. **Size:** S.
+- **Problem:** Read is not checked (a deliberate choice), so Claude can read `~/.ssh/id_*`,
+  `~/.aws/credentials` or `~/.config/gh/hosts.yml` without any hook seeing it. Codex reads through
+  the shell, which `command-risk` already sees.
+- **Direction:** a deny-only deterministic `PreToolUse` guard for Read of known credential
+  stores: no model call and no `ask`, so it does not touch auto mode's classifier path.
+- **Open questions:** which paths belong on the default list, and is there an opt-out?
 
 ### Install, release and CI
 

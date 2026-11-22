@@ -10,7 +10,11 @@ directory serves both harnesses ([ADR-0004](../../docs/adr/0004-marketplace-layo
   `hooks/local-decider-hook.sh`, which uses `node` from `PATH`, then
   `~/.local/share/mise/shims/node`, `/opt/homebrew/bin/node` and `/usr/local/bin/node`. On macOS
   a harness started from the Dock or Spotlight has a bare `PATH`, so a Homebrew or mise node is
-  still found. With no node at all the hook exits 0 silently (fail open).
+  still found. When the launcher uses the mise shim it runs it from the plugin directory, so the
+  shim picks your global node, not the one the project you are working in pins (which could
+  download a node, or pick one older than 20, inside the hook's 3 s timeout). A node found on
+  `PATH` runs in the harness's working directory as before. With no node at all the hook exits 0
+  silently (fail open).
 - For the auto-mode mod: Claude Code 2.1.304 or newer.
 - A running `local-decider` gateway, by default at `http://127.0.0.1:8765`
   ([install](../../docs/install.md)). Without it the hooks run only the deterministic guard.
@@ -32,7 +36,10 @@ codex plugin add local-decider@ziptie-soft
 ```
 
 Then open the Codex TUI and run `/hooks` to review and trust the plugin hooks. Codex does not run
-untrusted plugin hooks, and asks again whenever they change.
+untrusted plugin hooks, and `codex exec` skips them silently. The approval covers every file in
+the plugin, so **every plugin update needs a new `/hooks` review**: until you do, no hook runs.
+
+Claude Code needs no trust step.
 
 ## What each hook does
 
@@ -43,6 +50,31 @@ untrusted plugin hooks, and asks again whenever they change.
 | `UserPromptSubmit` | `routing` | add a hint naming the mapped model | same |
 | `PostToolUse` | none (async) | report your approval of a prompt as an outcome | not installed |
 | `Stop` | `turn-outcome` (async) | nothing: logged only | same |
+
+## Enforcement by mode
+
+What each path does when its policy is in `act`. In `shadow` every cell is "logged only".
+
+| Path | Claude default or acceptEdits | Claude auto | Claude `-p` (no prompt) | Codex (user or `auto_review`) |
+|---|---|---|---|---|
+| Guard (`PreToolUse`, deterministic) | deny | deny | deny | deny |
+| `command-risk` (`PreToolUse`) | deny or ask | deny; an ask forces a prompt and skips the classifier | deny; an ask is denied | deny only (ask dropped) |
+| `permission` (`PermissionRequest`) | allow at a prompt, else the prompt | only for rule, hook or setting asks | allow, else denied | allow (pre-empts `auto_review`); managed checkpoints still need a person |
+| `permission`, scope `claude-auto` (mod) | – | allows plain asks before the classifier | – | – |
+| `routing` (`UserPromptSubmit`) | hint | hint | hint | hint |
+| `turn-outcome` (`Stop`, `SubagentResult`) | logged | logged | logged | logged (no subagent result) |
+| Approved-prompt outcome (`PostToolUse`) | reported | – | – | – |
+
+Preconditions and limits:
+
+- Codex runs nothing until `/hooks` trusts the hooks, again after every plugin update.
+- Node 20 or newer on the harness's `PATH`, or one of the fallbacks under Requirements.
+- Read, Glob, Grep, WebFetch, WebSearch and Agent are never checked: `PreToolUse` matches only
+  `Bash`, the file-editing tools and `mcp__*` (Codex: `Bash`, `apply_patch`, `mcp__*`). A model
+  check on every Read would cost about 1.5 s on CPU engines and, in auto mode, a hook `ask` would
+  force a prompt past the classifier. A subagent's own tool calls pass through the parent
+  session's hooks, so Agent is covered that way. Codex has no Read or WebFetch tool to hook (it
+  reads through the shell), and its hosted web search cannot be hooked. A test pins the matchers.
 
 Policies ship in `shadow` mode: the gateway records what it would have done and the hooks change
 nothing until you switch a policy to `act`. The hooks never allow a tool call from `PreToolUse`
@@ -149,12 +181,25 @@ For Codex, point a personal `~/.agents/plugins/marketplace.json` at the checkout
 `{ "source": "local", "path": "<checkout>/plugins/local-decider" }`. Without a build the hooks
 exit 0 silently.
 
+Install end-to-end check, with no gateway, login or key (CI runs it as `e2e-install`):
+
+```sh
+mise run e2e:install   # or: mise run e2e:install codex
+```
+
+It packs the plugin, installs it from a local marketplace into Claude Code and Codex under a temp
+`HOME`, and starts each harness against a stub gateway and a model API that answers 400. Both
+harnesses run their first hooks before the first model call, so it checks that Codex runs nothing
+until trusted and that routing reaches the gateway under both, and that a bare `PATH` falls back to
+the mise shim, started from the plugin directory. It needs `claude` and `codex` on `PATH`
+(`MISE_ENV=e2e mise install` installs the pinned versions).
+
 End-to-end check against a running gateway, with a logged-in harness (it spends a few model
 turns):
 
 ```sh
 pnpm --filter @ziptie-soft/local-decider-hooks build   # Claude loads the checkout's bundle
-mise run e2e:claude    # or e2e:codex, or e2e for both
+mise run e2e:claude    # or e2e:claude-auto, e2e:codex, or e2e for all three
 LD_E2E_USER_SETTINGS=1 mise run e2e:claude   # with your user settings and the installed plugin
 ```
 
@@ -175,6 +220,14 @@ reported at least one outcome for the session's permission verdicts. With
 of waiting for you. Codex runs with `--approve-for-me` and `--dangerously-bypass-hook-trust`, so
 the plugin hooks run without the `/hooks` trust step. `LD_E2E_KEEP=1` keeps the scratch repo, the
 harness's event stream (hook events included) and the approver log.
+
+`e2e:claude-auto` runs Claude in auto mode with no approver and an ask rule for `touch`. The
+classifier decides every other call, so it passes when the plugin's `PermissionRequest` hook ran
+exactly once (the `touch` step) and the mod recorded a `permission` decision in scope
+`claude-auto`, next to the usual guard and `command-risk` checks. By default Codex runs against
+the plugin installed in your Codex, so trust is not tested; with `OPENAI_API_KEY` set it installs
+the checkout into a temp `CODEX_HOME` and logs in with that key (your `auth.json` is never
+copied).
 
 release-please bumps this package only for commits that touch `plugins/local-decider/`. Pull
 request CI checks that changes to shared hook/core source or the dependency lockfile include a
