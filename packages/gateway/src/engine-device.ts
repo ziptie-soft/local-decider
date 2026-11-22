@@ -4,7 +4,9 @@
  * `selection` (set by the settings pages and `engine use`) wins whenever it names a usable engine
  * and model (`EngineControl.#initialSelection`), `engine.device` is the fallback; so both are kept
  * in line. A device the installed flavor cannot serve (a `cuda` device on CPU-only torch) crashes
- * the engine at start (`Torch not compiled with CUDA enabled`), so install rewrites it.
+ * the engine at start (`Torch not compiled with CUDA enabled`), so install rewrites it. The reverse
+ * (a GPU flavor over a `cpu` device) is rewritten too: it would run on the CPU without a word. A
+ * `cpu` flavor install still forces `cpu`.
  */
 import { ConfigFile, type ConfigEdit } from './config-file.ts';
 import type { GatewayConfig } from './config.ts';
@@ -37,11 +39,18 @@ function serves(flavor: InstallFlavor, device: Device, platform: NodeJS.Platform
   return device === 'cuda' || device === 'cpu';
 }
 
+/** A GPU torch build installed over a `cpu` device would silently leave the GPU idle. */
+function upgrades(flavor: InstallFlavor, device: Device): boolean {
+  return (flavor === 'cuda' || flavor === 'rocm') && device === 'cpu';
+}
+
 interface DeviceChange {
   /** `selection.device` or `engine.device`. */
   readonly key: string;
   readonly from: Device;
   readonly to: Device;
+  /** The flavor cannot serve `from`, or it can but a GPU is available. */
+  readonly why: 'incompatible' | 'gpu';
 }
 
 function candidates(config: GatewayConfig): { key: string; device: Device; model: string }[] {
@@ -69,10 +78,15 @@ function deviceChanges(
   const to = FLAVOR_DEVICE[flavor];
   return (
     candidates(config)
-      .filter((c) => !serves(flavor, c.device, platform))
+      .filter((c) => !serves(flavor, c.device, platform) || upgrades(flavor, c.device))
       // v2 checkpoints have no MLX backend: leave them to the engine's own refusal.
       .filter((c) => !(to === 'mlx' && isTransformersModel(c.model)))
-      .map((c) => ({ key: c.key, from: c.device, to }))
+      .map((c) => ({
+        key: c.key,
+        from: c.device,
+        to,
+        why: serves(flavor, c.device, platform) ? ('gpu' as const) : ('incompatible' as const),
+      }))
   );
 }
 
@@ -93,5 +107,8 @@ export function reconcileDevice(
   const edits: ConfigEdit[] = changes.map((c) => ({ path: c.key.split('.'), value: c.to }));
   store.update(edits);
   const list = changes.map((c) => `${c.key} ${c.from} -> ${c.to}`).join(', ');
-  return `config: ${list} (the ${flavor} flavor cannot serve the old device; edited ${store.file})`;
+  const reason = changes.every((c) => c.why === 'gpu')
+    ? `the ${flavor} flavor runs on the GPU, so the cpu device was switched`
+    : `the ${flavor} flavor cannot serve the old device`;
+  return `config: ${list} (${reason}; edited ${store.file})`;
 }
