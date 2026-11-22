@@ -254,6 +254,24 @@ describe('facts: injection through values', () => {
     assert.equal(text.split('\n').length, 2);
   });
 
+  it('replaces lone surrogates, so the section is well-formed text', () => {
+    for (const value of [
+      '/work/demo/\ud83d',
+      '/work/demo/\ude00\ud83dx',
+      '/work/demo/\u0301\r\u0085a',
+    ]) {
+      for (const [tool, request] of [
+        ['Edit', { file_path: value }],
+        ['Bash', { command: `cat ${value}` }],
+        [value, {}],
+      ] as const) {
+        const text = facts(tool, request);
+        assert.equal(text, text.toWellFormed(), JSON.stringify(text));
+        assert.doesNotMatch(text, /[\r\u0085]/);
+      }
+    }
+  });
+
   it('caps the whole section at 800 characters by dropping whole lines', () => {
     const request = {
       command: Array.from(

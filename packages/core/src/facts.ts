@@ -41,9 +41,9 @@ const MAX_COMMANDS = 8;
 const MAX_PATCH_TARGETS = 32;
 
 const PATH_FIELDS = ['file_path', 'filePath', 'notebook_path', 'path'] as const;
-const UNSAFE_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}`]/gu;
+const UNSAFE_CHARS = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}`]/gu;
 
-/** An input-derived value as one inert token: no controls, bidi marks or backticks, capped. */
+/** An input-derived value as one inert token: no controls, bidi marks, lone surrogates or backticks, capped. */
 function token(value: string): string {
   const flat = value.replaceAll(UNSAFE_CHARS, (c) => (c === '`' ? '' : ' ')).trim();
   return `\`${cutText(flat, TOKEN_CHARS, 'head')}\``;
