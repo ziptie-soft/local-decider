@@ -31,6 +31,43 @@ export interface DecideRequest {
   readonly budgetMs?: number;
 }
 
+/**
+ * A decision an agent asks for through the plugin's agent tools: harness `mcp`, so the gateway
+ * never enforces it and keeps it out of stats and precedent.
+ */
+export interface AgentDecideRequest {
+  readonly harness: 'mcp';
+  readonly sessionId?: string;
+  readonly input: Readonly<Record<string, unknown>>;
+  readonly workspace?: { readonly cwd: string };
+  readonly budgetMs?: number;
+}
+
+/** What an agent may see of a decision (`?view=agent`): no probabilities, rule or engine. */
+export interface AgentView {
+  readonly decisionId: string;
+  readonly policy: string;
+  readonly action: Action;
+  readonly enforced: boolean;
+  readonly primary?: {
+    readonly question: string;
+    readonly answer: string;
+    readonly confidence: number;
+  };
+  readonly failedOpen: boolean;
+  readonly truncated: boolean;
+}
+
+/** One policy an agent may call (`GET /v1/policies?view=agent`). */
+export interface AgentPolicy {
+  readonly id: string;
+  readonly description: string;
+  readonly inputKeys: readonly string[];
+  readonly questions: Readonly<
+    Record<string, { readonly instructions: string; readonly options: readonly string[] }>
+  >;
+}
+
 /** Models for savings stats (`provider/model`). Logged, never sent to the engine. */
 export interface DecisionModels {
   /** The model the harness uses when the decision changes nothing. */

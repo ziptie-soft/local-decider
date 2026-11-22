@@ -19,6 +19,7 @@ export type Checks = [
   Assert<Same<local.OutcomeSource, core.OutcomeRecord['source']>>,
   // The plugin only ever sends `harness: 'paseo'`, so its request must fit core's.
   Assert<local.DecideRequest extends core.DecideRequest ? true : false>,
+  Assert<local.AgentDecideRequest extends core.DecideRequest ? true : false>,
   Assert<Same<local.DecisionModels, core.DecisionModels>>,
   Assert<Same<local.UsageReport, Omit<core.UsageRecord, 'kind' | 'ts'>>>,
 ];
