@@ -6,7 +6,6 @@
  * or a verdict. Pure: no I/O, and nothing here reads the filesystem or runs anything.
  */
 import { commandFlags, hasSubstitution, segmentParts, wordPath } from './block.ts';
-import { guardCommand } from './guard.ts';
 import { patchTargets } from './patch.ts';
 import { locatePath } from './paths.ts';
 import { splitShell, type Segment } from './shell.ts';
@@ -258,10 +257,6 @@ function notesFor(parsed: Parsed): string[] {
   const notes = parsed.segments.flatMap(segmentNotes);
   if (hasSubstitution(parsed.text)) {
     notes.push('uses command substitution');
-  }
-  const guard = guardCommand(parsed.text);
-  if (guard !== null) {
-    notes.push(`matches a guard rule: ${token(guard.reason)}`);
   }
   return notes;
 }
