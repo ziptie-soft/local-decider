@@ -45,7 +45,7 @@ export function strandsVenvPackages(paths: Paths): StrandsVenvPackages | null {
 export function pinnedStrandsVersion(project: string = engineProjectDir()): string | null {
   try {
     const text = readFileSync(join(project, 'pyproject.toml'), 'utf8');
-    return /"strands-decider==([^"\s]+)"/.exec(text)?.[1] ?? null;
+    return /"strands[-_.]decider(?:\[[^\]]*\])?\s*==\s*([^"\s;,]+)/i.exec(text)?.[1] ?? null;
   } catch {
     return null;
   }
@@ -58,8 +58,18 @@ export function pinnedStrandsVersion(project: string = engineProjectDir()): stri
 export function strandsPinMismatch(paths: Paths, project?: string): string | null {
   const installed = strandsVenvPackages(paths)?.strands;
   const pinned = pinnedStrandsVersion(project);
-  if (installed === undefined || installed === null || pinned === null || installed === pinned) {
+  if (
+    installed === undefined ||
+    installed === null ||
+    pinned === null ||
+    samePin(installed, pinned)
+  ) {
     return null;
   }
   return `strands-decider venv has ${installed}, pinned ${pinned}; run local-decider engine install`;
+}
+
+/** PEP 440: a pin without a local label (`+...`) also matches an installed local version. */
+function samePin(installed: string, pinned: string): boolean {
+  return installed === pinned || (!pinned.includes('+') && installed.split('+')[0] === pinned);
 }

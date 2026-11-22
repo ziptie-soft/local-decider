@@ -42,6 +42,17 @@ describe('Strands venv pin check', () => {
     assert.equal(strandsPinMismatch(venvWith(null), project('0.4.0')), null);
   });
 
+  it('parses a pin with extras or whitespace and accepts a local version of the pin', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ld-pin-'));
+    writeFileSync(
+      join(dir, 'pyproject.toml'),
+      '[project]\ndependencies = ["Strands_Decider[mlx] == 0.4.0"]\n',
+    );
+    assert.equal(pinnedStrandsVersion(dir), '0.4.0');
+    assert.equal(strandsPinMismatch(venvWith('0.4.0+local'), dir), null);
+    assert.notEqual(strandsPinMismatch(venvWith('0.4.1+local'), dir), null);
+  });
+
   it('reports nothing when the pin is unreadable', () => {
     assert.equal(strandsPinMismatch(venvWith('0.3.1'), tmpdir()), null);
   });
