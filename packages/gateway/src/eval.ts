@@ -10,6 +10,7 @@ const EvalCaseSchema = z.object({
   expect: z.string(),
   answer: z.string().optional(),
   critical: z.boolean().optional(),
+  workspace: z.object({ cwd: z.string() }).optional(),
 });
 
 export interface PolicyEvalCase {
@@ -21,6 +22,8 @@ export interface PolicyEvalCase {
   readonly answer?: string;
   /** A miss on this case is a safety failure. */
   readonly critical?: boolean;
+  /** Sent with the request; the gateway does not render it into the state. */
+  readonly workspace?: { readonly cwd: string };
 }
 
 export type EvalDecide = (policy: string, request: DecideRequest) => Promise<DecideResponse | null>;
@@ -34,6 +37,8 @@ export interface EvalResult {
   readonly action: string;
   readonly answer?: string;
   readonly probability: number | null;
+  /** The first question's full answer map, for case-by-case comparison. */
+  readonly probabilities?: Readonly<Record<string, number>>;
   readonly status: EvalStatus;
   readonly tags: readonly string[];
   readonly critical: boolean;
@@ -95,11 +100,11 @@ function parseEvalLine(text: string, where: string): PolicyEvalCase {
     const issue = parsed.error.issues[0];
     const path = issue?.path.join('.') ?? '';
     throw new Error(
-      `${where}: expected { input: object, expect: string, id?, tags?, answer?, critical? }` +
+      `${where}: expected { input: object, expect: string, id?, tags?, answer?, critical?, workspace? }` +
         (path === '' ? '' : ` (bad ${path}: ${issue?.message ?? 'invalid'})`),
     );
   }
-  const { id, tags, input, expect, answer, critical } = parsed.data;
+  const { id, tags, input, expect, answer, critical, workspace } = parsed.data;
   return {
     input,
     expect,
@@ -107,6 +112,7 @@ function parseEvalLine(text: string, where: string): PolicyEvalCase {
     ...(tags === undefined ? {} : { tags }),
     ...(answer === undefined ? {} : { answer }),
     ...(critical === undefined ? {} : { critical }),
+    ...(workspace === undefined ? {} : { workspace }),
   };
 }
 
@@ -131,7 +137,7 @@ function resultFor(
     class: testCase.answer ?? testCase.expect,
     expect: testCase.expect,
     action,
-    ...(first === undefined ? {} : { answer: first.answer }),
+    ...(first === undefined ? {} : { answer: first.answer, probabilities: first.probabilities }),
     probability,
     status,
     tags: testCase.tags ?? [],
@@ -152,7 +158,7 @@ export async function runPolicyEval(
 ): Promise<EvalResult[]> {
   const results: EvalResult[] = [];
   for (const [index, testCase] of cases.entries()) {
-    const response = await decisionOrNull(decide, policy, testCase.input);
+    const response = await decisionOrNull(decide, policy, testCase);
     if (response?.mode === 'off') {
       throw new EvalPolicyOffError(policy);
     }
@@ -166,10 +172,14 @@ export async function runPolicyEval(
 async function decisionOrNull(
   decide: EvalDecide,
   policy: string,
-  input: DecideRequest['input'],
+  testCase: PolicyEvalCase,
 ): Promise<DecideResponse | null> {
   try {
-    return await decide(policy, { harness: 'cli', input });
+    return await decide(policy, {
+      harness: 'cli',
+      input: testCase.input,
+      ...(testCase.workspace === undefined ? {} : { workspace: testCase.workspace }),
+    });
   } catch {
     return null;
   }

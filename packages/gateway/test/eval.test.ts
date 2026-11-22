@@ -96,6 +96,26 @@ describe('policy eval', () => {
     );
   });
 
+  it('sends the fixture workspace and keeps the first question probabilities', async () => {
+    const seen: unknown[] = [];
+    const cases = parseEvalCases(
+      '{"id":"w","input":{},"expect":"allow","workspace":{"cwd":"/work/demo"}}\n' +
+        '{"id":"n","input":{},"expect":"allow"}',
+    );
+    assert.deepEqual(cases[0]?.workspace, { cwd: '/work/demo' });
+    const results = await runPolicyEval(
+      'permission',
+      cases,
+      async (_policy, request) => {
+        seen.push(request.workspace);
+        return result;
+      },
+      () => undefined,
+    );
+    assert.deepEqual(seen, [{ cwd: '/work/demo' }, undefined]);
+    assert.deepEqual(results[0]?.probabilities, { allow: 0.7, ask: 0.2, deny: 0.1 });
+  });
+
   it('throws EvalPolicyOffError when the policy is off', async () => {
     await assert.rejects(
       runPolicyEval(
