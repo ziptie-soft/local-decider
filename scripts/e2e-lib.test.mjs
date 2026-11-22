@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  duplicateDecisions,
   engineAnsweredResult,
   engineAnswers,
   modPreconditionSkip,
+  noDuplicatesResult,
   outcomesPreconditionSkip,
   runCaptured,
   withoutHostPolicies,
@@ -103,6 +105,55 @@ describe('outcomesPreconditionSkip', () => {
 
   it('runs the check when a prompt reached the user and was allowed', () => {
     assert.equal(outcomesPreconditionSkip([enforcedAllow, asked], allow), undefined);
+  });
+});
+
+const row = (ts, extra = {}) => ({
+  policy: 'command-risk',
+  inputHash: 'abc',
+  cached: false,
+  ts: `2026-11-22T10:00:${ts}Z`,
+  ...extra,
+});
+
+describe('duplicateDecisions', () => {
+  it('flags the same policy and input recorded twice within a second', () => {
+    const result = noDuplicatesResult([
+      row('00.100'),
+      row('00.350'),
+      row('09.000', { inputHash: 'x' }),
+    ]);
+    assert.equal(result.ok, false);
+    assert.match(result.detail, /command-risk x2 .*duplicate plugin or hook install/);
+  });
+
+  it('accepts a legitimate repeat seconds apart', () => {
+    assert.deepEqual(duplicateDecisions([row('00.000'), row('03.000')]), []);
+  });
+
+  it('ignores cached rows, other inputs, other policies and distinct tool calls', () => {
+    assert.deepEqual(duplicateDecisions([row('00.000'), row('00.200', { cached: true })]), []);
+    assert.deepEqual(duplicateDecisions([row('00.000'), row('00.200', { inputHash: 'z' })]), []);
+    assert.deepEqual(
+      duplicateDecisions([row('00.000'), row('00.200', { policy: 'permission' })]),
+      [],
+    );
+    assert.deepEqual(
+      duplicateDecisions([row('00.000', { callId: 'a' }), row('00.200', { callId: 'b' })]),
+      [],
+    );
+  });
+
+  it('flags two records of one tool call', () => {
+    const found = duplicateDecisions([
+      row('00.000', { callId: 'a' }),
+      row('00.200', { callId: 'a' }),
+    ]);
+    assert.deepEqual(found, [{ policy: 'command-risk', count: 2 }]);
+  });
+
+  it('passes with no decisions', () => {
+    assert.equal(noDuplicatesResult([]).ok, true);
   });
 });
 

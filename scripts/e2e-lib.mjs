@@ -83,6 +83,54 @@ export function engineAnsweredResult(decisions) {
 }
 
 /**
+ * Decisions that look like one hook answered twice: the same policy and `inputHash`, both
+ * `cached: false`, less than `windowMs` apart. A second plugin or hook install sends every request
+ * twice at once, before the first answer is cached. Two records for different tool calls (distinct
+ * `callId`s, e.g. parallel identical commands) are not duplicates, and a legitimate repeat seconds
+ * later is either outside the window or served from the cache. Returns `{ policy, count }` per group.
+ */
+export function duplicateDecisions(decisions, windowMs = 1000) {
+  const groups = new Map();
+  for (const d of decisions) {
+    if (d.cached === true || typeof d.inputHash !== 'string' || d.inputHash === '') {
+      continue;
+    }
+    const key = `${d.policy}:${d.inputHash}`;
+    groups.set(key, [...(groups.get(key) ?? []), d]);
+  }
+  const found = [];
+  for (const rows of groups.values()) {
+    const sorted = rows.toSorted((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
+    const dupes = new Set();
+    sorted.slice(1).forEach((row, i) => {
+      const prev = sorted[i];
+      const sameCall =
+        prev?.callId === undefined || row.callId === undefined || prev.callId === row.callId;
+      if (prev !== undefined && sameCall && Date.parse(row.ts) - Date.parse(prev.ts) < windowMs) {
+        dupes.add(prev).add(row);
+      }
+    });
+    if (dupes.size > 0) {
+      found.push({ policy: sorted[0].policy, count: dupes.size });
+    }
+  }
+  return found;
+}
+
+/** The check result for `duplicateDecisions`: fails when any decision was recorded twice. */
+export function noDuplicatesResult(decisions) {
+  const found = duplicateDecisions(decisions);
+  if (found.length === 0) {
+    return { ok: true, detail: 'no decision recorded twice' };
+  }
+  const list = found.map((f) => `${f.policy} x${String(f.count)}`).join(', ');
+  return {
+    ok: false,
+    detail: `${list} recorded twice within 1 s with the same input: a duplicate plugin or hook install (e.g. the local checkout enabled next to the published plugin)`,
+  };
+}
+
+/**
  * The precondition of the claude-auto mod check: the mod allows a call only when this session's
  * command-risk policy gave a real `log` answer in auto mode (packages/hooks/src/mod/check.ts
  * `callAllows`: `permissionMode === 'auto'`, `answered`, `action === 'log'`). Returns a skip reason,

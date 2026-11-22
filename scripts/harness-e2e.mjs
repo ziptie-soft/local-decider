@@ -47,6 +47,7 @@ import {
   engineAnsweredResult,
   makeMarketplace,
   modPreconditionSkip,
+  noDuplicatesResult,
   outcomesPreconditionSkip,
   makeWorkspace,
   parseJsonl,
@@ -395,6 +396,7 @@ const CHECKS = [
     1,
   ),
   { label: 'engine answered', test: (ctx) => engineAnsweredResult(ctx.decisions) },
+  { label: 'no duplicate decisions', test: (ctx) => noDuplicatesResult(ctx.decisions) },
   countCheck(
     'command-risk (PreToolUse)',
     policyCount((d) => d.policy === 'command-risk'),
