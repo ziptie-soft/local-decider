@@ -60,11 +60,32 @@ export function printResults(results) {
 
 /**
  * Run a command with captured output until it exits. It is stopped after `timeoutMs`, or `graceMs`
- * after `until()` first holds. Resolves with `{ code, signal, stdout, stderr }`.
+ * after `until()` first holds. With `input` it is written to stdin, which then stays open until
+ * `inputDone(stdout)` holds (plus `graceMs`) so async hooks can finish: a headless Claude Code
+ * cancels them when it exits. Resolves with `{ code, signal, stdout, stderr }`.
  */
-export function runCaptured({ bin, args, env, cwd, timeoutMs, until, graceMs = 2000 }) {
+export function runCaptured({
+  bin,
+  args,
+  env,
+  cwd,
+  timeoutMs,
+  until,
+  input,
+  inputDone,
+  graceMs = 2000,
+}) {
   return new Promise((done) => {
-    const child = spawn(bin, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(bin, args, {
+      cwd,
+      env,
+      stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+    });
+    if (input !== undefined) {
+      child.stdin.on('error', () => undefined);
+      child.stdin.write(input);
+    }
+    let inputClosed = input === undefined;
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => (stdout += chunk));
@@ -72,6 +93,10 @@ export function runCaptured({ bin, args, env, cwd, timeoutMs, until, graceMs = 2
     const stop = () => child.kill('SIGTERM');
     const timer = setTimeout(stop, timeoutMs);
     const poll = setInterval(() => {
+      if (!inputClosed && inputDone?.(stdout)) {
+        inputClosed = true;
+        setTimeout(() => child.stdin.end(), graceMs);
+      }
       if (until?.()) {
         clearInterval(poll);
         setTimeout(stop, graceMs);
