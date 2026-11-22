@@ -183,6 +183,16 @@ export function runCaptured({
   });
 }
 
+/**
+ * `env` for a harness under test, without the Paseo host marker. An e2e started from a Paseo agent
+ * inherits `LOCAL_DECIDER_HOST_POLICIES=turn-outcome,permission,routing` (set by the Paseo plugin
+ * on the agents it launches); the plugin hooks then skip those policies as "run by the host", so
+ * only command-risk would reach the gateway and the e2e would test nothing else.
+ */
+export function withoutHostPolicies(env) {
+  return { ...env, LOCAL_DECIDER_HOST_POLICIES: '' };
+}
+
 /** The harness names `argv[2]` selects (default all); exits 2 with a usage line otherwise. */
 export function selectedHarnesses(script, harnesses) {
   const target = process.argv[2] ?? 'all';
