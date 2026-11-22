@@ -37,6 +37,9 @@ export const AGENT_TOOL_NAMES = [
   'local_decider_policies',
 ] as const;
 
+/** What Claude calls a Paseo MCP tool: `mcp__paseo__<name>`. */
+export const CLAUDE_PASEO_TOOL_PREFIX = 'mcp__paseo__';
+
 export const PLUGIN_MODES = ['off', 'shadow', 'act'] as const;
 
 /**

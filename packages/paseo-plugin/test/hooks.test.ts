@@ -250,6 +250,88 @@ describe('agent.permission.before', () => {
     assert.deepEqual(paseo.agent.responses, [{ requestId: 'r1', response: { behavior: 'allow' } }]);
   });
 
+  it('allows its own agent tools without a decision, row or limiter tick', async () => {
+    const gw = fakeGateway(() => response({ policy: 'permission', action: 'ask' }));
+    const on = settings({ agentTools: true });
+    for (const tool of AGENT_TOOL_NAMES) {
+      const paseo = fakePaseo(turn);
+      const request = { ...toolRequest, name: `mcp__paseo__${tool}`, input: {} };
+      await permissionHandlers(deps(on, gw)).request(paseo, request);
+      assert.deepEqual(paseo.agent.responses, [
+        { requestId: 'r1', response: { behavior: 'allow' } },
+      ]);
+      assert.equal(paseo.agent.appended.length, 0, 'no row');
+    }
+    assert.equal(gw.calls.length, 0, 'no decide');
+  });
+
+  it('leaves its own agent tools to the user when agent tools are off', async () => {
+    const gw = fakeGateway(() => response({ policy: 'permission', action: 'ask' }));
+    const paseo = fakePaseo(turn);
+    const request = { ...toolRequest, name: 'mcp__paseo__local_decider_decide', input: {} };
+    await permissionHandlers(deps(settings(), gw)).request(paseo, request);
+    assert.deepEqual(paseo.agent.responses, []);
+    assert.equal(gw.calls.length, 0);
+    assert.equal(paseo.agent.appended.length, 0);
+  });
+
+  it('never allows other paseo tools, and skips Codex paseo elicitations', async () => {
+    const gw = fakeGateway(() =>
+      response({ policy: 'permission', action: 'allow', mode: 'act', enforced: true }),
+    );
+    const on = settings({
+      agentTools: true,
+      modes: { 'turn-outcome': 'shadow', 'permission': 'act', 'routing': 'shadow' },
+    });
+    for (const name of ['mcp__paseo__create_agent', 'mcp__paseo__local_decider_other']) {
+      const paseo = fakePaseo(turn);
+      await permissionHandlers(deps(on, gw)).request(paseo, { ...toolRequest, name, input: {} });
+      assert.deepEqual(paseo.agent.responses, [], name);
+    }
+    const before = gw.calls.length;
+    const paseo = fakePaseo(turn);
+    const elicitation = {
+      ...toolRequest,
+      provider: 'codex',
+      name: 'CodexMcpElicitation',
+      metadata: { serverName: 'paseo' },
+      input: {},
+    };
+    await permissionHandlers(deps(on, gw)).request(paseo, elicitation);
+    assert.deepEqual(paseo.agent.responses, []);
+    assert.equal(paseo.agent.appended.length, 0);
+    assert.equal(gw.calls.length, before, 'no decide for the elicitation');
+  });
+
+  it('allows only the exact tool names: no look-alike, case or suffix', async () => {
+    const gw = fakeGateway(() =>
+      response({ policy: 'permission', action: 'allow', mode: 'act', enforced: true }),
+    );
+    const on = settings({
+      agentTools: true,
+      modes: { 'turn-outcome': 'shadow', 'permission': 'act', 'routing': 'shadow' },
+    });
+    const names = [
+      'MCP__PASEO__LOCAL_DECIDER_DECIDE',
+      'mcp__paseo__Local_Decider_Decide',
+      'mcp__paseo__local_decider_decide ',
+      ' mcp__paseo__local_decider_decide',
+      'mcp__paseo__local_decider_decide_all',
+      'mcp__paseo__local_decider_decide\u0000',
+      'mcp__paseo__local_decider_decıde',
+      'mcp__paseo__local․decider_decide',
+      'mcp__paseo_local_decider_decide',
+      'mcp__other__local_decider_decide',
+      'mcp__paseo__mcp__paseo__local_decider_decide',
+      'local_decider_decide',
+    ];
+    for (const name of names) {
+      const paseo = fakePaseo(turn);
+      await permissionHandlers(deps(on, gw)).request(paseo, { ...toolRequest, name, input: {} });
+      assert.deepEqual(paseo.agent.responses, [], JSON.stringify(name));
+    }
+  });
+
   it('never denies and leaves the request pending otherwise', async () => {
     for (const [s, res] of [
       [actMode, response({ action: 'deny', mode: 'act', enforced: true })],

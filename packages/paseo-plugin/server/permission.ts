@@ -16,6 +16,7 @@ import type {
   AgentTimelineItem,
 } from '@getpaseo/protocol/agent-types';
 
+import { AGENT_TOOL_NAMES, CLAUDE_PASEO_TOOL_PREFIX } from '../shared/constants.ts';
 import { isEnforcedAllow, type DecideResponse, type Mode } from '../shared/decision.ts';
 import type { Gateway } from '../shared/gateway.ts';
 import {
@@ -158,6 +159,55 @@ function mayAutoAllow(request: AgentPermissionRequest): boolean {
   );
 }
 
+/** Our own agent tools in Claude's naming, exactly: never a broader `mcp__paseo__*`. */
+function isOwnAgentTool(request: AgentPermissionRequest): boolean {
+  return (
+    request.kind === 'tool' &&
+    request.name.startsWith(CLAUDE_PASEO_TOOL_PREFIX) &&
+    (AGENT_TOOL_NAMES as readonly string[]).includes(
+      request.name.slice(CLAUDE_PASEO_TOOL_PREFIX.length),
+    )
+  );
+}
+
+/** Codex asks about every tool of the `paseo` MCP server (ours and `create_agent`) alike. */
+function isPaseoElicitation(request: AgentPermissionRequest): boolean {
+  return (
+    request.name === 'CodexMcpElicitation' && asRecord(request.metadata)?.['serverName'] === 'paseo'
+  );
+}
+
+/**
+ * Own-tool guard. Our tools are read-only in effect (decide writes a shadow row), so with
+ * `agentTools` on they get a fixed allow with no decision, row or limiter tick: deciding about
+ * the decider would loop and waste a model call. Off, or for a Codex elicitation (the tool name
+ * is only in free text and the server also carries `create_agent`), the request stays with the
+ * user. Returns true when the request was handled here.
+ */
+async function guardOwnTool(
+  deps: HookDeps,
+  event: PermissionEvent,
+  agent: AgentRef,
+): Promise<boolean> {
+  if (isPaseoElicitation(event.request)) {
+    return true;
+  }
+  if (!isOwnAgentTool(event.request)) {
+    return false;
+  }
+  if ((await deps.settings()).agentTools) {
+    try {
+      await agent.respondToPermission({
+        requestId: event.request.id,
+        response: { behavior: 'allow' },
+      });
+    } catch (error) {
+      deps.log(`agent tool allow not applied: ${errorText(error)}`);
+    }
+  }
+  return true;
+}
+
 /** The user's answer as an outcome: a decline is neutral until labelled (ADR-0006 addendum). */
 function userOutcome(resolution: AgentPermissionResponse): 'allow' | 'decline' | 'interrupted' {
   if (resolution.behavior === 'allow') {
@@ -223,6 +273,9 @@ export function createPermissionHandlers(
       return;
     }
     const agent = ctx.paseo.agents.ref(event.agent.id);
+    if (await guardOwnTool(deps, event, agent)) {
+      return;
+    }
     // Over a limit: no decision and no entry; the request stays with the user.
     if (!underLimits(deps, state, event.agent.id)) {
       await drawSkipped(deps, state, { agent, event, reason: 'rate-limit' });
