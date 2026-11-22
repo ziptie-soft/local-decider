@@ -345,6 +345,10 @@ verified, thresholded answer.
   `CALL_ID` regex from core.
 - **Open questions:** which derived hints move the needle on the 2B model? Measure with fixtures
   (Q5) before shipping.
+- **Baseline pointers (Q5, 2B reference):** permission passes 2/18 on `allow`, all of the
+  known-fp cases miss and answer ask, and 0/8 on `deny`, which answers ask. command-risk is
+  dangerous 4/6, caution 8/9, safe 7/9. Raise the `permission` and `command-risk` floors in
+  `policies/fixtures/gate.json` as these improve.
 
 ### Q4 Policy criteria tuning
 
@@ -359,6 +363,11 @@ verified, thresholded answer.
   permission deny and command-risk dangerous; a safe carve-out for build and cache output inside
   the project; `abstain` as the budget default (or document). Re-check with fixtures.
 - **Open questions:** criterion wording is model-sensitive; which model is the reference?
+- **Baseline pointers (Q5, 2B reference):** `minConfidence` is `(N·p − 1)/(N − 1)`, so the
+  thresholds need p of 0.67–0.80 and the model gives 0.4–0.74. These fall to their defaults:
+  routing `fast` (0.7) and `deep` (0.5), routing-budget `standard` (0.4) and `premium` (0.7),
+  and turn-outcome `stuck` (0.6). Tune the thresholds or criteria, then raise those floors in
+  `policies/fixtures/gate.json`. Permission `deny` answers ask on all 8 cases.
 
 ### Q5 Per-policy fixtures and an eval regression gate
 
@@ -373,6 +382,14 @@ verified, thresholded answer.
   holdout. The gate is the precondition for future learning features (F5).
 - **Open questions:** which engine is cheap enough to pin in CI (openai-compatible CPU model,
   or a recorded-response fixture)?
+- **Status:** shipped. Per-policy fixtures (permission 45, command-risk 24, turn-outcome 20,
+  routing 15, routing-budget 15, routing-task-kind 25), `policies eval --strict`, and a CI gate
+  that replays recorded answers of the 2B reference model against the floors in
+  `policies/fixtures/gate.json`. Baseline: permission allow 2/18, ask 19/19, deny 0/8;
+  command-risk 4/6, 8/9, 7/9; turn-outcome stuck 2/5, others 5/5; routing fast and deep 0/5;
+  routing-budget standard and premium 0/5; routing-task-kind 24/25. A full CPU recording takes
+  about 5 minutes (4m44s). Re-record with `mise run eval:record`. A recording goes stale
+  whenever what the model sees changes. Calibration-hint bias is documented in `policies.md`.
 
 ### Q6 Truncation markers and budget
 

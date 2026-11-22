@@ -119,9 +119,11 @@ performance`), measured directly against FLM's `/v1/systemone`.
 - 7–11× faster than the 2B on CPU at every size. A lazy model load takes about 5 s.
 - Through the gateway (redaction, state shaping, queue, rules), a short decision took 250 ms on
   d3:nano and about 600 ms on d3:mini.
-- d3:mini answered all six integration cases correctly with p ≥ 0.91 (turn outcome done and
-  needs_input, command risk dangerous and safe, permission allow and deny). That includes
-  `cat README.md` at p(allow) = 0.97, above the 0.95 auto-allow bar the 2B missed (0.93).
+- An opt-in integration run (`LOCAL_DECIDER_IT_ENGINE_URL`) of six cases (turn outcome done and
+  needs_input, command risk dangerous and safe, permission allow and deny) was seen to pass on
+  d3:mini, with `cat README.md` at p(allow) = 0.97 against 0.93 on the 2B. No fixture backs
+  those numbers. For measured rates see the fixture eval
+  ([policies.md](policies.md#fixtures-and-the-ci-gate)).
 - d3:mini is the recommended FastFlowLM model and d3:nano the fast one.
 
 ## GPU (Radeon 880M iGPU) against the NPU

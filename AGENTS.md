@@ -49,3 +49,5 @@ run with `--conditions=source`, builds resolve `dist/`.
 - Harness hooks fail open: if the gateway is down or slow, return the harness's default
   behaviour.
 - Search files and content with the fff MCP; navigate symbols and check impact with ripwire.
+- Changing state building, redaction, truncation, criteria or questions needs
+  `mise run eval:record` with the reference model; the eval gate fails on stale recordings.
