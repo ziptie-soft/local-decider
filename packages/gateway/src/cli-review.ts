@@ -1,4 +1,4 @@
-import { CALL_ID } from '@ziptie-soft/local-decider-core';
+import { CALL_ID, SCOPES, type Scope } from '@ziptie-soft/local-decider-core';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
@@ -9,7 +9,9 @@ import { explainDecision, formatExplain, type ExplainContext } from './explain.t
 import type { LogStore } from './log-store.ts';
 import type { Paths } from './paths.ts';
 import { loadPolicies, policyDirs } from './policies.ts';
+import { computeReview, formatReview } from './review.ts';
 import { openLogStore } from './sqlite-log.ts';
+import { parseDays } from './stats-job.ts';
 
 export interface ReviewEnv {
   readonly paths: Paths;
@@ -112,4 +114,78 @@ export function explainCommand(env: ReviewEnv): string {
     return JSON.stringify(body, null, 2);
   }
   return found.views.map(formatExplain).join('\n\n');
+}
+
+const DEFAULT_REVIEW_LIMIT = 50;
+const MAX_REVIEW_LIMIT = 1000;
+
+interface ReviewArgs {
+  readonly days: number;
+  readonly policy: string | undefined;
+  readonly scope: Scope | undefined;
+  readonly limit: number;
+  readonly verified: boolean;
+  readonly json: boolean;
+}
+
+function parseLimit(raw: string | undefined): number {
+  if (raw === undefined) {
+    return DEFAULT_REVIEW_LIMIT;
+  }
+  const limit = /^\d{1,6}$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!(limit >= 1 && limit <= MAX_REVIEW_LIMIT)) {
+    throw new UsageError(`review: --limit is an integer from 1 to ${String(MAX_REVIEW_LIMIT)}`);
+  }
+  return limit;
+}
+
+function parseReviewArgs(env: ReviewEnv, policyIds: ReadonlySet<string>): ReviewArgs {
+  const { values, positionals } = parseCommandArgs(env.args, {
+    json: { type: 'boolean' },
+    verified: { type: 'boolean' },
+    days: { type: 'string' },
+    policy: { type: 'string' },
+    scope: { type: 'string' },
+    limit: { type: 'string' },
+  });
+  if (positionals.length > 0) {
+    throw new UsageError(
+      'review takes no arguments: local-decider review [--days N] [--policy ID] [--scope S] [--limit N] [--verified] [--json]',
+    );
+  }
+  const window = parseDays(values.days, env.config.logs.retainDays);
+  if ('error' in window) {
+    throw new UsageError(`review: ${window.error}`);
+  }
+  if (values.scope !== undefined && !(SCOPES as readonly string[]).includes(values.scope)) {
+    throw new UsageError(`review: scope must be one of ${SCOPES.join(', ')}`);
+  }
+  if (values.policy !== undefined && !policyIds.has(values.policy)) {
+    throw new UsageError(`review: unknown policy ${values.policy}`);
+  }
+  return {
+    days: window.days,
+    policy: values.policy,
+    scope: values.scope as Scope | undefined,
+    limit: parseLimit(values.limit),
+    verified: values.verified === true,
+    json: values.json === true,
+  };
+}
+
+/** `local-decider review`: decisions the user's labels or the classifier contradict; read-only. */
+export function reviewCommand(env: ReviewEnv): string {
+  const policies = loadPolicies(env.config, policyDirs(env.config, env.paths));
+  const args = parseReviewArgs(env, new Set(policies.keys()));
+  const records = withReadOnlyStore(env.paths, (log) => [
+    ...(log?.iterateRecent(args.days, args.scope) ?? []),
+  ]);
+  const result = computeReview(records, policies, {
+    days: args.days,
+    policy: args.policy,
+    scope: args.scope,
+    limit: args.limit,
+    verifiedOnly: args.verified,
+  });
+  return args.json ? JSON.stringify(result, null, 2) : formatReview(result);
 }

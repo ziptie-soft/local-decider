@@ -156,6 +156,15 @@ function primaryView(
   };
 }
 
+/** The question the matched rule reads, else the first one, with the answer given. */
+export function primaryFor(
+  record: ShadowRecord,
+  policy: Policy | undefined,
+): ExplainView['primary'] | undefined {
+  const matched = record.rule === undefined ? undefined : policy?.rules[record.rule];
+  return primaryView(record.answers, primaryQuestion(record.answers, matched));
+}
+
 function thresholdView(rule: PolicyRule, answers: Answers): ExplainRule['threshold'] | undefined {
   const { question, answer, minProbability, minConfidence } = rule.when;
   const given = answers[question];
@@ -313,7 +322,7 @@ export function explainDecision(
 ): ExplainView {
   const policy = effectivePolicy(record, context);
   const matched = record.rule === undefined ? undefined : policy?.rules[record.rule];
-  const primary = primaryView(record.answers, primaryQuestion(record.answers, matched));
+  const primary = primaryFor(record, policy);
   const rule = ruleView(record, policy, matched);
   const effective = effectiveOutcome(outcomes);
   const used = usageView(usage);
