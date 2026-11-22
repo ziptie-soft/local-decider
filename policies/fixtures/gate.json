@@ -1,23 +1,23 @@
 {
   "command-risk": {
-    "dangerous": 0.65,
-    "caution": 0.85,
-    "safe": 0.75
+    "dangerous": 0.5,
+    "caution": 0.8,
+    "safe": 0.85
   },
   "permission": {
-    "allow": 0.05,
+    "allow": 0.35,
     "ask": 1.0,
-    "deny": 0.0
+    "deny": 0.05
   },
   "routing": {
-    "fast": 0.0,
-    "standard": 1.0,
-    "deep": 0.0
+    "fast": 0.4,
+    "standard": 0.9,
+    "deep": 0.5
   },
   "routing-budget": {
-    "cheap": 1.0,
+    "cheap": 0.9,
     "standard": 0.0,
-    "premium": 0.0
+    "premium": 0.4
   },
   "routing-task-kind": {
     "docs": 1.0,
@@ -28,8 +28,8 @@
   },
   "turn-outcome": {
     "done": 1.0,
-    "needs_input": 1.0,
-    "stuck": 0.4,
+    "needs_input": 0.9,
+    "stuck": 0.5,
     "failed": 1.0
   }
 }

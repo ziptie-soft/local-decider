@@ -23,7 +23,7 @@ flowchart LR
 
 | Policy | Asks | Rules (first match wins) | Default | Used by |
 |---|---|---|---|---|
-| `permission` | `verdict`: allow, ask, deny | allow at p ≥ 0.6 with precedent; allow at p ≥ 0.95; deny at confidence ≥ 0.8 | `ask` | Paseo `agent.permission.before`, hooks `PermissionRequest` |
+| `permission` | `verdict`: allow, ask, deny | allow at p ≥ 0.6 with precedent; allow at p ≥ 0.85; deny at confidence ≥ 0.8 | `ask` | Paseo `agent.permission.before`, hooks `PermissionRequest` |
 | `command-risk` | `risk`: safe, caution, dangerous | deny at confidence ≥ 0.7; ask at p(caution) ≥ 0.5; log safe at confidence ≥ 0.5 | `ask` | hooks `PreToolUse` |
 | `turn-outcome` | `outcome`: done, needs_input, stuck, failed | `log` done, `notify` the others, each at confidence ≥ 0.6 | `log` | Paseo `agent.turn.after`, hooks `Stop` and `SubagentResult` |
 | `routing` | `tier`: fast, standard, deep | route fast at 0.7, deep and standard at 0.5 (confidence) | `abstain` | Paseo `agent.create.before`, hooks `UserPromptSubmit` |
@@ -107,7 +107,7 @@ questions:
       allow: One or two sentences.
       ask: One or two sentences.
 rules:
-  - when: { question: verdict, answer: allow, minProbability: 0.95 }
+  - when: { question: verdict, answer: allow, minProbability: 0.85 }
     action: allow
 default: ask              # when no rule matches or the engine failed
 ```

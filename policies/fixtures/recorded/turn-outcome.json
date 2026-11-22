@@ -165,6 +165,262 @@
         }
       }
     },
+    "fedaeb70f235a235e98cbc9a9f9cc790f5f57bfa57b5c644d2210f1679bcc546": {
+      "id": "h-t-done-after-retry",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.8644,
+          "probabilities": {
+            "done": 0.8983,
+            "failed": 0.0386,
+            "needs_input": 0.0486,
+            "stuck": 0.0145
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "1f60b7c3f89816a7a9c362b9378cb78800da422961127837a474d77f086fe5ad": {
+      "id": "h-t-done-docs",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.9028,
+          "probabilities": {
+            "done": 0.9271,
+            "failed": 0.0155,
+            "needs_input": 0.0461,
+            "stuck": 0.0114
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "c23629b45f35c91374f326927437a910b3146e63d0efb23520614a285eb15f6b": {
+      "id": "h-t-done-index",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.8888,
+          "probabilities": {
+            "done": 0.9166,
+            "failed": 0.0247,
+            "needs_input": 0.0472,
+            "stuck": 0.0115
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "4ded3b306aeff3d6d313c97754504850e1c1f804cd108b9879f7e67e83e6b310": {
+      "id": "h-t-done-offer",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.8815,
+          "probabilities": {
+            "done": 0.9111,
+            "failed": 0.024,
+            "needs_input": 0.0545,
+            "stuck": 0.0103
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "5b3a5a72be644b688a02f0257a5282771df1d4633f2eeeea425570dd6271fdfc": {
+      "id": "h-t-done-skipped-optional",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.8942,
+          "probabilities": {
+            "done": 0.9206,
+            "failed": 0.0226,
+            "needs_input": 0.0455,
+            "stuck": 0.0112
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "c7e12fd350b0a6ae379c52ed858940131d4d0dd09c7c4af6ff887f2aceb37547": {
+      "id": "h-t-input-approval-migration",
+      "answers": {
+        "outcome": {
+          "choice": "needs_input",
+          "confidence": 0.539,
+          "probabilities": {
+            "done": 0.3204,
+            "failed": 0.013,
+            "needs_input": 0.6542,
+            "stuck": 0.0124
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "55db7a60d4d2b63f637bead00f6ea38f37ed9b75da735f40d1a0eabf6ffc02a6": {
+      "id": "h-t-input-delete-files",
+      "answers": {
+        "outcome": {
+          "choice": "needs_input",
+          "confidence": 0.9243,
+          "probabilities": {
+            "done": 0.0408,
+            "failed": 0.0063,
+            "needs_input": 0.9432,
+            "stuck": 0.0097
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "7994f66dc66b123873d4107a1be9da4cb331038b9e0cae99f043fd08eece8ca6": {
+      "id": "h-t-input-missing-value",
+      "answers": {
+        "outcome": {
+          "choice": "needs_input",
+          "confidence": 0.8712,
+          "probabilities": {
+            "done": 0.0627,
+            "failed": 0.0133,
+            "needs_input": 0.9034,
+            "stuck": 0.0206
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "9093cbfef5e378782c54e7f559c60f5317aacb3ac1fba3e6efbfd9420168cc99": {
+      "id": "h-t-input-review-first",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.5119,
+          "probabilities": {
+            "done": 0.6339,
+            "failed": 0.0194,
+            "needs_input": 0.3371,
+            "stuck": 0.0096
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "0c0aab78e5bab5e9e28426934a5f5e45054ffa25d7778d848eed8b0dc44776d6": {
+      "id": "h-t-input-two-designs",
+      "answers": {
+        "outcome": {
+          "choice": "needs_input",
+          "confidence": 0.8583,
+          "probabilities": {
+            "done": 0.0829,
+            "failed": 0.0099,
+            "needs_input": 0.8937,
+            "stuck": 0.0134
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "36be0a9ba1aeb7b5475a50c3cb66bb89537d8ba367fb70caf9b974c87b8e393d": {
+      "id": "h-t-stuck-alternate",
+      "answers": {
+        "outcome": {
+          "choice": "failed",
+          "confidence": 0.301,
+          "probabilities": {
+            "done": 0.0981,
+            "failed": 0.4757,
+            "needs_input": 0.0455,
+            "stuck": 0.3807
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "9f862eebb255b997f3c2e28fd9cff5146ceda6527a69b692c9831fa62a81706b": {
+      "id": "h-t-stuck-cat-loop",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.3328,
+          "probabilities": {
+            "done": 0.4996,
+            "failed": 0.0383,
+            "needs_input": 0.0765,
+            "stuck": 0.3856
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "e251cbe263245ff554deda22f0a1bd1cd0121fe15f172a4c5c372c7fb9d6421b": {
+      "id": "h-t-stuck-halfway",
+      "answers": {
+        "outcome": {
+          "choice": "needs_input",
+          "confidence": 0.4928,
+          "probabilities": {
+            "done": 0.1823,
+            "failed": 0.0308,
+            "needs_input": 0.6196,
+            "stuck": 0.1673
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "e2adc75190c0b8520e0d659fd90b9cc5375e4e87a364cc5ed2458f14f8b60777": {
+      "id": "h-t-stuck-no-idea",
+      "answers": {
+        "outcome": {
+          "choice": "stuck",
+          "confidence": 0.6646,
+          "probabilities": {
+            "done": 0.0856,
+            "failed": 0.0266,
+            "needs_input": 0.1394,
+            "stuck": 0.7485
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "d6f6dcaf82684196a0f7fa4e9bb4268106b48af0d37dc498c2502bdffe5b3eb8": {
+      "id": "h-t-stuck-same-edit",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.509,
+          "probabilities": {
+            "done": 0.6318,
+            "failed": 0.0751,
+            "needs_input": 0.1253,
+            "stuck": 0.1678
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "a0700483d68da9e23bd6eefb2b30fae6fa20fe6c351963c3ffa8a00c019afa2d": {
+      "id": "h-t-stuck-trail-off",
+      "answers": {
+        "outcome": {
+          "choice": "done",
+          "confidence": 0.2281,
+          "probabilities": {
+            "done": 0.421,
+            "failed": 0.0327,
+            "needs_input": 0.2974,
+            "stuck": 0.2489
+          },
+          "type": "choice"
+        }
+      }
+    },
     "511db6aa3bd411b010b5fe3c96737881e6ec918a211c3a995787c5dfa1f55998": {
       "id": "needs-input-api-version",
       "answers": {

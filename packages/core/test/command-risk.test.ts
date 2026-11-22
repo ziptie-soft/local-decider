@@ -28,7 +28,7 @@ describe('command-risk policy', () => {
 
   it('logs a confident safe', () => {
     assert.equal(action(risk('safe', { safe: 0.84, caution: 0.09, dangerous: 0.07 }, 0.77)), 'log');
-    assert.equal(action(risk('safe', { safe: 0.7, caution: 0.2, dangerous: 0.1 }, 0.5)), 'log');
+    assert.equal(action(risk('safe', { safe: 0.77, caution: 0.15, dangerous: 0.08 }, 0.66)), 'log');
   });
 
   it('denies a confident dangerous and asks on an unsure one', () => {

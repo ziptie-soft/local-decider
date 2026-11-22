@@ -328,14 +328,14 @@ describe('evaluateRules', () => {
     assert.deepEqual(evaluateRules(policy, {}), { action: 'ask', rule: -1 });
   });
 
-  it('auto-allows permission only at p(allow) >= 0.95', () => {
+  it('auto-allows permission only at p(allow) >= 0.85', () => {
     const permission = parsePolicy(readFileSync(join(POLICY_DIR, 'permission.yaml'), 'utf8'));
     const at = (p: number): string =>
       evaluateRules(permission, {
         verdict: choice('allow', { allow: p, ask: 1 - p, deny: 0 }, 0.9),
       }).action;
-    assert.equal(at(0.96), 'allow');
-    assert.equal(at(0.94), 'ask');
+    assert.equal(at(0.85), 'allow');
+    assert.equal(at(0.84), 'ask');
   });
 
   it('uses precedent only when the model still leans allow', () => {
@@ -412,7 +412,7 @@ describe('thresholds', () => {
     assert.equal(tuned.rules[1]?.when.minProbability, 0.9);
     assert.equal(
       policyThresholds(permission).find((threshold) => threshold.key === 'verdict.allow')?.default,
-      0.95,
+      0.85,
     );
   });
 

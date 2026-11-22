@@ -18,7 +18,7 @@ Paseo's behaviour only when the gateway's mode and the plugin's setting for that
 | Policy | When | What `act` does |
 |---|---|---|
 | Turn outcome | After each completed or failed turn (not cancelled ones) | Classifies done, needs input, stuck or failed, and highlights the attention cases in the row. Never sends a prompt. |
-| Permission | When an agent asks to use a tool | Auto-allows when the model is very confident (p(allow) ≥ 0.95 by default). Never denies; everything else stays pending for you. Questions and plan approvals are left to you. |
+| Permission | When an agent asks to use a tool | Auto-allows when the model is confident (p(allow) ≥ 0.85 by default). Never denies; everything else stays pending for you. Questions and plan approvals are left to you. |
 | Routing | When a new agent is created | Applies the preset the routing policy picks: provider, model, mode and thinking level, or an agent profile. A mode the creator set wins. Paseo 0.15.3 does not pass the first prompt, so routing uses the agent title and skips agents without one. |
 
 With child agents, the parent can answer a pending request; that answer is reported as
@@ -96,7 +96,7 @@ checks still run, since Paseo has no equivalent.
   then fail to open); and a switch that loads the
   model when Paseo starts.
 - **Decision thresholds** (collapsed): a slider and number field for each rule of each policy,
-  such as "auto-allow when verdict is allow" at p(allow) ≥ 0.95, in steps of 0.01, with Reset.
+  such as "auto-allow when verdict is allow" at p(allow) ≥ 0.85, in steps of 0.01, with Reset.
   Below 0.90 it warns that more requests are auto-allowed without asking. An auto-allow rule
   never goes below 0.80; other rules stop at the gateway's floor.
 - **Paths** (collapsed): the tools and directories the gateway uses, which depend on the gateway

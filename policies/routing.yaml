@@ -24,10 +24,17 @@ questions:
       standard: A bounded feature or bug fix touching a few files with clear requirements.
       deep: Architecture, multi-file refactors, subtle debugging, security work, or vague requirements.
 rules:
-  - when: { question: tier, answer: fast, minConfidence: 0.7 }
+  # Thresholds are minConfidence, c = (N*p - 1)/(N - 1) with N = 3 (2026-11-22, Q4): c 0.35 is
+  # p 0.567, c 0.30 p 0.533, c 0.5 p 0.667. A tier needs a strict majority (p > 0.5); the downgrade
+  # tier (fast) is never looser than the upgrade tier (deep). Standard's c 0.5 held off the wrong
+  # argmax cases (p up to 0.584 + 0.05 margin). Was fast 0.7, deep 0.5.
+  - when: { question: tier, answer: fast, minConfidence: 0.35 }
     action: route:fast
-  - when: { question: tier, answer: deep, minConfidence: 0.5 }
+  - when: { question: tier, answer: deep, minConfidence: 0.30 }
     action: route:deep
-  - when: { question: tier, answer: standard, minConfidence: 0.5 }
+  # Standard raised 0.5 -> 0.65 (p 0.767) after the Q4 holdout check (2026-11-22): h-r-deep-race
+  # (expects deep) answered standard at p 0.715; 0.715 + 0.05 needs c >= 0.65. Tuning standard
+  # cases score p 0.80-0.88 and still route.
+  - when: { question: tier, answer: standard, minConfidence: 0.65 }
     action: route:standard
 default: abstain

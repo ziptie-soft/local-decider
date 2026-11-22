@@ -23,12 +23,15 @@ questions:
       stuck: The agent is looping, gave up, or stopped partway without a clear reason or next step.
       failed: The agent reports an error, a failing build or test, or that it could not do the task.
 rules:
+  # notify rules use minConfidence 0.4 (p 0.55 for N = 4, c = (4p - 1)/3); done stays at c 0.6
+  # (p 0.70). 2026-11-22, Q4: no done case answers a notify class, and the notify classes were
+  # right at p 0.60-0.94. Was 0.6 for all four.
   - when: { question: outcome, answer: done, minConfidence: 0.6 }
     action: log
-  - when: { question: outcome, answer: needs_input, minConfidence: 0.6 }
+  - when: { question: outcome, answer: needs_input, minConfidence: 0.4 }
     action: notify
-  - when: { question: outcome, answer: stuck, minConfidence: 0.6 }
+  - when: { question: outcome, answer: stuck, minConfidence: 0.4 }
     action: notify
-  - when: { question: outcome, answer: failed, minConfidence: 0.6 }
+  - when: { question: outcome, answer: failed, minConfidence: 0.4 }
     action: notify
 default: log
