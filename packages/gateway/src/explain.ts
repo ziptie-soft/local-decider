@@ -3,6 +3,7 @@ import {
   withThresholds,
   type Action,
   type Answers,
+  type DecideResponse,
   type OutcomeRecord,
   type Policy,
   type PolicyRule,
@@ -352,7 +353,12 @@ export function explainDecision(
 }
 
 /** The projection for anything an agent can call; never more than the reason text shows. */
-export function agentView(view: ExplainView): AgentView {
+export function agentView(
+  view: Pick<ExplainView, 'decisionId' | 'policy' | 'action' | 'enforced' | 'primary'> & {
+    readonly error?: string | undefined;
+    readonly truncated?: readonly string[] | undefined;
+  },
+): AgentView {
   const { primary } = view;
   return {
     decisionId: view.decisionId,
@@ -371,6 +377,24 @@ export function agentView(view: ExplainView): AgentView {
     failedOpen: view.error !== undefined,
     truncated: view.truncated !== undefined,
   };
+}
+
+/** The same projection for a live decision, from the response before it is stored. */
+export function agentViewOfResponse(
+  response: DecideResponse,
+  policy: Policy | undefined,
+): AgentView {
+  const matched = policy?.rules[response.rule];
+  const primary = primaryView(response.answers, primaryQuestion(response.answers, matched));
+  return agentView({
+    decisionId: response.decisionId,
+    policy: response.policy,
+    action: response.action,
+    enforced: response.enforced,
+    ...(primary === undefined ? {} : { primary }),
+    error: response.error,
+    truncated: response.truncated,
+  });
 }
 
 const NOT_RECORDED = 'not recorded (before F6)';

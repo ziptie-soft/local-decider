@@ -458,7 +458,11 @@ export class Decider {
    * The requested policy's mode with the selected variant's questions and rules, the rules with
    * that variant's threshold overrides.
    */
-  #resolve(policyId: string, scope?: Scope): { mode: Mode; policy: Policy; variant?: string } {
+  #resolve(
+    policyId: string,
+    scope?: Scope,
+    harness?: string,
+  ): { mode: Mode; policy: Policy; variant?: string } {
     const loaded = this.#policies.get(policyId);
     if (loaded === undefined) {
       throw new UnknownPolicyError(`unknown policy "${policyId}"`);
@@ -469,7 +473,9 @@ export class Decider {
       answering.policy,
       this.#thresholds.get(answering.policy.id) ?? {},
     );
-    const mode = this.effectiveMode(policyId, scope);
+    // Agents calling through MCP or the plugin's tools never enforce anything: shadow at most.
+    const capped = this.effectiveMode(policyId, scope);
+    const mode = harness === 'mcp' ? minMode(capped, 'shadow') : capped;
     return answering === loaded ? { mode, policy } : { mode, policy, variant: answering.policy.id };
   }
 
@@ -584,7 +590,7 @@ export class Decider {
     request: DecideRequest,
     signal: AbortSignal,
   ): Promise<DecideResponse> {
-    const { policy, mode, variant } = this.#resolve(policyId, request.scope);
+    const { policy, mode, variant } = this.#resolve(policyId, request.scope, request.harness);
     const decisionId = randomUUID();
     const base = {
       decisionId,

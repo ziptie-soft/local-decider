@@ -1,4 +1,8 @@
+import type { Action } from '@ziptie-soft/local-decider-core';
 import { execFileSync } from 'node:child_process';
+import { z } from 'zod';
+
+import type { AgentView } from './explain.ts';
 
 /** A bad command line; the CLI prints it (or the usage text when empty) and exits 2. */
 export class UsageError extends Error {}
@@ -25,27 +29,108 @@ export type PolicyRequest = (
   init: { timeoutMs: number },
 ) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>;
 
+type GatewayResponse = Awaited<ReturnType<PolicyRequest>>;
+
 /**
- * `GET /v1/policies` for `policies` and the MCP backend. The request carries the control token
- * when one is configured; a non-2xx answer throws a named error instead of parsing an error body.
+ * Send one gateway request and return the 2xx response. A thrown request, a 401 (the token is
+ * refused) or any other non-2xx answer throws a named error instead of parsing an error body;
+ * `onStatus` may name a specific status first.
  */
-export async function fetchPolicyList(request: PolicyRequest, refused: string): Promise<unknown> {
-  let response: Awaited<ReturnType<PolicyRequest>>;
+async function successful(
+  send: () => Promise<GatewayResponse>,
+  label: string,
+  refused: string,
+  onStatus: (status: number) => string | undefined = () => undefined,
+): Promise<GatewayResponse> {
+  let response: GatewayResponse;
   try {
-    response = await request('/v1/policies', { timeoutMs: 3000 });
+    response = await send();
   } catch (error) {
     throw new Error(
-      `gateway unreachable fetching /v1/policies: ${error instanceof Error ? error.message : String(error)}`,
+      `gateway unreachable fetching ${label}: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
   }
   if (response.status === 401) {
     throw new Error(refused);
   }
-  if (!response.ok) {
-    throw new Error(`gateway answered ${String(response.status)} for /v1/policies`);
+  const named = onStatus(response.status);
+  if (named !== undefined) {
+    throw new Error(named);
   }
+  if (!response.ok) {
+    throw new Error(`gateway answered ${String(response.status)} for ${label}`);
+  }
+  return response;
+}
+
+/**
+ * `GET /v1/policies` for `policies` and the MCP backend. The request carries the control token
+ * when one is configured; a non-2xx answer throws a named error instead of parsing an error body.
+ */
+export async function fetchPolicyList(request: PolicyRequest, refused: string): Promise<unknown> {
+  const label = '/v1/policies';
+  const response = await successful(() => request(label, { timeoutMs: 3000 }), label, refused);
   return response.json();
+}
+
+/** The POST shape the agent decide needs; satisfied by the CLI's authenticated gateway fetch. */
+export type DecideRequestFn = (
+  path: string,
+  init: { method: 'POST'; body: string; timeoutMs: number },
+) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>;
+
+const agentViewSchema = z.object({
+  decisionId: z.string(),
+  policy: z.string(),
+  action: z.string(),
+  enforced: z.boolean(),
+  primary: z
+    .object({ question: z.string(), answer: z.string(), confidence: z.number() })
+    .optional(),
+  failedOpen: z.boolean(),
+  truncated: z.boolean(),
+});
+
+/**
+ * A `?view=agent` decide body, rebuilt field by field (zod drops every other key). A gateway that
+ * predates the view ignores the query and sends the full response (probabilities, rule, key):
+ * that is refused, never projected here, because the matched rule's question is only known to
+ * the gateway.
+ */
+export function parseAgentDecision(body: unknown): AgentView | null {
+  const parsed = agentViewSchema.safeParse(body);
+  if (!parsed.success) {
+    return null;
+  }
+  const { primary, action, ...rest } = parsed.data;
+  return { ...rest, action: action as Action, ...(primary === undefined ? {} : { primary }) };
+}
+
+/**
+ * `POST /v1/decide/:policy?view=agent` for the stdio MCP backend: the gateway projects the answer
+ * with the matched rule's question, so the primary answer is the one that decided. A non-2xx
+ * answer throws a named error.
+ */
+export async function fetchAgentDecision(
+  request: DecideRequestFn,
+  policy: string,
+  body: unknown,
+  timeoutMs: number,
+  refused: string,
+): Promise<AgentView> {
+  const path = `/v1/decide/${encodeURIComponent(policy)}?view=agent`;
+  const response = await successful(
+    () => request(path, { method: 'POST', body: JSON.stringify(body), timeoutMs }),
+    `/v1/decide/${policy}`,
+    refused,
+    (status) => (status === 403 ? `policy "${policy}" is not available to agents` : undefined),
+  );
+  const view = parseAgentDecision(await response.json().catch(() => null));
+  if (view === null) {
+    throw new Error('gateway did not answer with the agent view; update the gateway');
+  }
+  return view;
 }
 
 /** Run one `flm` step; a failure names the step and the exit status instead of a raw stack. */

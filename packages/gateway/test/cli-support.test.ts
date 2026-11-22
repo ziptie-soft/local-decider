@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
-import { fetchPolicyList, parseInputJson, runFlmStep, UsageError } from '../src/cli-support.ts';
+import {
+  fetchAgentDecision,
+  fetchPolicyList,
+  parseAgentDecision,
+  parseInputJson,
+  runFlmStep,
+  UsageError,
+} from '../src/cli-support.ts';
 import { GATEWAY_VERSION } from '../src/version.ts';
 
 describe('parseInputJson', () => {
@@ -72,5 +79,61 @@ describe('gateway version', () => {
       version: string;
     };
     assert.equal(GATEWAY_VERSION, pkg.version);
+  });
+});
+
+const VIEW = {
+  decisionId: 'd1',
+  policy: 'p',
+  action: 'allow',
+  enforced: false,
+  primary: { question: 'q2', answer: 'yes', confidence: 0.91 },
+  failedOpen: false,
+  truncated: false,
+};
+
+describe('fetchAgentDecision', () => {
+  it('posts to ?view=agent and returns only the projection fields', async () => {
+    const seen: { path: string; method: string; body: string }[] = [];
+    const view = await fetchAgentDecision(
+      async (path, init) => {
+        seen.push({ path, method: init.method, body: init.body });
+        return answer(200, { ...VIEW, answers: { q2: {} }, precedentKey: 'k', rule: 3 })();
+      },
+      'a b',
+      { harness: 'mcp', input: {} },
+      1000,
+      'refused',
+    );
+    assert.deepEqual(view, VIEW);
+    assert.deepEqual(seen, [
+      { path: '/v1/decide/a%20b?view=agent', method: 'POST', body: '{"harness":"mcp","input":{}}' },
+    ]);
+  });
+
+  it('refuses a full response from a gateway that predates the view', async () => {
+    const full = { decisionId: 'd', policy: 'p', action: 'allow', answers: { q1: {} }, rule: 0 };
+    await assert.rejects(
+      fetchAgentDecision(answer(200, full), 'p', {}, 1000, 'r'),
+      /update the gateway/,
+    );
+    assert.equal(parseAgentDecision({ ...VIEW, primary: { question: 'q' } }), null);
+    assert.equal(parseAgentDecision('x'), null);
+  });
+
+  it('names a refused token, a closed policy, a bad status and an unreachable gateway', async () => {
+    await assert.rejects(
+      fetchAgentDecision(answer(401, {}), 'p', {}, 1, 'refused: token'),
+      /refused: token/,
+    );
+    await assert.rejects(
+      fetchAgentDecision(answer(403, {}), 'p', {}, 1, 'r'),
+      /not available to agents/,
+    );
+    await assert.rejects(fetchAgentDecision(answer(500, {}), 'p', {}, 1, 'r'), /answered 500/);
+    await assert.rejects(
+      fetchAgentDecision(async () => Promise.reject(new Error('ECONNREFUSED')), 'p', {}, 1, 'r'),
+      /unreachable.*ECONNREFUSED/,
+    );
   });
 });

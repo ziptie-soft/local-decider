@@ -1433,3 +1433,21 @@ describe('renderValue', () => {
     assert.equal(renderValue(undefined), '');
   });
 });
+
+describe('harness mcp', () => {
+  it('caps an act policy at shadow, so an agent answer is never enforced', async () => {
+    const { decider } = setup('act');
+    const hook = await decider.decide('permission', req, signal());
+    assert.equal(hook.mode, 'act');
+    assert.equal(hook.enforced, true);
+    const agent = await decider.decide('permission', { harness: 'mcp', input: INPUT }, signal());
+    assert.equal(agent.mode, 'shadow');
+    assert.equal(agent.enforced, false);
+  });
+
+  it('leaves an off policy off', async () => {
+    const { decider } = setup('off');
+    const agent = await decider.decide('permission', { harness: 'mcp', input: INPUT }, signal());
+    assert.equal(agent.mode, 'off');
+  });
+});
