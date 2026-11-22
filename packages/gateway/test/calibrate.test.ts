@@ -155,6 +155,27 @@ describe('calibrate', () => {
     assert.match(formatCalibration([result]), /T=/);
   });
 
+  it('floors a zero-probability human outcome instead of fitting a meaningless temperature', () => {
+    const records = sampleLog();
+    for (let index = 0; index < 5; index += 1) {
+      const id = `zero-${String(index)}`;
+      records.push(decision(id, 0));
+      records.push({
+        kind: 'outcome',
+        ts: '2026-11-10T00:00:01.000Z',
+        decisionId: id,
+        outcome: 'allow',
+        source: 'user',
+        verified: true,
+      });
+    }
+    const [result] = calibrate(records, LOADED);
+    assert.ok(result?.temperature !== undefined);
+    // An infinite NLL at every T used to leave the search at its lower bound.
+    assert.ok(result.temperature > 0.25 && result.temperature <= 4);
+    assert.ok(Number.isFinite(result.after?.brier));
+  });
+
   it('uses raw probabilities and a Wilson lower bound for threshold suggestions', () => {
     const [result] = calibrate(thresholdLog(), LOADED);
     assert.ok(result);
