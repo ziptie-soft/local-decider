@@ -20,6 +20,7 @@ import {
   EngineInstallUsageError,
   formatEngineList,
   planInstall,
+  wantsFlavorProbe,
 } from './cli-engine.ts';
 import { labelCommand } from './cli-label.ts';
 import { logsCommand } from './cli-logs.ts';
@@ -42,6 +43,7 @@ import {
 import { ConfigFile } from './config-file.ts';
 import { DEFAULT_FLM_MODEL, DEFAULT_PORT, loadConfig, type GatewayConfig } from './config.ts';
 import { reconcileDevice } from './engine-device.ts';
+import { flavorFromHardware, needsHardwareProbe, type FlavorChoice } from './engine-flavor.ts';
 import type { AutoInstall } from './engine-install-auto.ts';
 import { installStrandsEngine, type InstallFlavor } from './engine-install.ts';
 import type { HostInfo } from './engines/descriptor.ts';
@@ -385,10 +387,36 @@ async function autoInstallInput(ctx: Context, host: HostInfo): Promise<AutoInsta
   return { ranking };
 }
 
+/**
+ * The strands-decider flavor for an install that has an explicit config (so no ranking) and no
+ * `--flavor`: chosen from the hardware instead of defaulting to cpu.
+ */
+async function explicitFlavorChoice(
+  ctx: Context,
+  host: HostInfo,
+  args: readonly string[],
+): Promise<FlavorChoice | undefined> {
+  if (!configIsExplicit(ctx.config) || !wantsFlavorProbe(args, ctx.config.engine.type)) {
+    return undefined;
+  }
+  const capabilities = needsHardwareProbe(host)
+    ? await probeHostCapabilities({ strandsDecider: strandsBinary(ctx.paths) })
+    : undefined;
+  return flavorFromHardware(host, capabilities);
+}
+
 async function installEngine(ctx: Context, args: readonly string[]): Promise<void> {
   const host = hostInfo();
   const auto = await autoInstallInput(ctx, host);
-  const plan = planInstall(args, host, ctx.config.engine.type, ctx.config.engine.model, auto);
+  const hardware = auto === undefined ? await explicitFlavorChoice(ctx, host, args) : undefined;
+  const plan = planInstall(
+    args,
+    host,
+    ctx.config.engine.type,
+    ctx.config.engine.model,
+    auto,
+    hardware,
+  );
   if (plan.reason !== undefined) {
     console.log(plan.reason);
   }
