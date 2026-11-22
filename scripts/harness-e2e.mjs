@@ -13,6 +13,9 @@
 // tested here (`mise run e2e:install` does). With OPENAI_API_KEY set it instead installs the
 // checkout into a temp CODEX_HOME and logs in with that key: your auth.json is never copied.
 //
+// The harness runs with LOCAL_DECIDER_HOST_POLICIES cleared (see withoutHostPolicies): started from a
+// Paseo agent it would otherwise make the hooks skip routing, permission and turn-outcome.
+//
 // Every step only touches the scratch workspace; the dangerous-looking step pipes a script from a
 // `.invalid` host (never resolves) and must be denied by the guard.
 //
@@ -52,6 +55,7 @@ import {
   run as runCommand,
   runCaptured,
   selectedHarnesses,
+  withoutHostPolicies,
 } from './e2e-lib.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -241,7 +245,7 @@ async function preflight(name) {
 /** Run the harness; resolve with its JSONL events (stdout) and a session id if it reported one. */
 async function runHarness(spec, cwd, sessionId) {
   const env = {
-    ...process.env,
+    ...withoutHostPolicies(process.env),
     LOCAL_DECIDER_TIMEOUT_MS: HOOK_DECISION_TIMEOUT_MS,
     LD_E2E_APPROVER_LOG: join(cwd, APPROVER_LOG),
     ...spec.isolate?.(),

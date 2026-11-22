@@ -7,6 +7,7 @@ import {
   modPreconditionSkip,
   outcomesPreconditionSkip,
   runCaptured,
+  withoutHostPolicies,
 } from './e2e-lib.mjs';
 
 // A child that reads one line, prints it, then keeps running until stdin closes, like a headless
@@ -102,5 +103,16 @@ describe('outcomesPreconditionSkip', () => {
 
   it('runs the check when a prompt reached the user and was allowed', () => {
     assert.equal(outcomesPreconditionSkip([enforcedAllow, asked], allow), undefined);
+  });
+});
+
+describe('withoutHostPolicies', () => {
+  it('clears the Paseo host marker so the plugin hooks run every policy', () => {
+    const env = withoutHostPolicies({
+      PATH: '/bin',
+      LOCAL_DECIDER_HOST_POLICIES: 'turn-outcome,permission,routing',
+    });
+    assert.equal(env.LOCAL_DECIDER_HOST_POLICIES, '');
+    assert.equal(env.PATH, '/bin');
   });
 });
