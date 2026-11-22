@@ -234,3 +234,18 @@ export const ctx = (paseo: PaseoLike): { paseo: PaseoLike; signal: AbortSignal }
   paseo,
   signal: new AbortController().signal,
 });
+
+/** Run `body` with `LOCAL_DECIDER_CONFIG_DIR` set to `dir`, restoring it afterwards. */
+export async function withConfigDir(dir: string, body: () => Promise<void>): Promise<void> {
+  const before = process.env['LOCAL_DECIDER_CONFIG_DIR'];
+  process.env['LOCAL_DECIDER_CONFIG_DIR'] = dir;
+  try {
+    await body();
+  } finally {
+    if (before === undefined) {
+      delete process.env['LOCAL_DECIDER_CONFIG_DIR'];
+    } else {
+      process.env['LOCAL_DECIDER_CONFIG_DIR'] = before;
+    }
+  }
+}

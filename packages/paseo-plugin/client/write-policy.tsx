@@ -8,12 +8,13 @@ import { usePaseo, useRpc } from '@getpaseo/plugin/client';
 import { SettingsAction, SettingsSelect } from '@getpaseo/plugin/client/ui';
 import { useState, type ReactNode } from 'react';
 
+import { POLICY_WRITER_LABEL, POLICY_WRITER_TITLE } from '../shared/constants.ts';
 import { policyPromptRpc } from '../shared/rpc.ts';
 import { useAction } from './hooks.ts';
 import { InlineMessage, type Theme } from './ui.tsx';
 
 const ROUTING_POLICY = 'routing';
-const AGENT_TITLE = 'Write a routing policy';
+const AGENT_TITLE = POLICY_WRITER_TITLE;
 
 export function WritePolicyRows({
   theme,
@@ -41,6 +42,7 @@ export function WritePolicyRows({
         config: { provider: chosen },
         cwd: prompt.cwd,
         title: AGENT_TITLE,
+        labels: { [POLICY_WRITER_LABEL]: 'policy-writer' },
         prompt: prompt.prompt,
       });
       navigation?.openAgent({ agentId: agent.id });

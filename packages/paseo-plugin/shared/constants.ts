@@ -10,6 +10,11 @@ export const CONTROL_HEADER = 'x-local-decider-control';
 /** Name of the injected MCP server and prefix of every timeline row id. */
 export const MCP_SERVER_NAME = 'local-decider';
 
+/** Title of the agent "Write with an agent" starts; routing never rewrites it. */
+export const POLICY_WRITER_TITLE = 'Write a routing policy';
+/** Label on that agent, visible in Paseo. */
+export const POLICY_WRITER_LABEL = 'local-decider.role';
+
 export const ROW_KIND = 'decision';
 export const ROW_VERSION = 1;
 

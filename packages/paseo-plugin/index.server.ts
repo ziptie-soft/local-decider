@@ -146,7 +146,12 @@ export default function contribute(server: PluginServerContext): () => void {
     void usage.turnEnded(deps, event, ctx.paseo);
     return onTurn(event, ctx);
   });
-  server.addHook('agent.create.after', async ({ agent }) => usage.created(agent));
+  server.addHook('agent.create.after', async ({ agent }) => {
+    // Measures how often delegation correlation missed: a routed agent that has a parent.
+    if (usage.created(agent) && agent.parentAgentId !== null) {
+      log(`routing applied to delegated agent ${agent.id}`);
+    }
+  });
   server.addHook('agent.permission.before', async (event, ctx) => permission.before(event, ctx));
   server.addHook('agent.permission.after', async (event) => permission.after(event));
   server.addHook('agent.create.before', async (payload, ctx) => onCreate(payload, ctx));

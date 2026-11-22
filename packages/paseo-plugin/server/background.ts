@@ -1,9 +1,12 @@
+import { ThrottledLog } from './limits.ts';
+
 /**
  * Detached decision work. A CPU decision can take far longer than a notification hook should
  * hold (19 s at ~3k tokens, and hooks are aborted at 30 s), so turn and permission hooks return
  * at once and the decision finishes here; its row is appended when it returns.
  */
 export class Background {
+  readonly #refusals = new ThrottledLog(60_000);
   readonly #controller = new AbortController();
   readonly #inFlight = new Set<Promise<void>>();
   readonly #max: number;
@@ -24,6 +27,11 @@ export class Background {
       });
     this.#inFlight.add(promise);
     return true;
+  }
+
+  /** Log a refused task, at most once a minute. */
+  refused(log: (message: string) => void, label: string): void {
+    this.#refusals.emit(log, `${label} skipped: too many decisions in flight`);
   }
 
   /** Resolves when everything started so far has settled (tests, shutdown). */
@@ -50,6 +58,6 @@ export function detach(
     log(`${label} skipped: ${error instanceof Error ? error.message : String(error)}`),
   );
   if (!started) {
-    log(`${label} skipped: too many decisions in flight`);
+    background.refused(log, label);
   }
 }

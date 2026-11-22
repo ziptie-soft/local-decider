@@ -15,14 +15,16 @@ import type {
   AgentPermissionResponse,
   AgentTimelineItem,
 } from '@getpaseo/protocol/agent-types';
+import { resolve } from 'node:path';
 
 import { isEnforcedAllow, type DecideResponse } from '../shared/decision.ts';
 import type { Gateway } from '../shared/gateway.ts';
 import { rowVisible, toRowData, type DecisionRow } from '../shared/row.ts';
 import { Background, detach } from './background.ts';
 import { deterministicBlock } from './core/block.ts';
+import { locatePath } from './core/paths.ts';
 import { asRecord } from './core/subject.ts';
-import { errorText, type HookDeps } from './deps.ts';
+import { configDir, errorText, type HookDeps } from './deps.ts';
 import {
   buildPermissionInput,
   firstOfType,
@@ -33,15 +35,25 @@ import {
   type RecentContext,
 } from './history.ts';
 import { LabelRegistry } from './labels.ts';
-import { BoundedMap } from './limits.ts';
+import { BoundedMap, RateLimiter, ThrottledLog } from './limits.ts';
 import { appendRow } from './timeline.ts';
 import { pluginEnforces, type HookCtx } from './turn.ts';
 
 const PERMISSION_POLICY = 'permission';
 const HISTORY_LIMIT = 20;
 const TIMELINE_FETCH_LIMIT = 100;
-/** Detached from the hook; the request stays pending for the user meanwhile. */
-const DECIDE_TIMEOUT_MS = 60_000;
+/**
+ * From the hook's start to the end of the decision: a parent that supervises the agent answers
+ * within ~12 s (`docs/supervised-subagents.md`), so a later decision is wasted engine work. A
+ * timeout means no row and no allow; the request stays pending for the user.
+ */
+const PERMISSION_DEADLINE_MS = 10_000;
+/** Below this much of the deadline left, the gateway call is skipped. */
+const MIN_PERMISSION_DECIDE_MS = 1000;
+/** A circuit breaker, not a sampler: a normal agent never asks 20 times a minute. */
+const AGENT_LIMIT = 20;
+const GLOBAL_LIMIT = 120;
+const LIMIT_WINDOW_MS = 60_000;
 /** A send that outlasts this is ambiguous, like a throw. */
 const RESPOND_TIMEOUT_MS = 10_000;
 
@@ -146,6 +158,9 @@ function userOutcome(resolution: AgentPermissionResponse): 'allow' | 'decline' |
 export interface PermissionOptions {
   readonly labels?: LabelRegistry;
   readonly now?: () => number;
+  /** Tests only: the decision deadline, and the least of it worth a gateway call. */
+  readonly deadlineMs?: number;
+  readonly minDecideMs?: number;
 }
 
 interface PermissionState {
@@ -154,6 +169,11 @@ interface PermissionState {
   readonly labels: LabelRegistry;
   readonly now: () => number;
   readonly logAllow: (result: AllowResult, error: unknown) => void;
+  readonly perAgent: RateLimiter;
+  readonly global: RateLimiter;
+  readonly limitLog: ThrottledLog;
+  readonly deadlineMs: number;
+  readonly minDecideMs: number;
 }
 
 export function createPermissionHandlers(
@@ -171,6 +191,11 @@ export function createPermissionHandlers(
     labels: options.labels ?? new LabelRegistry(),
     now,
     logAllow: createAllowLogger(now, (m) => deps.log(m)),
+    perAgent: new RateLimiter(AGENT_LIMIT, LIMIT_WINDOW_MS, now),
+    global: new RateLimiter(GLOBAL_LIMIT, LIMIT_WINDOW_MS, now),
+    limitLog: new ThrottledLog(LIMIT_WINDOW_MS, now),
+    deadlineMs: options.deadlineMs ?? PERMISSION_DEADLINE_MS,
+    minDecideMs: options.minDecideMs ?? MIN_PERMISSION_DECIDE_MS,
   };
 
   // Returns at once: the request stays pending for the user while the decision runs detached.
@@ -179,6 +204,11 @@ export function createPermissionHandlers(
     if (event.request.kind !== 'tool') {
       return;
     }
+    // Over a limit: no decision and no entry; the request stays with the user.
+    if (!underLimits(deps, state, event.agent.id)) {
+      return;
+    }
+    const end = state.now() + state.deadlineMs;
     // Tracked synchronously, before any await: an early user answer is then never lost.
     const entry = newPending(ctx.paseo.agents.ref(event.agent.id), event);
     const key = `${event.agent.id}:${event.request.id}`;
@@ -189,7 +219,7 @@ export function createPermissionHandlers(
       `permission for ${event.agent.id}`,
       async (signal) => {
         try {
-          await handleRequest(deps, state, event, entry, signal);
+          await handleRequest(deps, state, event, entry, deadlineOf(state, end, signal));
         } finally {
           // No decision to settle later (or an answer already settled): do not keep the entry.
           if (entry.decisionId === null || entry.resolution !== null) {
@@ -211,6 +241,28 @@ export function createPermissionHandlers(
   };
 
   return { before, after };
+}
+
+function underLimits(deps: HookDeps, state: PermissionState, agentId: string): boolean {
+  if (state.perAgent.allow(agentId) && state.global.allow('*')) {
+    return true;
+  }
+  state.limitLog.emit(
+    (m) => deps.log(m),
+    'permission skipped: rate limit, requests stay with the user',
+  );
+  return false;
+}
+
+/** The end of one request's decision window: aborts with the hook's signal or at the deadline. */
+interface Deadline {
+  readonly signal: AbortSignal;
+  remaining(): number;
+}
+
+function deadlineOf(state: PermissionState, end: number, signal: AbortSignal): Deadline {
+  const remaining = (): number => Math.max(0, end - state.now());
+  return { signal: AbortSignal.any([signal, AbortSignal.timeout(remaining())]), remaining };
 }
 
 function newPending(agent: AgentRef, event: PermissionEvent): Pending {
@@ -248,7 +300,22 @@ function pathsSafe(event: PermissionEvent): boolean {
   const fields = asRecord(input);
   const path = fields?.['filePath'];
   const checked = typeof path === 'string' ? { ...fields, file_path: path } : input;
-  return deterministicBlock(checkedTool(request), checked, cwd) === null;
+  return (
+    deterministicBlock(checkedTool(request), checked, cwd) === null && !touchesConfig(cwd, fields)
+  );
+}
+
+/**
+ * True when the working directory, or a path the call names, is inside the gateway's config
+ * directory: the decider never auto-allows edits to its own policy (the request stays with the user).
+ */
+function touchesConfig(cwd: string, fields: Record<string, unknown> | undefined): boolean {
+  const dir = resolve(configDir(process.env));
+  const inside = (path: string): boolean => locatePath(dir, resolve(cwd, path)).where !== 'outside';
+  const named = ['file_path', 'filePath', 'path', 'notebook_path']
+    .map((key) => fields?.[key])
+    .filter((value): value is string => typeof value === 'string' && value !== '');
+  return inside(cwd) || named.some(inside);
 }
 
 async function handleRequest(
@@ -256,7 +323,7 @@ async function handleRequest(
   state: PermissionState,
   event: PermissionEvent,
   entry: Pending,
-  signal: AbortSignal,
+  deadline: Deadline,
 ): Promise<void> {
   const settings = await deps.settings();
   const mode = settings.modes[PERMISSION_POLICY];
@@ -269,20 +336,19 @@ async function handleRequest(
     event.agent.id,
     state.firstRequests,
     event.agent.title,
+    deadline.signal,
   );
-  const res = await decidePermission(gateway, event, context, signal);
+  if (deadline.remaining() < state.minDecideMs) {
+    deps.log('permission skipped: deadline spent before decide');
+    return;
+  }
+  const res = await decidePermission(gateway, event, context, deadline);
   if (res === null) {
     return;
   }
   entry.decisionId = res.decisionId;
   const enforced = pluginEnforces(res, mode);
-  if (
-    enforced &&
-    isEnforcedAllow(res) &&
-    mayAutoAllow(event.request) &&
-    pathsSafe(event) &&
-    entry.resolution === null
-  ) {
+  if (enforced && mayAllow(res, event, entry)) {
     await autoAllow(state, entry, event.request);
   }
   const data = permissionRow(res, event, entry, enforced);
@@ -290,6 +356,15 @@ async function handleRequest(
     await drawRow(state, entry, data);
   }
   await settleUser(deps, state, entry);
+}
+
+function mayAllow(res: DecideResponse, event: PermissionEvent, entry: Pending): boolean {
+  return (
+    isEnforcedAllow(res) &&
+    mayAutoAllow(event.request) &&
+    pathsSafe(event) &&
+    entry.resolution === null
+  );
 }
 
 /**
@@ -384,10 +459,14 @@ async function recentContext(
   agentId: string,
   firstRequests: BoundedMap<string>,
   title: string | null | undefined,
+  signal: AbortSignal,
 ): Promise<RecentContext> {
   let items: AgentTimelineItem[] = [];
   try {
-    const page = await agent.timeline.refetch({ direction: 'tail', limit: TIMELINE_FETCH_LIMIT });
+    const page = await Promise.race([
+      agent.timeline.refetch({ direction: 'tail', limit: TIMELINE_FETCH_LIMIT }),
+      abortion(signal),
+    ]);
     items = page.entries.map((e) => e.item).filter((item) => item.type !== 'plugin');
     const first = firstOfType(items, 'user_message')?.text.trim();
     if (firstRequests.get(agentId) === undefined && first !== undefined && first !== '') {
@@ -403,11 +482,22 @@ async function recentContext(
   };
 }
 
+/** Never resolves; rejects when `signal` aborts. */
+async function abortion(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    const fail = (): void => reject(new Error('permission deadline reached'));
+    if (signal.aborted) {
+      fail();
+    }
+    signal.addEventListener('abort', fail, { once: true });
+  });
+}
+
 async function decidePermission(
   gateway: Gateway,
   event: PermissionEvent,
   context: RecentContext,
-  signal: AbortSignal,
+  deadline: Deadline,
 ): Promise<Awaited<ReturnType<Gateway['decide']>>> {
   const input = buildPermissionInput(event.agent.cwd, context.history, context.task, event.request);
   return gateway.decide(
@@ -418,7 +508,7 @@ async function decidePermission(
       workspace: { cwd: event.agent.cwd },
       input,
     },
-    { timeoutMs: DECIDE_TIMEOUT_MS, signal },
+    { timeoutMs: deadline.remaining(), signal: deadline.signal },
   );
 }
 
@@ -461,28 +551,18 @@ async function tryAllow(
   }
 }
 
-const REJECT_LOG_INTERVAL_MS = 60_000;
-
 /** Logs a failed allow; rejections are rate limited, with a count of the suppressed lines. */
 function createAllowLogger(
   now: () => number,
   log: (m: string) => void,
 ): (result: AllowResult, error: unknown) => void {
-  let lastAt = Number.NEGATIVE_INFINITY;
-  let suppressed = 0;
+  const rejections = new ThrottledLog(60_000, now);
   return (result, error) => {
     if (result === 'timeout') {
       log('permission allow timed out');
     } else if (result === 'rejected') {
-      if (now() - lastAt < REJECT_LOG_INTERVAL_MS) {
-        suppressed += 1;
-        return;
-      }
-      lastAt = now();
-      const extra = suppressed > 0 ? ` (${suppressed} similar suppressed)` : '';
-      suppressed = 0;
       const line = errorText(error).split('\n')[0]?.slice(0, 200) ?? '';
-      log(`permission allow not applied: ${line}${extra}`);
+      rejections.emit(log, `permission allow not applied: ${line}`);
     }
   };
 }

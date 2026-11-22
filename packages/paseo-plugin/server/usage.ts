@@ -17,6 +17,8 @@ const REPORT_TIMEOUT_MS = 5000;
 interface PendingLink {
   readonly decision: Promise<string | null>;
   readonly at: number;
+  /** Set by routing once it changed the new agent's config. */
+  applied: boolean;
 }
 
 export class UsageLinks {
@@ -33,15 +35,28 @@ export class UsageLinks {
 
   /** `agent.create.before`: the routing decision (its id, or null) for the agent being created. */
   creating(cwd: string, title: string | null | undefined, decision: Promise<string | null>): void {
-    this.#creating.set(linkKey(cwd, title), { decision, at: this.#now() });
+    this.#creating.set(linkKey(cwd, title), { decision, at: this.#now(), applied: false });
   }
 
-  /** `agent.create.after`: attach the pending decision to the new agent's id. */
-  created(agent: Pick<PluginHookAgent, 'id' | 'cwd' | 'title'>): void {
-    const pending = this.#creating.take(linkKey(agent.cwd, agent.title));
-    if (pending !== undefined && this.#now() - pending.at < LINK_TTL_MS) {
-      this.#agents.set(agent.id, pending.decision);
+  /** `agent.create.before`: routing changed this agent's config. */
+  applied(cwd: string, title: string | null | undefined): void {
+    const pending = this.#creating.get(linkKey(cwd, title));
+    if (pending !== undefined) {
+      pending.applied = true;
     }
+  }
+
+  /**
+   * `agent.create.after`: attach the pending decision to the new agent's id. True when routing
+   * changed that agent's config.
+   */
+  created(agent: Pick<PluginHookAgent, 'id' | 'cwd' | 'title'>): boolean {
+    const pending = this.#creating.take(linkKey(agent.cwd, agent.title));
+    if (pending === undefined || this.#now() - pending.at >= LINK_TTL_MS) {
+      return false;
+    }
+    this.#agents.set(agent.id, pending.decision);
+    return pending.applied;
   }
 
   /** `agent.turn.after`: report the finished turn's usage when the agent has a decision. */

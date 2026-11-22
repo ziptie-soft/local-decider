@@ -7,7 +7,7 @@ import { rowVisible, toRowData } from '../shared/row.ts';
 import { Background, detach } from './background.ts';
 import type { HookDeps, PaseoLike } from './deps.ts';
 import { buildTurnInput } from './history.ts';
-import { BoundedSet, RateLimiter } from './limits.ts';
+import { BoundedSet, RateLimiter, ThrottledLog } from './limits.ts';
 
 const TURN_POLICY = 'turn-outcome';
 const HISTORY_LIMIT = 60;
@@ -38,6 +38,8 @@ function turnKey(turnId: string | null, entryCount: number, lastSeq: string): st
 export interface TurnHandlerOptions {
   readonly seen?: BoundedSet;
   readonly limiter?: RateLimiter;
+  /** Across all agents. */
+  readonly globalLimiter?: RateLimiter;
   readonly background?: Background;
 }
 
@@ -48,6 +50,8 @@ export function createTurnHandler(
   const seen = options.seen ?? new BoundedSet(2000);
   // A circuit breaker, not a sampler: a normal agent never ends 30 turns a minute.
   const limiter = options.limiter ?? new RateLimiter(30, 60_000);
+  const globalLimiter = options.globalLimiter ?? new RateLimiter(60, 60_000);
+  const throttle = new ThrottledLog(60_000);
   const background = options.background ?? new Background();
 
   // Returns at once: the decision runs detached and appends its row when it returns.
@@ -56,14 +60,25 @@ export function createTurnHandler(
       background,
       (m) => deps.log(m),
       `turn-outcome for ${event.agent.id}`,
-      async (signal) => handleTurn(deps, { seen, limiter }, event, { paseo: ctx.paseo, signal }),
+      async (signal) =>
+        handleTurn(deps, { seen, limiter, globalLimiter, throttle }, event, {
+          paseo: ctx.paseo,
+          signal,
+        }),
     );
   };
 }
 
+interface TurnState {
+  readonly seen: BoundedSet;
+  readonly limiter: RateLimiter;
+  readonly globalLimiter: RateLimiter;
+  readonly throttle: ThrottledLog;
+}
+
 async function handleTurn(
   deps: HookDeps,
-  state: { seen: BoundedSet; limiter: RateLimiter },
+  state: TurnState,
   event: TurnEvent,
   ctx: HookCtx,
 ): Promise<void> {
@@ -81,7 +96,11 @@ async function handleTurn(
   const page = await agent.timeline.refetch({ direction: 'tail', limit: HISTORY_LIMIT });
   const entries = page.entries.filter((e) => e.item.type !== 'plugin');
   const turn = turnKey(event.turnId, entries.length, lastSeqOf(entries));
-  if (!state.seen.add(`${event.agent.id}:${turn}`) || !state.limiter.allow(event.agent.id)) {
+  if (!state.seen.add(`${event.agent.id}:${turn}`)) {
+    return;
+  }
+  if (!state.limiter.allow(event.agent.id) || !state.globalLimiter.allow('*')) {
+    state.throttle.emit((m) => deps.log(m), 'turn-outcome skipped: rate limit');
     return;
   }
   const input = buildTurnInput(entries, event.turnId);

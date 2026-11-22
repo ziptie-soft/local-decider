@@ -58,6 +58,33 @@ export class BoundedMap<V> {
   }
 }
 
+/**
+ * One log line per `intervalMs`, with a count of the lines held back since the last one. The
+ * message is `line` as given; when some were suppressed, ` (<n> similar suppressed)` follows.
+ */
+export class ThrottledLog {
+  readonly #intervalMs: number;
+  readonly #now: () => number;
+  #lastAt = Number.NEGATIVE_INFINITY;
+  #suppressed = 0;
+
+  constructor(intervalMs: number, now: () => number = Date.now) {
+    this.#intervalMs = intervalMs;
+    this.#now = now;
+  }
+
+  emit(log: (message: string) => void, line: string): void {
+    if (this.#now() - this.#lastAt < this.#intervalMs) {
+      this.#suppressed += 1;
+      return;
+    }
+    this.#lastAt = this.#now();
+    const extra = this.#suppressed > 0 ? ` (${String(this.#suppressed)} similar suppressed)` : '';
+    this.#suppressed = 0;
+    log(`${line}${extra}`);
+  }
+}
+
 /** At most `limit` events per `windowMs` per key (sliding window). */
 export class RateLimiter {
   readonly #limit: number;
