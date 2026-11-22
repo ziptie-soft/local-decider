@@ -229,7 +229,6 @@ the plugin installed in your Codex, so trust is not tested; with `OPENAI_API_KEY
 the checkout into a temp `CODEX_HOME` and logs in with that key (your `auth.json` is never
 copied).
 
-release-please bumps this package only for commits that touch `plugins/local-decider/`. Pull
-request CI checks that changes to shared hook/core source or the dependency lockfile include a
-change here and a PR title that triggers a release, so the plugin release includes its rebuilt
-bundle.
+release-please bumps this package only for commits that touch `plugins/local-decider/`, so a
+change to shared hook/core source or the dependency lockfile needs a change here too, to release
+the rebuilt bundle.

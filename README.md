@@ -420,9 +420,9 @@ mise trust; and mise install; and mise run setup
 mise run check      # lint, typecheck, Markdown, workflows, complexity, build and test
 ```
 
-Read [AGENTS.md](AGENTS.md) for conventions. Commits and PR titles follow
+Read [AGENTS.md](AGENTS.md) for conventions. Commits follow
 [Conventional Commits](https://www.conventionalcommits.org/) (`<type>(<scope>): <description>`);
-CI enforces it and release-please derives versions from it.
+GitHub enforces it and release-please derives versions from it.
 
 ## Licence
 
