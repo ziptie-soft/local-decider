@@ -330,6 +330,25 @@ verified, thresholded answer.
 
 ### Q3 Richer permission and command-risk input
 
+- **Status (2026-11-22): done, mostly a null result.** Shipped: eval tooling (`--out`, `--facts`,
+  `eval:compare`, per-case probabilities); realigned fixtures with a workspace and 17 reachable
+  permission cases; one core `buildPermissionInput` and `CALL_ID` shared by the hooks, the mod and
+  the Paseo plugin (the plugin needs a release, since its vendored `core/` changed); and the
+  gateway `facts` derivation (`core/src/facts.ts`, see [policies.md](policies.md#facts)).
+  `SHIPPED_FACTS` is `{ command-risk: [kind] }`.
+- **A/B result (reference 2B, cumulative, reachable subset):** no group improved `permission`.
+  `kind`, `paths`, `commands` and `hints` lowered auc (0.938 to 0.915-0.932) or the allow passes;
+  `notes` and `content` changed nothing; `git-refs` raised auc by 0.012, under the 0.02 bar. For
+  `command-risk`, `kind` raised caution passes from 7/9 to 8/9 (reachable 3/4 to 4/4) and the
+  caution floor to 0.85; every later group left the passes and auc as they were. Placing `kind`
+  after the command was worse.
+- **Caveat:** the `kind` gain is one case out of 24, so it may be overfit; it passed the keep rule
+  but the margin is thin. Re-check it when the fixtures grow or the reference model changes, and
+  drop it if it stops paying.
+- **Q4 handoff (permission allow, B0, reachable):** the `allow` sweep passes 10/20 at p >= 0.85
+  with 0 false allows, and 13/20 at 0.80 with 1 false allow (`make-deploy`). The highest p(allow)
+  of a non-allow case is 0.804, and auc is 0.938. Lowering the allow threshold below 0.85 trades
+  false allows for passes; criteria edits (Q4) should aim to push `make-deploy` down first.
 - **Priority:** P1. **Size:** M.
 - **Problem:** For Write/Edit/MCP the hook sends the whole raw `tool_input` as `command`
   (`packages/hooks/src/mapping.ts:313-318`); only `cwd` reaches the policy, no worktree or
