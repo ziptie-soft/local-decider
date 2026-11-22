@@ -4,7 +4,7 @@
  */
 import { z } from 'zod';
 
-import { ALLOW_THRESHOLD } from './constants.ts';
+import { ALLOW_THRESHOLD, HOOK_POLICIES } from './constants.ts';
 
 const policyId = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/);
 
@@ -31,6 +31,8 @@ const entrySchema = z.object({
   variants: z.array(policyId).max(255).optional().catch(undefined),
   /** Older gateways have none. */
   thresholds: z.array(thresholdSchema).max(255).catch([]),
+  /** The gateway's run mode for the policy; older gateways send none. */
+  mode: z.enum(['off', 'shadow', 'act']).optional().catch(undefined),
 });
 type Entry = z.output<typeof entrySchema>;
 
@@ -100,6 +102,44 @@ export function parsePolicyThresholds(body: unknown, id: string): PolicyThreshol
     return { ok: false, error: `No "${id}" policy.`, policy: null, thresholds: [] };
   }
   return { ok: true, error: null, policy: answering.id, thresholds: answering.thresholds };
+}
+
+export const policyModesSchema = z.object({
+  ok: z.boolean(),
+  error: z.string().nullable(),
+  /** The gateway's run mode per hook policy; a policy it does not report is left out. */
+  modes: z.partialRecord(z.enum(HOOK_POLICIES), z.enum(['off', 'shadow', 'act'])),
+});
+export type PolicyModes = z.output<typeof policyModesSchema>;
+
+/** The gateway's run mode of every hook policy it lists. */
+export function parsePolicyModes(body: unknown): PolicyModes {
+  const entries = parseEntries(Array.isArray(body) ? body : []);
+  const modes: PolicyModes['modes'] = {};
+  for (const policy of HOOK_POLICIES) {
+    const mode = entries.get(policy)?.mode;
+    if (mode !== undefined) {
+      modes[policy] = mode;
+    }
+  }
+  const ok = entries.size > 0;
+  return { ok, error: ok ? null : 'The gateway did not list its policies.', modes };
+}
+
+/**
+ * The plugin is in act but the gateway runs the policy in another mode: its decisions are not
+ * enforced, so "act" does nothing. Unknown gateway mode (older gateway, or down) is no mismatch.
+ */
+export function modeMismatch(
+  pluginMode: 'off' | 'shadow' | 'act',
+  gatewayMode: 'off' | 'shadow' | 'act' | undefined,
+): boolean {
+  return pluginMode === 'act' && gatewayMode !== undefined && gatewayMode !== 'act';
+}
+
+/** `act · gateway shadow`: the pill text for a mismatch. */
+export function mismatchLabel(gatewayMode: 'off' | 'shadow' | 'act'): string {
+  return `act · gateway ${gatewayMode}`;
 }
 
 const ACTION_VERBS: Readonly<Record<string, string>> = { allow: 'auto-allow' };

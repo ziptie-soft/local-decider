@@ -20,10 +20,12 @@ import {
 import type { PostResult } from '../shared/gateway.ts';
 import { parsePaths, type PathEntry } from '../shared/paths.ts';
 import {
+  parsePolicyModes,
   parsePolicyPrompt,
   parsePolicyThresholds,
   parsePolicyVariants,
   parseRoutingSettings,
+  type PolicyModes,
   type PolicyPrompt,
   type PolicyThresholds,
   type PolicyVariants,
@@ -281,6 +283,15 @@ export async function listPolicyThresholds(
     return { ok: false, error: BAD_URL, policy: null, thresholds: [] };
   }
   return parsePolicyThresholds(await gateway.policies({ timeoutMs: 3000 }), id);
+}
+
+/** The gateway's run mode of each hook policy; `ok: false` when it is down or lists nothing. */
+export async function listPolicyModes(deps: Pick<HookDeps, 'gateway'>): Promise<PolicyModes> {
+  const gateway = await deps.gateway();
+  if (gateway === null) {
+    return { ok: false, error: BAD_URL, modes: {} };
+  }
+  return parsePolicyModes(await gateway.policies({ timeoutMs: 3000 }));
 }
 
 /** Override rule thresholds of `policy` (null restores a default); the gateway validates keys. */

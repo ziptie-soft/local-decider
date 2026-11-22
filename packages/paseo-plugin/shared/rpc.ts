@@ -10,6 +10,7 @@ import { IDLE_MINUTES } from './lifecycle.ts';
 import { progressSchema } from './machine.ts';
 import { PATH_KEY, pathEntrySchema } from './paths.ts';
 import {
+  policyModesSchema,
   policyPromptSchema,
   policyThresholdsSchema,
   policyVariantsSchema,
@@ -188,6 +189,13 @@ export const policyThresholdsRpc = defineRpc({
   name: 'policy-thresholds',
   input: z.object({ policy: z.enum(HOOK_POLICIES) }),
   output: policyThresholdsSchema,
+});
+
+/** The gateway's run mode of each hook policy (`GET /v1/policies`), to spot a plugin mismatch. */
+export const policyModesRpc = defineRpc({
+  name: 'policy-modes',
+  input: z.object({}),
+  output: policyModesSchema,
 });
 
 /**
