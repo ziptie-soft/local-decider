@@ -137,6 +137,16 @@ export interface ShadowRecord {
   /** Exact-match precedent hash, never the subject itself. */
   readonly precedentKey?: string;
   readonly precedent?: PrecedentTally;
+  /** Matching rule index, -1 for the policy default; absent before F6 or when not recorded. */
+  readonly rule?: number;
+  /** True when the engine answers came from the decision cache. */
+  readonly cached?: boolean;
+  /** `[REDACTED:<kind>]` labels the redaction added to the input, per kind (approximate). */
+  readonly redactions?: Readonly<Record<string, number>>;
+  /** 16 hex of the rules in force (see `rulesHash`), to tell later whether they changed. */
+  readonly rulesHash?: string;
+  /** The harness's tool name (`Bash`, `mcp__x__y`), kept only when it is a plain identifier. */
+  readonly tool?: string;
   /** Estimated tokens of the state sent to the engine. */
   readonly stateTokens?: number;
   /** `DecideRequest.models.requested`. */

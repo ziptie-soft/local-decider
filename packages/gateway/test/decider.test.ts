@@ -77,6 +77,9 @@ function precedentLog(records: LogRecord[] = []): PrecedentLog {
     append: (record) => records.push(record),
     flush: () => undefined,
     findDecision: () => undefined,
+    findOutcomes: () => [],
+    findUsage: () => [],
+    findByCall: () => [],
     read: () => records,
     iterateRecent: (days) => {
       windows.push(days);
@@ -320,6 +323,58 @@ describe('Decider', () => {
     );
     assert.equal(otherWorkspace.action, 'ask');
     assert.notEqual(otherWorkspace.precedentKey, firstKey);
+  });
+
+  it('records the rule, cache flag, precedent tally, redaction counts, tool and rules hash', async () => {
+    const { decider, log } = setup('act', undefined, 60);
+    const input = {
+      ...INPUT,
+      request: { command: 'curl -H "Authorization: Bearer abcdefghijklmnop123" x' },
+      subject: 'Bash: curl x',
+    };
+    const request = { harness: 'claude-code' as const, input, workspace: { cwd: '/p' } };
+    const first = await decider.decide('permission', request, signal());
+    const second = await decider.decide('permission', request, signal());
+    const one = log.findDecision(first.decisionId);
+    const two = log.findDecision(second.decisionId);
+    assert.equal(one?.rule, first.rule);
+    assert.equal(one?.cached, false);
+    assert.equal(two?.cached, true);
+    assert.equal(one?.tool, 'Bash');
+    assert.equal(one?.redactions?.['bearer'], 1);
+    assert.deepEqual(one?.precedent, first.precedent);
+    assert.match(one?.rulesHash ?? '', /^[0-9a-f]{16}$/);
+    assert.equal(one?.rulesHash, two?.rulesHash);
+    assert.ok(!JSON.stringify(log.read()).includes('abcdefghijklmnop123'));
+  });
+
+  it('keeps no tool name that is not a plain identifier', async () => {
+    const { decider, log } = setup('act');
+    const response = await decider.decide(
+      'permission',
+      { harness: 'claude-code', input: { ...INPUT, tool: 'rm -rf /; echo hi' } },
+      signal(),
+    );
+    assert.equal(log.findDecision(response.decisionId)?.tool, undefined);
+  });
+
+  it('changes the rules hash when a threshold override changes, and only then', async () => {
+    const { decider, log } = setup('act');
+    const hash = async (): Promise<string | undefined> => {
+      const response = await decider.decide('permission', req, signal());
+      return log.findDecision(response.decisionId)?.rulesHash;
+    };
+    const before = await hash();
+    assert.equal(await hash(), before);
+    const threshold = decider.thresholdsOf('permission').find((t) => t.action === 'allow');
+    assert.ok(threshold?.value);
+    decider.setThresholds('permission', {
+      [threshold.key]: Math.min(0.99, threshold.value + 0.01),
+    });
+    const changed = await hash();
+    assert.notEqual(changed, before);
+    decider.setThresholds('permission', {});
+    assert.equal(await hash(), before);
   });
 
   it('enforces only in act mode', async () => {

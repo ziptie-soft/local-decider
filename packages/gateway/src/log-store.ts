@@ -1,4 +1,10 @@
-import type { LogRecord, Scope, ShadowRecord } from '@ziptie-soft/local-decider-core';
+import type {
+  LogRecord,
+  OutcomeRecord,
+  Scope,
+  ShadowRecord,
+  UsageRecord,
+} from '@ziptie-soft/local-decider-core';
 
 import type { LogCounters } from './counters.ts';
 
@@ -26,6 +32,12 @@ export interface LogStore {
   flush(): void;
   /** The recorded decision with this id, if it is still stored. */
   findDecision(decisionId: string): ShadowRecord | undefined;
+  /** Every outcome reported for a decision, in the order they were appended. */
+  findOutcomes(decisionId: string): OutcomeRecord[];
+  /** Every usage row reported for a decision, verified or not. */
+  findUsage(decisionId: string): UsageRecord[];
+  /** The decisions made for one harness tool call (a call can have several), oldest first. */
+  findByCall(callId: string, limit?: number): ShadowRecord[];
   read(): LogRecord[];
   readRecent(maxAgeDays: number, now?: number): LogRecord[];
   /**

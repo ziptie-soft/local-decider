@@ -31,6 +31,18 @@ function v4(): { dir: string; file: string } {
   log.append(makeShadowRecord('old-row'));
   log.close();
   const db = openAt(file);
+  db.exec('DROP INDEX decision_call');
+  for (const column of [
+    'rule',
+    'cached',
+    'precedent_allows',
+    'precedent_denies',
+    'redactions',
+    'rules_hash',
+    'tool',
+  ]) {
+    db.exec(`ALTER TABLE decision DROP COLUMN ${column}`);
+  }
   db.exec('ALTER TABLE usage DROP COLUMN verified');
   db.exec('PRAGMA user_version = 4');
   db.close();
@@ -48,7 +60,7 @@ describe('schema migration backup', () => {
   it('leaves one private backup at the old version', () => {
     const { dir, file } = v4();
     SqliteLog.open(file).close();
-    assert.equal(version(file), 5);
+    assert.equal(version(file), 6);
     const [name, ...rest] = backups(dir);
     assert.equal(rest.length, 0);
     assert.match(name ?? '', /^decider\.db\.pre-v4-\d{8}T\d{6}\.bak$/);
@@ -75,11 +87,11 @@ describe('schema migration backup', () => {
     writeFileSync(join(dir, 'decider.db.pre-v4-20261122T100000.bak'), 'in the way');
     const log = SqliteLog.open(file);
     try {
-      assert.equal(version(file), 5);
+      assert.equal(version(file), 6);
       assert.equal(log.findDecision('old-row')?.decisionId, 'old-row');
       assert.match(
         String(errors.mock.calls[0]?.arguments[0]),
-        /could not back up .* before migrating schema v4 → v5 .*migrating anyway/,
+        /could not back up .* before migrating schema v4 → v6 .*migrating anyway/,
       );
     } finally {
       log.close();
@@ -107,7 +119,7 @@ describe('schema version checks', () => {
   it('refuses a newer schema for writers and readers, naming the remedy and file', () => {
     const file = atVersion(99);
     const message =
-      /newer than this build supports \(5\): upgrade local-decider or restore a backup/;
+      /newer than this build supports \(6\): upgrade local-decider or restore a backup/;
     assert.throws(() => SqliteLog.open(file), message);
     assert.throws(() => SqliteLog.open(file, { readOnly: true }), message);
     assert.throws(() => SqliteLog.open(file, { readOnly: true }), new RegExp(file));
@@ -117,7 +129,7 @@ describe('schema version checks', () => {
     const file = atVersion(4);
     assert.throws(
       () => SqliteLog.open(file, { readOnly: true }),
-      /version 4 is older than this build \(5\); start the gateway once to migrate/,
+      /version 4 is older than this build \(6\); start the gateway once to migrate/,
     );
     assert.equal(version(file), 4);
   });
