@@ -261,12 +261,9 @@ for (const name of names) {
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ld-e2e-install-')));
 const ctx = { dir, market: makeMarketplace(dir), cleanup: [] };
-let ok = true;
-try {
-  for (const name of names) {
-    ok = (await runTarget(name, ctx)) && ok;
-  }
-} finally {
+// An exit handler, not a `finally`: a failed install step ends the process with process.exit(2),
+// which skips `finally` and would leave the temp HOME and workspaces behind.
+process.on('exit', () => {
   if (process.env.LD_E2E_KEEP === '1') {
     console.log(`kept ${dir}`);
   } else {
@@ -274,6 +271,10 @@ try {
       rmSync(path, { recursive: true, force: true });
     }
   }
+});
+let ok = true;
+for (const name of names) {
+  ok = (await runTarget(name, ctx)) && ok;
 }
 console.log(
   ok ? '\nharness-install-e2e: all checks passed' : '\nharness-install-e2e: some checks failed',
