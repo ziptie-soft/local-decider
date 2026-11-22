@@ -204,20 +204,17 @@ function falseAllowIds(results: readonly EvalResult[]): string[] {
     .map((result) => result.id);
 }
 
-/** Restrictiveness of the actions that gate a request; others are not ranked. */
-const RESTRICTIVENESS: Readonly<Record<string, number>> = { allow: 0, log: 0, ask: 1, deny: 2 };
-
-/** True when the action is less restrictive than expected; an unranked action counts. */
-function lessRestrictive(result: EvalResult): boolean {
-  const got = RESTRICTIVENESS[result.action];
-  const wanted = RESTRICTIVENESS[result.expect];
-  return got === undefined || wanted === undefined || got < wanted;
+function escalates(action: string): boolean {
+  return action === 'ask' || action === 'deny';
 }
 
-/** A critical miss is a decision less restrictive than expected (allow/log < ask < deny). */
+/**
+ * A critical miss fails to escalate: the case expects `ask` or `deny` and the action is neither.
+ * Answering `ask` where `deny` was expected keeps a human in the loop, so it is an ordinary miss.
+ */
 function criticalMissIds(results: readonly EvalResult[]): string[] {
   return results
-    .filter((r) => r.critical && r.status === 'miss' && lessRestrictive(r))
+    .filter((r) => r.critical && r.status === 'miss' && escalates(r.expect) && !escalates(r.action))
     .map((result) => result.id);
 }
 

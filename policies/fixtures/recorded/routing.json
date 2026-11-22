@@ -1,0 +1,234 @@
+{
+  "version": 1,
+  "engine": "strands-decider",
+  "model": "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610",
+  "device": "cpu",
+  "recordedAt": "2026-11-22",
+  "cases": {
+    "8e25252bec54d34a59b13ce8777ebd7d374a94dbf0f1ecad6a9fe997750d9fee": {
+      "id": "deep-refactor-monorepo",
+      "answers": {
+        "tier": {
+          "choice": "deep",
+          "confidence": 0.4994,
+          "probabilities": {
+            "deep": 0.6663,
+            "fast": 0.0443,
+            "standard": 0.2895
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "360d4c72e8b63ea661c57bc6f81d2b3f1dfe1d580ef48a012a37336316dbfd18": {
+      "id": "deep-refactor-storage",
+      "answers": {
+        "tier": {
+          "choice": "deep",
+          "confidence": 0.4948,
+          "probabilities": {
+            "deep": 0.6632,
+            "fast": 0.0429,
+            "standard": 0.2939
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "73553dba020b59da7659cc74476c3cc6c8168d878245c46395d622faf27cba2e": {
+      "id": "deep-security-auth",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.3761,
+          "probabilities": {
+            "deep": 0.3463,
+            "fast": 0.0696,
+            "standard": 0.5841
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "6c5cbc759e611f062a7829c83d728cf941d9337ff669b23c4e8075e96e45b783": {
+      "id": "deep-security-injection",
+      "answers": {
+        "tier": {
+          "choice": "deep",
+          "confidence": 0.3778,
+          "probabilities": {
+            "deep": 0.5852,
+            "fast": 0.055,
+            "standard": 0.3599
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "fabf664cb06e8d6640a8d6fe81db603a299d4030496804043e7097929cdcf35b": {
+      "id": "deep-vague-faster",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.2597,
+          "probabilities": {
+            "deep": 0.327,
+            "fast": 0.1666,
+            "standard": 0.5065
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "26303a41f27d3cb8fb5a35a633a0dccdfe23d2c60f091e6085e0fe98c3c36677": {
+      "id": "fast-lookup-default",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.3186,
+          "probabilities": {
+            "deep": 0.1173,
+            "fast": 0.337,
+            "standard": 0.5457
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "b0e58c57aa4d9087c86834f08ed7cfa5d88380ef06e4df70c18b822ac27465de": {
+      "id": "fast-lookup-script",
+      "answers": {
+        "tier": {
+          "choice": "fast",
+          "confidence": 0.36,
+          "probabilities": {
+            "deep": 0.1578,
+            "fast": 0.5733,
+            "standard": 0.2689
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "76afaca606f2ad530b490d0b1a6018659f4b578d96dd5728437517bcd273cf6c": {
+      "id": "fast-lookup-type",
+      "answers": {
+        "tier": {
+          "choice": "fast",
+          "confidence": 0.4021,
+          "probabilities": {
+            "deep": 0.1828,
+            "fast": 0.6014,
+            "standard": 0.2158
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "e0da7606f9cffcd5d1faaaeae3620e4020490168ee9192baf731fec4ac158afe": {
+      "id": "fast-rename-label",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.2361,
+          "probabilities": {
+            "deep": 0.0718,
+            "fast": 0.4375,
+            "standard": 0.4907
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "32b81042dd811b9e619c4d189247664f0dd3cd0e7fd3a3b8ad646fc0793cc3c0": {
+      "id": "fast-rename-var",
+      "answers": {
+        "tier": {
+          "choice": "fast",
+          "confidence": 0.6109,
+          "probabilities": {
+            "deep": 0.0946,
+            "fast": 0.7406,
+            "standard": 0.1649
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "553d3c501c5ce302b4b9c227972d3264df02a0c7c1a7d70d5a77e2be1e6e7eab": {
+      "id": "standard-bugfix-null",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.8146,
+          "probabilities": {
+            "deep": 0.0843,
+            "fast": 0.0393,
+            "standard": 0.8764
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "33edacfe66cbfdb24c5234880d11e181b5496d7f631db2292cab2ce64154a68a": {
+      "id": "standard-bugfix-pagination",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.7063,
+          "probabilities": {
+            "deep": 0.1234,
+            "fast": 0.0724,
+            "standard": 0.8042
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "a75971d36bb19221417aa1a8c81f98d577e47f19f095f93aae4be66d5cef852b": {
+      "id": "standard-feature-csv",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.787,
+          "probabilities": {
+            "deep": 0.0527,
+            "fast": 0.0892,
+            "standard": 0.858
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "fc0b612123d46464c14382749188e55bee319716e88fccdc012839b85d9196c3": {
+      "id": "standard-feature-flag",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.7515,
+          "probabilities": {
+            "deep": 0.093,
+            "fast": 0.0727,
+            "standard": 0.8343
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "1b4110f20ff1797c9a715161fe3885799224734596113a26202be9e152dc783d": {
+      "id": "standard-feature-validation",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.7874,
+          "probabilities": {
+            "deep": 0.0936,
+            "fast": 0.0482,
+            "standard": 0.8582
+          },
+          "type": "choice"
+        }
+      }
+    }
+  }
+}
