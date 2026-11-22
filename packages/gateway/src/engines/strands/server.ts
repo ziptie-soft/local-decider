@@ -40,6 +40,12 @@ export function serveArgs(
   }
   // Warmup compiles kernel shapes; on CPU there is nothing to compile and it adds ~27 s to every
   // start (ready in 4.6 s without it, first request no slower). `--warmup` in extraArgs opts back in.
+  // GPU devices keep the upstream warmup on purpose: it is one request per question count up to
+  // `--max-batch` (11 requests at our default of 8), not a kernel build. Measured on a Radeon 880M
+  // (ROCm torch 2.14.1, fla/causal-conv1d absent so nothing compiles): `warmed up in 8.1 s`, and it
+  // moves the first-request cost (1.1 s vs 0.75 s) in front of the listener. An earlier ~90 s start
+  // was a bench at upstream's `--max-batch 32` (35 requests), not this argv. Revisit if a CUDA host
+  // with flash-linear-attention (Triton compile per shape) shows a long first start.
   if (device === 'cpu' && !config.extraArgs.some((a) => a === '--warmup' || a === '--no-warmup')) {
     args.push('--no-warmup');
   }
