@@ -9,7 +9,7 @@ import { explainDecision, formatExplain, type ExplainContext } from './explain.t
 import type { LogStore } from './log-store.ts';
 import type { Paths } from './paths.ts';
 import { loadPolicies, policyDirs } from './policies.ts';
-import { computeReview, formatReview } from './review.ts';
+import { computeReview, DEFAULT_REVIEW_LIMIT, formatReview, MAX_REVIEW_LIMIT } from './review.ts';
 import { openLogStore } from './sqlite-log.ts';
 import { parseDays } from './stats-job.ts';
 
@@ -115,9 +115,6 @@ export function explainCommand(env: ReviewEnv): string {
   }
   return found.views.map(formatExplain).join('\n\n');
 }
-
-const DEFAULT_REVIEW_LIMIT = 50;
-const MAX_REVIEW_LIMIT = 1000;
 
 interface ReviewArgs {
   readonly days: number;

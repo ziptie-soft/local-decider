@@ -271,8 +271,9 @@ flowchart LR
 - **Explain and review.** `local-decider explain <id>` and `GET /v1/decisions/:id` (or
   `?call=<callId>`, `?view=agent` for the projection an agent may see) rebuild a decision's rule,
   margin, precedent and usage from the log and the policy in force; a rule hash says whether the
-  policy changed since. `local-decider review` classifies the window's disagreements. Both are
-  hash-only, and the CLI opens the store read-only.
+  policy changed since. `local-decider review` classifies the window's disagreements, and
+  `GET /v1/review?days=N&limit=N` (control token, at most 30 days) returns the same result as JSON
+  for the Paseo daily review. All are hash-only, and the CLI opens the store read-only.
 - **Calibration report.** `local-decider calibrate [--json]` fits a temperature per policy,
   engine and model from verified outcomes and stored probabilities. It reports Brier and ECE
   before and after, plus allow-threshold suggestions when data is sufficient. It writes no config.
@@ -328,6 +329,7 @@ how to add an engine or a model, and the macOS notes
 | `POST /v1/outcomes`, `POST /v1/usage` | Report / open | Report what happened, and token usage, for a decision. Both return 404 for an unknown `decisionId`; an outcome must be `allow`, `deny`, `unsafe`, `decline`, `interrupted` or an answer label of the decision, else 400. Without the report token the rows are stored unverified and limited to 60 per minute per route (burst 30, then 429) |
 | `GET /v1/decisions/:id`, `GET /v1/decisions?call=<id>` | Control | Hash-only explanation of one decision or of every decision of a tool call; `?view=agent` returns the minimal projection; 404 for unknown ids |
 | `GET /v1/calls/:id` | Open | What each policy decided for a harness tool call (`call.id` of a decide request), its permission mode and the effective mode per scope; kept in memory for 10 minutes, 404 when unknown |
+| `GET /v1/review?days=N&limit=N` | Control | The disagreements of `local-decider review --json` (hash-only), `days` 1 to 30 bounded by retention, `limit` 1 to 1000 (default 50) |
 | `GET /health`, `GET /ping`, `GET /v1/stats?days=N` | Open | Engine state, p50/p95 of answered calls (`p50Ms`, `p95Ms`) and of failed ones (`errorP50Ms`, `errorP95Ms`), `queueDepth` and `counters`: integers since gateway start (`queueFull`, `busy`, `timeouts`, `errors`, `passThroughErrors`, `logWriteFailures`, `logDropped`, `engineRestarts`, `engineHangs`; `busy` counts budget refusals and engine 503s, and a caller that hung up counts as neither a timeout nor an error). JSON only. Unknown server errors answer 502 `{"error":"engine error"}`; the redacted detail goes to the gateway log. Stats as JSON (30-day default, bounded by retention) |
 | `GET /models` | Open | Model catalogue |
 | `GET /v1/engines`, `POST /v1/engine`, `/v1/engine/mode`, `/v1/engine/load`, `/v1/engine/unload`, `/v1/engine/lifecycle` | Control | Engine status, switching and lifecycle |
