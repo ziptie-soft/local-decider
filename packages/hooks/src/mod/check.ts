@@ -2,14 +2,12 @@
  * The mod's pure decisions: when a plain `ask` may be upgraded, which calls the local decider
  * never gets to allow, and how a refused call reads. No I/O, no `node:` imports.
  */
-import { asRecord, type DecideResponse } from '@ziptie-soft/local-decider-core';
+import { asRecord, CALL_ID, type DecideResponse } from '@ziptie-soft/local-decider-core';
 
 import type { ToolCallResult, ToolCheckEvent, ToolCheckResult } from './types.ts';
 
 /** First Claude Code release whose mod API has what this mod relies on (`agentId`, `ceiling`). */
 const MIN_VERSION = '2.1.304';
-
-const CALL_ID = /^[\w-]{1,128}$/;
 
 /** Numeric compare of dotted versions (`2.1.319` ≥ `2.1.304`); anything unparsable is too old. */
 export function versionAtLeast(version: unknown, min: string = MIN_VERSION): boolean {

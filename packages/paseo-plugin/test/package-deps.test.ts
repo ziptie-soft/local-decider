@@ -89,6 +89,7 @@ describe('server/core', () => {
     'patch.ts',
     'block.ts',
     'guard.ts',
+    'permission-input.ts',
   ]) {
     it(`${file} is a verbatim copy of packages/core/src/${file}`, () => {
       const copy = readFileSync(join(root, 'server/core', file), 'utf8');

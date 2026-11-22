@@ -232,7 +232,7 @@ const toolRequest = (name: string, input: Record<string, unknown>): AgentPermiss
 });
 
 describe('buildPermissionInput', () => {
-  it('renders the request as bounded JSON with tool and project', () => {
+  it('builds the hook-shaped input: bare tool, request object and name (cwd) project', () => {
     const request: AgentPermissionRequest = {
       id: 'r1',
       provider: 'claude',
@@ -247,12 +247,12 @@ describe('buildPermissionInput', () => {
       'First request: list files',
       request,
     );
-    assert.equal(input.project, '/home/u/project');
-    assert.equal(input.task, 'First request: list files');
-    assert.equal(input.tool, 'Bash · tool · Run ls');
-    assert.deepEqual(JSON.parse(input.request), { title: 'Run ls', input: { command: 'ls -la' } });
-    assert.equal(input.history, 'user: list files');
-    assert.equal(input.subject, 'shell: ls -la');
+    assert.equal(input['project'], 'project (/home/u/project)');
+    assert.equal(input['task'], 'First request: list files');
+    assert.equal(input['tool'], 'Bash');
+    assert.deepEqual(input['request'], { command: 'ls -la' });
+    assert.equal(input['history'], 'user: list files');
+    assert.equal(input['subject'], 'shell: ls -la');
   });
 
   it('normalizes shell prefixes, relative file paths, URLs, and stable fallback input', () => {
@@ -262,7 +262,7 @@ describe('buildPermissionInput', () => {
         '',
         '',
         toolRequest('Bash', { command: 'cd /home/u/project && npm test' }),
-      ).subject,
+      )['subject'],
       'shell: npm test',
     );
     assert.equal(
@@ -271,7 +271,7 @@ describe('buildPermissionInput', () => {
         '',
         '',
         toolRequest('Read', { file_path: '/home/u/project/src/a.ts' }),
-      ).subject,
+      )['subject'],
       'Read: src/a.ts',
     );
     assert.equal(
@@ -280,7 +280,7 @@ describe('buildPermissionInput', () => {
         '',
         '',
         toolRequest('Fetch', { url: 'https://example.test/x' }),
-      ).subject,
+      )['subject'],
       'Fetch: https://example.test/x',
     );
     assert.equal(
@@ -289,7 +289,7 @@ describe('buildPermissionInput', () => {
         '',
         '',
         toolRequest('tool', { z: 1, description: 'ignored', a: { b: 2 } }),
-      ).subject,
+      )['subject'],
       'tool: {"a":{"b":2},"z":1}',
     );
   });
@@ -297,17 +297,16 @@ describe('buildPermissionInput', () => {
   it('matches hook subjects for argv commands and aliased path fields', () => {
     const cwd = '/home/u/project';
     const argv = ['bash', '-lc', 'npm test'];
-    const paseoCommand = buildPermissionInput(cwd, '', '', toolRequest('Bash', { argv })).subject;
+    const paseoCommand = buildPermissionInput(cwd, '', '', toolRequest('Bash', { argv }))[
+      'subject'
+    ];
     const hookCommand = canonicalSubject('Bash', { command: argv }, cwd);
     assert.equal(paseoCommand, hookCommand);
 
     const path = '/home/u/project/src/a.ts';
-    const paseoPath = buildPermissionInput(
-      cwd,
-      '',
-      '',
-      toolRequest('Write', { filePath: path }),
-    ).subject;
+    const paseoPath = buildPermissionInput(cwd, '', '', toolRequest('Write', { filePath: path }))[
+      'subject'
+    ];
     const hookPath = canonicalSubject('Write', { file_path: path }, cwd);
     assert.equal(paseoPath, hookPath);
   });

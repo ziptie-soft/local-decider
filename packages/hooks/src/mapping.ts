@@ -3,6 +3,7 @@
  * the policy's `state.sections[].from` (see policies/*.yaml).
  */
 import {
+  CALL_ID,
   commandOf,
   canonicalSubject,
   capInput,
@@ -161,8 +162,6 @@ const BUILDERS: Record<PolicyEvent, InputBuilder> = {
   SubagentResult: (hook) => subagentInput(hook),
 };
 
-const CALL_ID = /^[\w-]{1,128}$/;
-
 /**
  * The Claude Code tool call an event is about, so the gateway can serve it to other callers: for
  * PreToolUse the `tool_use_id` and `permission_mode`; for SubagentResult the `tool_use_id`, marked
@@ -192,7 +191,8 @@ export function callOf(
 export function mapEvent(event: PolicyEvent, hook: HookInput, read: ReadTranscript): PolicyCall {
   const transcript = new Transcript(str(hook['transcript_path']), read);
   const input = BUILDERS[event](hook, transcript);
-  const workspace = event === 'PermissionRequest' ? workspaceOf(hook) : undefined;
+  const workspace =
+    event === 'PermissionRequest' || event === 'PreToolUse' ? workspaceOf(hook) : undefined;
   return {
     policy: EVENT_POLICY[event],
     input: compact(capInput(input)),

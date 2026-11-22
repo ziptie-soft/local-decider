@@ -124,6 +124,7 @@ describe('event → policy mapping', () => {
     assert.deepEqual(mapEvent('PreToolUse', HOOKS.PreToolUse, read), {
       policy: 'command-risk',
       input: { project: 'my-app (/work/my-app)', tool: 'Bash', command: 'npm install left-pad' },
+      workspace: { cwd: '/work/my-app' },
     });
     const mcp = { ...BASE, tool_name: 'mcp__x__y', tool_input: { q: 1 } };
     assert.deepEqual(mapEvent('PreToolUse', mcp, read).input['command'], { q: 1 });

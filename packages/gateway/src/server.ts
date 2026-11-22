@@ -1,4 +1,5 @@
 import {
+  CALL_ID,
   HARNESSES,
   mcpOpen,
   PERMISSION_MODES,
@@ -156,9 +157,6 @@ function parseWorkspace(value: unknown): DecideRequest['workspace'] {
     ? { cwd: value['cwd'].slice(0, 4096) }
     : undefined;
 }
-
-/** Tool-use and call ids: also the `GET /v1/calls/:id` path segment. */
-const CALL_ID = /^[\w-]{1,128}$/;
 
 /** Tolerant like `models`: an invalid `call` is dropped, never a 400. */
 function parseCall(value: unknown): DecideCall | undefined {

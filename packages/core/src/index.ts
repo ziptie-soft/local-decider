@@ -34,7 +34,13 @@ export {
 } from './decision.ts';
 export { guardCommand, MAX_COMMAND_CHARS, OVERSIZE_COMMAND, type GuardHit } from './guard.ts';
 export { inputHash } from './hash.ts';
+export { CALL_ID } from './ids.ts';
 export { patchTargets } from './patch.ts';
+export {
+  buildPermissionInput,
+  projectLabel,
+  type PermissionInputParts,
+} from './permission-input.ts';
 export { pathParts } from './paths.ts';
 export { capInput, INPUT_CAPS } from './input-cap.ts';
 export {

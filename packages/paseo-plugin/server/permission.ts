@@ -21,7 +21,6 @@ import type { Gateway } from '../shared/gateway.ts';
 import { rowVisible, toRowData, type DecisionRow } from '../shared/row.ts';
 import { Background, detach } from './background.ts';
 import { deterministicBlock } from './core/block.ts';
-import { capInput } from './core/input-cap.ts';
 import { asRecord } from './core/subject.ts';
 import { errorText, type HookDeps } from './deps.ts';
 import {
@@ -417,7 +416,7 @@ async function decidePermission(
       harness: 'paseo',
       sessionId: event.agent.id,
       workspace: { cwd: event.agent.cwd },
-      input: capInput({ ...input }),
+      input,
     },
     { timeoutMs: DECIDE_TIMEOUT_MS, signal },
   );
