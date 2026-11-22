@@ -591,6 +591,12 @@ verified, thresholded answer.
 
 ### I2 CI coverage: plugin validate, schema drift, bundles
 
+- **Status: done (2026-11-22).** New `validate:mod` task (build + `claude plugin validate
+  --strict`) runs in the `e2e-install` job with the locked `claude`; it fails when `CI=true` and
+  `claude` is missing and skips locally. `test:mod` depends on it; `claude plugin test` stays out of
+  CI because its act-mode case fails even with a clean HOME (open). The `build` job regenerates
+  `schemas/` and fails on `git diff`. No bundle is committed (`dist` is built), so no rebuild-diff.
+  `test:integration` runbook added to `docs/engines.md`. `check` is unchanged (no network installs).
 - **Priority:** P1. **Size:** S.
 - **Problem:** `test:mod` (`claude plugin validate --strict`) is skipped when `claude` is absent
   and is not in `check` or `ci.yml` (`mise.toml:114-118,95`); the `schemas` script has no drift

@@ -134,6 +134,23 @@ new fields is read with defaults (tag = id, supported, calibrated).
 4. Add a row to the table in section 1. A test fails if an `ENGINES` id is missing from it.
 5. Add tests next to `test/registry.test.ts` and `test/engines/`.
 
+### Integration test runbook
+
+`mise run test:integration` runs six real-model cases (turn outcome, command risk, permission)
+against a live engine. CI does not run it; run it by hand after changing an engine adapter, the
+state building or a prompt:
+
+```sh
+# terminal 1: start the engine from the managed venv (see `strands-decider serve --help` for the port)
+strands-decider serve StrandsAgents/strands-decider-2B-qwen3.5-v1-2610 --device cpu
+# terminal 2: wait until it reports ready, then use its URL
+LOCAL_DECIDER_IT_ENGINE_URL=http://127.0.0.1:PORT mise run test:integration
+```
+
+Without `LOCAL_DECIDER_IT_ENGINE_URL` the cases are skipped. A failure on a borderline
+probability usually means the model, not the code; compare with the fixture eval
+([policies.md](policies.md#fixtures-and-the-ci-gate)).
+
 Rules: command-line arguments come only from validated config, never from a request. Bind
 spawned servers to `127.0.0.1`. Fail open. Runtime data goes under
 `~/.local/share/local-decider/`. A managed binary also needs a path entry in `toolchain.ts` so the
