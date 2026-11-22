@@ -5,6 +5,9 @@ description: View or change local-decider settings (policy modes, the routing po
 
 # local-decider settings
 
+Start by checking the CLI exists: `command -v local-decider || echo missing`. If it is missing,
+tell the user to install it (see the Quick start in the local-decider README) and stop.
+
 Every local-decider setting lives in one YAML file that the gateway watches and applies as it
 changes. Paseo's settings page writes to the same file.
 
@@ -30,6 +33,12 @@ changes. Paseo's settings page writes to the same file.
    in the local-decider repository; `local-decider engine list` shows what the gateway offers.
 6. Changes to `host`, `port`, `engine` or `decisionTimeoutMs` need
    `local-decider gateway restart`; everything else applies within a second.
+7. Keep `decisionTimeoutMs` below the hook budget. The Claude Code and Codex hooks time out at
+   5 s (SessionStart at 3 s) in `hooks/hooks.json`, the hook client gives up after 1.5 s by
+   default (`LOCAL_DECIDER_TIMEOUT_MS`) and sends the gateway a `budgetMs` of that minus 500 ms.
+   The default `decisionTimeoutMs` of 30 000 ms mostly bounds queue wait and non-hook clients;
+   never set `LOCAL_DECIDER_TIMEOUT_MS` to 5000 or more, or the harness kills the hook before
+   it can fail open.
 
 Policies ship in shadow mode. Confirm with the user before switching one to `act`, because
 the hooks then change behaviour (auto-allowing permission requests, denying risky commands).

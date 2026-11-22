@@ -675,6 +675,12 @@ verified, thresholded answer.
   onboarding. The settings skill omits that `decisionTimeoutMs` must stay below the hook budget.
 - **Direction:** `explain`, `doctor` and `mark-decline` skills with a `command -v` first step;
   a note on timeouts; a short onboarding flow (shadow, stats, act).
+- **Status:** done (2026-11-22) — `local-decider-doctor` (wraps `gateway status`, `engine list`,
+  `decide`, `config check`, `policies`; Codex `/hooks` re-trust) and `local-decider-onboarding`
+  (shadow, stats, act) skills; every skill starts with a `command -v local-decider` step; the
+  settings skill notes the hook budget (hooks 5 s, SessionStart 3 s, client 1.5 s).
+  `explain` and `mark-decline` are not built: no CLI command looks a decision up by id or posts an
+  outcome label (`/v1/outcomes` needs the report token), so they wait on F6.
 - **Open questions:** should `explain` be a CLI command first (F6) and the skill a thin wrapper?
 
 ### D3 Test gaps
