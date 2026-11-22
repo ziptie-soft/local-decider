@@ -987,6 +987,12 @@ other models. Verify cited lines before implementing; they come from a read-only
 - **Risk:** images bypass redaction and truncation: a typed `images` field, size and count caps,
   opt-in per policy, never forwarded to openai-compatible engines, and `ask`/`notify`/`deny` only
   until fixtures exist.
+- **Status:** deferred (2026-11-22). The reference v1 2B reads screenshots when served with
+  `--vision` (probe: a "DELETE ACCOUNT" image gives ask 0.90, a "Refresh list" image gives allow
+  0.84; text alone gives ask 0.90). Each new image shape costs a 30–47 s compile on ROCm (repeats
+  take about 1 s), so images need a fixed canvas. No harness hands a screenshot to a hook yet: the
+  Paseo plugin API has no capture, and the Claude Code computer-use hook input has only
+  coordinates. Reopen when either harness delivers the image.
 
 ### X2 Token readout for explanations and calibration
 
@@ -995,6 +1001,10 @@ other models. Verify cited lines before implementing; they come from a read-only
 - **What:** store per-option token mass from the v2 token readout next to probabilities;
   `calibrate` fits temperature on it; `explain <id>` shows the margin. Store option tokens only,
   never state tokens.
+- **Status:** closed (2026-11-22). v1 checkpoints have a pointer head, not a token readout, and
+  the v2 readout returns only per-option probabilities (4 places, no logits), which we already
+  store. `calibrate` fits temperature on them, with a floor at the wire rounding, and `explain`
+  shows the margin. Reopen if a strands-decider release returns logits or out-of-option mass.
 
 ### X3 Fleet concurrency
 
@@ -1012,6 +1022,14 @@ other models. Verify cited lines before implementing; they come from a read-only
   Strands models without the 3 GB torch download. The wheel still depends on torch today, so this
   needs upstream packaging or our own shim; `strandsRuntimeVersion` must not depend on torch
   metadata.
+- **Status:** slice done, engine deferred (2026-11-22). The runtime stamp no longer needs torch,
+  and `engine list` reports a venv whose strands-decider differs from the pin (read-only, never
+  installs): re-run `engine install` after a pin change. The torch-free engine is deferred:
+  upstream ships the llama.cpp path only as a Lambda recipe (a C shim against a pinned llama.cpp
+  plus a torch-based GGUF conversion), with no torch-free package or extra and no published
+  GGUFs. Reopen when strands-decider ships a torch-free install, or StrandsAgents publishes GGUF
+  plus `HiddenStateEngine` assets for the v1 Qwen3.5 checkpoints. The size win is mostly on GPU
+  hosts: on CPU torch is about 0.8 GB of a 1.1 GB venv.
 
 ### X5 Subagent supervision via `PostToolUse` on `Agent|Task`
 
