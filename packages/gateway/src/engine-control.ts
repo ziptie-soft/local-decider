@@ -80,7 +80,7 @@ import {
 import { rankEngines, type Ranking } from './engines/selector.ts';
 import { resolveStrandsDevice, type DeviceResolution } from './engines/strands/mlx.ts';
 import { strandsBinary } from './engines/strands/server.ts';
-import { strandsPinMismatch } from './engines/strands/venv.ts';
+import { strandsDeviceProblem, strandsPinMismatch } from './engines/strands/venv.ts';
 import type { Engine } from './engines/types.ts';
 import { catalogModel, MEMORY_BUDGET, modelFits, modelMemoryGb } from './models.ts';
 import type { Paths } from './paths.ts';
@@ -567,6 +567,10 @@ export class EngineControl implements BenchmarkHost {
       (isOpenAILike(config.engine.type) || config.engine.url === undefined);
     this.#selected = this.switchable ? this.#initialSelection() : null;
     this.#engine = this.#build(this.#selected);
+    const deviceProblem = this.#deviceProblem();
+    if (deviceProblem !== null) {
+      console.warn(`local-decider: strands-decider: ${deviceProblem}`);
+    }
     this.benchmark = new BenchmarkRunner({ host: this, store: this.#benchmarkStore });
   }
 
@@ -1466,6 +1470,13 @@ export class EngineControl implements BenchmarkHost {
     return resolveStrandsDevice(selected.device ?? 'auto', this.#host, binary);
   }
 
+  /** Why the installed torch cannot serve the selected strands device; null when it can. */
+  #deviceProblem(): string | null {
+    return this.#selected?.engine === 'strands-decider'
+      ? strandsDeviceProblem(this.#paths, this.#selected.device ?? 'auto', this.#host.platform)
+      : null;
+  }
+
   #engines(): Record<string, unknown>[] {
     const validation = this.#status.validation ?? null;
     const flmInstalled = this.#tools.flm !== undefined;
@@ -1477,7 +1488,7 @@ export class EngineControl implements BenchmarkHost {
         installed: strandsInstalled,
         available: strandsInstalled,
         detail: strandsInstalled
-          ? [this.#tools.strandsDecider, strandsPinMismatch(this.#paths)]
+          ? [this.#tools.strandsDecider, strandsPinMismatch(this.#paths), this.#deviceProblem()]
               .filter((part) => part != null)
               .join(' — ')
           : 'Not found on PATH or in the local-decider venv; run `local-decider engine install`.',
