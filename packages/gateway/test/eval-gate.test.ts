@@ -11,7 +11,13 @@ import { describe, it } from 'node:test';
 
 import { formatEvalSummary, scoreEval, type EvalResult, type EvalSummary } from '../src/eval.ts';
 import { ReplayEngine, type Recording } from './eval-engines.ts';
-import { evalFixture, floorsFor, FIXTURES_DIR, RECORDED_DIR } from './eval-harness.ts';
+import {
+  evalFixture,
+  floorsFor,
+  isReferenceModel,
+  FIXTURES_DIR,
+  RECORDED_DIR,
+} from './eval-harness.ts';
 
 function policyIds(): string[] {
   return readdirSync(FIXTURES_DIR)
@@ -40,6 +46,10 @@ describe('recorded eval gate', () => {
   for (const policyId of policyIds()) {
     it(`${policyId} holds its floors against the recording`, async () => {
       const recording = loadRecording(policyId);
+      assert.ok(
+        isReferenceModel(recording.model),
+        `${policyId} was recorded with ${recording.model}, not the reference model; re-record`,
+      );
       const { engine, results, summary } = await replay(policyId, recording);
       assert.ok(summary.passed, `${policyId}\n${formatEvalSummary(summary)}`);
       const stale = Object.entries(recording.cases)
