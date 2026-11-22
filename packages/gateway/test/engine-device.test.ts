@@ -69,7 +69,6 @@ describe('engine install device reconciliation', () => {
       ['cpu', 'linux', 'auto'],
       ['cpu', 'darwin', 'mps'],
       ['cuda', 'linux', 'cuda'],
-      ['cuda', 'linux', 'cpu'],
       ['rocm', 'linux', 'cuda'],
       ['mlx', 'darwin', 'mlx'],
     ];
@@ -78,6 +77,36 @@ describe('engine install device reconciliation', () => {
       assert.equal(reconcileDevice(paths, flavor, platform), undefined, `${flavor}/${device}`);
       assert.equal(ConfigFile.open(paths).current.selection?.device, device);
     }
+  });
+
+  it('switches a cpu device to the GPU when a cuda or rocm flavor is installed', () => {
+    for (const flavor of ['cuda', 'rocm'] as const) {
+      const paths = configured(CUDA_ON_CPU.replace('device: cuda', 'device: cpu'));
+      const notice = reconcileDevice(paths, flavor, 'linux');
+      assert.match(notice ?? '', /selection\.device cpu -> cuda, engine\.device cpu -> cuda/);
+      assert.match(notice ?? '', new RegExp(`${flavor} flavor runs on the GPU`));
+      const { current } = ConfigFile.open(paths);
+      assert.equal(current.selection?.device, 'cuda');
+      assert.equal(current.engine.type === 'strands-decider' && current.engine.device, 'cuda');
+      assert.match(readText(paths), /# my settings/);
+    }
+  });
+
+  it('still forces cpu for the cpu flavor, and keeps auto and an explicit GPU device', () => {
+    const forced = configured(CUDA_ON_CPU);
+    assert.match(reconcileDevice(forced, 'cpu', 'linux') ?? '', /cuda -> cpu/);
+    assert.equal(ConfigFile.open(forced).current.selection?.device, 'cpu');
+    for (const device of ['auto', 'cuda']) {
+      const paths = configured(CUDA_ON_CPU.replaceAll(/device: \w+/g, `device: ${device}`));
+      assert.equal(reconcileDevice(paths, 'rocm', 'linux'), undefined, device);
+    }
+  });
+
+  it('turns an mlx flavor on a cpu device into mlx, but not for a v2 model', () => {
+    const v1 = configured(CUDA_ON_CPU.replace('device: cuda', 'device: cpu'));
+    assert.match(reconcileDevice(v1, 'mlx', 'darwin') ?? '', /selection\.device cpu -> mlx/);
+    const v2 = configured(CUDA_ON_CPU.replace('device: cuda', 'device: cpu').replaceAll(V1, V2));
+    assert.equal(reconcileDevice(v2, 'mlx', 'darwin'), undefined);
   });
 
   it('does not treat mps as served by the Linux cpu flavor', () => {
