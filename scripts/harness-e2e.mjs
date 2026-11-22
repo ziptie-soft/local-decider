@@ -95,10 +95,25 @@ function prompt(harness) {
 /** Auto mode: no approver hook, and an ask rule so one call is forced past the classifier. */
 const AUTO_SETTINGS = { permissions: { ask: ['Bash(touch:*)'] } };
 
+/**
+ * Claude gets its prompt as a stream-json message with stdin held open past the `result` event:
+ * a headless Claude Code cancels async hooks (the plugin's `Stop`) when it exits, which would
+ * hide the turn-outcome decision.
+ */
+function claudeStdin(harness) {
+  const message = { type: 'user', message: { role: 'user', content: prompt(harness) } };
+  return {
+    input: `${JSON.stringify(message)}\n`,
+    inputDone: (stdout) => parseJsonl(stdout).some((e) => e.type === 'result'),
+    graceMs: 3000,
+  };
+}
+
 function claudeArgs(sessionId, auto = false) {
   const args = [
     '-p',
-    prompt(auto ? 'claude-auto' : 'claude'),
+    '--input-format',
+    'stream-json',
     '--session-id',
     sessionId,
     '--permission-mode',
@@ -142,6 +157,7 @@ const HARNESSES = {
     bin: 'claude',
     harness: 'claude-code',
     args: claudeArgs,
+    stdin: () => claudeStdin('claude'),
     preflight: preflightClaude,
     sessionFrom: () => undefined,
   },
@@ -149,6 +165,7 @@ const HARNESSES = {
     bin: 'claude',
     harness: 'claude-code',
     args: (sessionId) => claudeArgs(sessionId, true),
+    stdin: () => claudeStdin('claude-auto'),
     preflight: preflightClaude,
     sessionFrom: () => undefined,
   },
@@ -227,6 +244,7 @@ async function runHarness(spec, cwd, sessionId) {
     env,
     cwd,
     timeoutMs: TIMEOUT_MS,
+    ...spec.stdin?.(sessionId),
   });
   const events = parseJsonl(run.stdout);
   const reported = events.map((e) => spec.sessionFrom(e)).find(Boolean);

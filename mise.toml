@@ -181,7 +181,7 @@ run = [
 
 [tasks."test:scripts"]
 description = "Unit tests for the e2e helper scripts"
-run = "node --test scripts/e2e-stub-gateway.test.mjs"
+run = "node --test scripts/e2e-stub-gateway.test.mjs scripts/e2e-lib.test.mjs"
 
 [tasks.e2e]
 description = "Live plugin end-to-end for Claude Code and Codex (e2e:claude, e2e:claude-auto, then e2e:codex)"
