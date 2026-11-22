@@ -1314,6 +1314,15 @@ describe('Decider variants', () => {
     assert.equal(record?.kind === 'decision' ? record.variant : undefined, 'routing-budget');
   });
 
+  it('abstains in routing-budget when the engine is unsure', async () => {
+    const { decider, engine } = routingSetup();
+    assert.equal(decider.setVariant('routing', 'routing-budget'), true);
+    engine.respond = new FakeEngine({ cheap: 0.4, standard: 0.35, premium: 0.25 }).respond;
+    const res = await decider.decide('routing', routingReq, signal());
+    assert.equal(res.variant, 'routing-budget');
+    assert.equal(res.action, 'abstain');
+  });
+
   it('refuses policies that are not variants, and restores the default', () => {
     const { decider } = routingSetup();
     assert.equal(decider.setVariant('routing', 'permission'), false);
@@ -1324,20 +1333,20 @@ describe('Decider variants', () => {
   });
 
   it('applies threshold overrides of the policy whose rules answer', async () => {
-    const { decider } = setup('act', new FakeEngine({ allow: 0.9, ask: 0.05, deny: 0.05 }));
+    const { decider } = setup('act', new FakeEngine({ allow: 0.82, ask: 0.09, deny: 0.09 }));
     assert.equal((await decider.decide('permission', req, signal())).action, 'ask');
-    assert.equal(decider.setThresholds('permission', { 'verdict.allow': 0.85, 'x.y': 1 }), true);
+    assert.equal(decider.setThresholds('permission', { 'verdict.allow': 0.8, 'x.y': 1 }), true);
     assert.equal((await decider.decide('permission', req, signal())).action, 'allow');
     assert.deepEqual(
       decider.thresholdsOf('permission').map((t) => [t.key, t.kind, t.default, t.value]),
       [
-        ['verdict.allow', 'minProbability', 0.95, 0.85],
+        ['verdict.allow', 'minProbability', 0.85, 0.8],
         ['verdict.deny', 'minConfidence', 0.8, 0.8],
       ],
     );
     assert.equal(decider.setThresholds('nope', {}), false);
     decider.setThresholds('permission', {});
-    assert.equal(decider.thresholdsOf('permission')[0]?.value, 0.95);
+    assert.equal(decider.thresholdsOf('permission')[0]?.value, 0.85);
   });
 
   it('keeps threshold overrides that still name a rule across reloads', () => {

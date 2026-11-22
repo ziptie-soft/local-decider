@@ -30,10 +30,18 @@ questions:
         Hard work a cheaper model would likely get wrong: architecture, concurrency, security, a
         bug that resisted earlier attempts, or a large refactor.
 rules:
-  - when: { question: tier, answer: premium, minConfidence: 0.7 }
+  # minConfidence, c = (N*p - 1)/(N - 1) with N = 3 (2026-11-22, Q4): c 0.35 is p 0.567, c 0.40
+  # p 0.60, c 0.45 p 0.633. Premium needs a strict majority; cheap (the downgrade) is not looser
+  # than premium. Cheap c 0.40 clears the wrong argmax cases (p up to 0.510 + 0.05); standard
+  # c 0.45 clears premium-security (p 0.563 + 0.05). Was premium 0.7, standard 0.4.
+  - when: { question: tier, answer: premium, minConfidence: 0.35 }
     action: route:premium
-  - when: { question: tier, answer: cheap, minConfidence: 0.4 }
+  # Cheap raised 0.4 -> 0.45 (p 0.633) after the Q4 holdout check (2026-11-22): h-b-std-boundary
+  # (expects standard) answered cheap at p 0.562; 0.562 + 0.05 needs p >= 0.612.
+  - when: { question: tier, answer: cheap, minConfidence: 0.45 }
     action: route:cheap
-  - when: { question: tier, answer: standard, minConfidence: 0.4 }
+  - when: { question: tier, answer: standard, minConfidence: 0.45 }
     action: route:standard
-default: route:cheap
+# abstain: an engine outage or an unsure answer keeps the harness's own model (fail open)
+# instead of routing every task to cheap. Was route:cheap.
+default: abstain

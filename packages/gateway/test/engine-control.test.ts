@@ -1572,7 +1572,7 @@ describe('EngineControl state', () => {
     const first = setup({ paths, persist: true });
     const effective = first.control.setPolicyThresholds('permission', { 'verdict.allow': 0.9 });
     assert.equal(effective[0]?.value, 0.9);
-    assert.equal(effective[0]?.default, 0.95);
+    assert.equal(effective[0]?.default, 0.85);
     assert.deepEqual(ConfigFile.open(paths).current.policies, {
       permission: { thresholds: { 'verdict.allow': 0.9 } },
     });
@@ -1601,7 +1601,7 @@ describe('EngineControl state', () => {
     const second = setup({ paths, persist: true });
     assert.equal(second.decider.thresholdsOf('permission')[0]?.value, 0.9);
     second.control.setPolicyThresholds('permission', { 'verdict.allow': null });
-    assert.equal(second.decider.thresholdsOf('permission')[0]?.value, 0.95);
+    assert.equal(second.decider.thresholdsOf('permission')[0]?.value, 0.85);
     assert.deepEqual(ConfigFile.open(paths).current.policies, {}, 'empty sections are dropped');
   });
 
@@ -2263,7 +2263,7 @@ describe('control routes', () => {
         answer: 'allow',
         action: 'allow',
         kind: 'minProbability',
-        default: 0.95,
+        default: 0.85,
         value: 0.9,
         floor: 0.8,
       });

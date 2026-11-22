@@ -155,6 +155,231 @@
         }
       }
     },
+    "84f023cceefa626a00db26de8cdcf1c346fcf6a1eb318d1d4a6b000bbe1bb940": {
+      "id": "h-r-deep-authz",
+      "answers": {
+        "tier": {
+          "choice": "deep",
+          "confidence": 0.4542,
+          "probabilities": {
+            "deep": 0.6361,
+            "fast": 0.0423,
+            "standard": 0.3216
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "0bdb81355a42e1dc810e1b3d730115d556477f1167f49b07a8222baddf300167": {
+      "id": "h-r-deep-flaky",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.3701,
+          "probabilities": {
+            "deep": 0.3587,
+            "fast": 0.0613,
+            "standard": 0.5801
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "80c5f2c55326f77003110e9fd66a4275e3069278def7386a938bb367504f3c3e": {
+      "id": "h-r-deep-monolith",
+      "answers": {
+        "tier": {
+          "choice": "deep",
+          "confidence": 0.6185,
+          "probabilities": {
+            "deep": 0.7456,
+            "fast": 0.0484,
+            "standard": 0.206
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "2f8b4dbccc498c999c53d4f09ec02a34817eeba7ad1554dd850438b166babdfc": {
+      "id": "h-r-deep-race",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.5729,
+          "probabilities": {
+            "deep": 0.2208,
+            "fast": 0.0639,
+            "standard": 0.7153
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "049033d4e68467a37e85208961334426cf5ca64e99a24a6906ed346429430bb8": {
+      "id": "h-r-deep-vague",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.3795,
+          "probabilities": {
+            "deep": 0.3462,
+            "fast": 0.0675,
+            "standard": 0.5863
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "6316a75a8f216c0ea1f15dcc8eecdcc88c6879383a6aca55c5890cf9f0a159e0": {
+      "id": "h-r-fast-const",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.4278,
+          "probabilities": {
+            "deep": 0.1239,
+            "fast": 0.2575,
+            "standard": 0.6185
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "5fe94a7a8a322a8cf7c65fc68d30230d5530672227311379f0a0db599eb25cc5": {
+      "id": "h-r-fast-explain",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.0982,
+          "probabilities": {
+            "deep": 0.2123,
+            "fast": 0.3889,
+            "standard": 0.3988
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "d046d65e1fc4253b3a17e969a3488b16100a5d4e4ec987403b582e29fd81bb47": {
+      "id": "h-r-fast-export",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.1811,
+          "probabilities": {
+            "deep": 0.229,
+            "fast": 0.3169,
+            "standard": 0.4541
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "db2e77515a93901f3955cd28053b87118d50d53866bc4823199255d2d8e6fbba": {
+      "id": "h-r-fast-format",
+      "answers": {
+        "tier": {
+          "choice": "fast",
+          "confidence": 0.0624,
+          "probabilities": {
+            "deep": 0.2848,
+            "fast": 0.3749,
+            "standard": 0.3402
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "48f423e5545f68394ed605f67f746b8e7f349633349715ec2ec75faa803fc314": {
+      "id": "h-r-fast-rename",
+      "answers": {
+        "tier": {
+          "choice": "fast",
+          "confidence": 0.5315,
+          "probabilities": {
+            "deep": 0.0914,
+            "fast": 0.6877,
+            "standard": 0.2209
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "1a3cfdd18a69d3a15bc3349aecb1ff818eb895cdbd43b76d21b219c81ad3d727": {
+      "id": "h-r-std-bug-null",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.7929,
+          "probabilities": {
+            "deep": 0.1014,
+            "fast": 0.0367,
+            "standard": 0.862
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "637ee68d4721334f0c70bfb26d35d3eab0928e79cd6b289caddefd977134d69f": {
+      "id": "h-r-std-cli-flag",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.775,
+          "probabilities": {
+            "deep": 0.0774,
+            "fast": 0.0726,
+            "standard": 0.85
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "8d02ad7a413b3a4c184cdc80a50e7a07dae1c181430f47b3154fc5f6d88eac22": {
+      "id": "h-r-std-error-page",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.7191,
+          "probabilities": {
+            "deep": 0.1253,
+            "fast": 0.062,
+            "standard": 0.8127
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "5d8338bdebe5a8ec687bf1229f0c1a75467ecb71cefae3fc3d9f6f90cbc49e05": {
+      "id": "h-r-std-pagination",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.7709,
+          "probabilities": {
+            "deep": 0.0787,
+            "fast": 0.074,
+            "standard": 0.8473
+          },
+          "type": "choice"
+        }
+      }
+    },
+    "e2e46a1bd32eb7b78bc037c4f6a1edfaa528b068c2449d9e1d468f3010edf857": {
+      "id": "h-r-std-retry",
+      "answers": {
+        "tier": {
+          "choice": "standard",
+          "confidence": 0.6303,
+          "probabilities": {
+            "deep": 0.1771,
+            "fast": 0.0694,
+            "standard": 0.7535
+          },
+          "type": "choice"
+        }
+      }
+    },
     "553d3c501c5ce302b4b9c227972d3264df02a0c7c1a7d70d5a77e2be1e6e7eab": {
       "id": "standard-bugfix-null",
       "answers": {

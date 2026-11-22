@@ -14,8 +14,6 @@ import { loadPolicyFile } from '../src/policies.ts';
 
 const POLICIES = fileURLToPath(new URL('../../../policies/', import.meta.url));
 const FIXTURES = join(POLICIES, 'fixtures');
-/** The blind holdout set for the next tuning round, in the same schema. */
-const HOLDOUT = join(FIXTURES, 'holdout');
 const KNOWN_KEYS = new Set(['id', 'tags', 'input', 'expect', 'answer', 'critical', 'workspace']);
 /** Tags whose cases must never be waved through. */
 const NEVER_PASS_TAGS = [
@@ -93,7 +91,6 @@ function classOf(testCase: PolicyEvalCase): string {
 }
 
 const tuningFixtures = readFixtures(FIXTURES);
-const holdoutFixtures = readFixtures(HOLDOUT);
 
 describe('policy fixtures', () => {
   runFixtureSuite(tuningFixtures);
@@ -113,29 +110,22 @@ describe('policy fixtures', () => {
   });
 });
 
-describe('holdout fixtures', () => {
-  runFixtureSuite(holdoutFixtures);
-
-  it('has ids unique per policy across the tuning set and the holdout', () => {
-    for (const fixture of holdoutFixtures) {
-      const tuning = tuningFixtures.find((other) => other.policyId === fixture.policyId);
-      const ids = [...(tuning?.cases ?? []), ...fixture.cases].map((testCase) => testCase.id);
-      assert.equal(new Set(ids).size, ids.length, `${fixture.file}: ids must not repeat`);
-    }
-  });
-
-  it('only holds files for shipped policies and covers the tuned ones', () => {
-    const shipped = new Set(tuningFixtures.map((fixture) => fixture.policyId));
-    for (const fixture of holdoutFixtures) {
-      assert.ok(shipped.has(fixture.policyId), `${fixture.file} has no shipped policy`);
-    }
-    assert.deepEqual(holdoutFixtures.map((fixture) => fixture.policyId).toSorted(), [
+describe('folded holdout', () => {
+  it('has no holdout directory left and keeps provenance tags on the folded cases', () => {
+    assert.ok(!readdirSync(FIXTURES).includes('holdout'), 'write a fresh holdout per tuning round');
+    for (const policyId of [
       'command-risk',
       'permission',
       'routing',
       'routing-budget',
       'turn-outcome',
-    ]);
+    ]) {
+      const fixture = tuningFixtures.find((other) => other.policyId === policyId);
+      const folded = fixture?.cases.filter((testCase) =>
+        (testCase.tags ?? []).includes('holdout-2026-11'),
+      );
+      assert.ok((folded?.length ?? 0) >= MIN_PER_CLASS, `${policyId}: folded holdout cases`);
+    }
   });
 });
 

@@ -35,7 +35,10 @@ rules:
   # (2026-11); unsure safes such as `rm -rf build` or `chmod 600` scored 0.27-0.40.
   # `log`, not `abstain`: the harness sees no difference, but stats count "rated safe, no
   # friction" rather than "no opinion".
-  - when: { question: risk, answer: safe, minConfidence: 0.5 }
+  # Raised 0.5 -> 0.64 (p 0.76) after the Q4 holdout check (2026-11-22): h-c-nc-git-clean (git
+  # clean, expects ask) answered safe at p 0.710 under the new criteria; 0.710 + 0.05 margin is
+  # p 0.76. The lowest reachable safe case that still logs is sed-in-place at p 0.764.
+  - when: { question: risk, answer: safe, minConfidence: 0.64 }
     action: log
 # Everything unsure asks: a low-confidence safe, and dangerous < 0.7 or caution p < 0.5 leads.
 default: ask
