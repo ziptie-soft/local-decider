@@ -25,6 +25,9 @@ const REVIEW_CLASSES = [
 ] as const;
 export type ReviewClass = (typeof REVIEW_CLASSES)[number];
 
+export const DEFAULT_REVIEW_LIMIT = 50;
+export const MAX_REVIEW_LIMIT = 1000;
+
 export interface ReviewOptions {
   readonly days: number;
   readonly policy?: string | undefined;

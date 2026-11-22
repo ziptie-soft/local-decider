@@ -39,6 +39,7 @@ import { TokenBucket, UNVERIFIED_BURST, UNVERIFIED_PER_MINUTE, validOutcome } fr
 import type { LogStore } from './log-store.ts';
 import { agentProjection, closedToAgents, handleMcpHttp, policyInfo } from './mcp.ts';
 import { modelFits } from './models.ts';
+import { reviewResponse } from './review-api.ts';
 import { withConfiguredRoutes, withRoute } from './routing.ts';
 import type { Pricing } from './savings.ts';
 import { settingsHandler } from './settings-routes.ts';
@@ -324,6 +325,16 @@ function controlAllowed(req: IncomingMessage, options: ServerOptions): boolean {
   );
 }
 
+/** 401 unless the request carries the control token (see `controlAllowed`). */
+function assertControl(req: IncomingMessage, options: ServerOptions): void {
+  if (!controlAllowed(req, options)) {
+    throw new HttpError(
+      401,
+      'control token required (x-local-decider-control, from the control-token file next to config.yaml)',
+    );
+  }
+}
+
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 
 function hostname(value: string): string {
@@ -499,12 +510,7 @@ function controlRoute(key: string, path: string): Handler | undefined {
     return undefined;
   }
   return async (req, res, options) => {
-    if (!controlAllowed(req, options)) {
-      throw new HttpError(
-        401,
-        'control token required (x-local-decider-control, from the control-token file next to config.yaml)',
-      );
-    }
+    assertControl(req, options);
     const { decider, engineControl } = options;
     if (engineControl === undefined) {
       throw new EngineSwitchError(409, 'this engine cannot switch models at runtime');
@@ -593,12 +599,7 @@ function thresholdOverrides(decider: Decider, id: string): Record<string, number
  */
 function decisionsHandler(id: string | undefined): Handler {
   return async (req, res, options) => {
-    if (!controlAllowed(req, options)) {
-      throw new HttpError(
-        401,
-        'control token required (x-local-decider-control, from the control-token file next to config.yaml)',
-      );
-    }
+    assertControl(req, options);
     const { decider, log } = options;
     const params = new URL(req.url ?? '/', 'http://localhost').searchParams;
     const source = {
@@ -615,10 +616,31 @@ function decisionsHandler(id: string | undefined): Handler {
   };
 }
 
-/** Read-only routes: `GET /v1/stats`, `GET /v1/calls/:id` and `GET /v1/decisions`. */
+/**
+ * `GET /v1/review[?days=N][&limit=N]`: the disagreements `local-decider review --json` lists,
+ * hash-only, behind the control token. It reads at most the last 30 days in-process.
+ */
+const reviewHandler: Handler = async (req, res, options) => {
+  assertControl(req, options);
+  const { decider, log, settings } = options;
+  const [status, body] = reviewResponse(
+    {
+      log,
+      policies: decider.policies,
+      retainDays: settings?.().logs.retainDays ?? DEFAULT_RETAIN_DAYS,
+    },
+    new URL(req.url ?? '/', 'http://localhost').searchParams,
+  );
+  send(res, status, body);
+};
+
+/** Read-only routes: `GET /v1/stats`, `/v1/review`, `GET /v1/calls/:id` and `GET /v1/decisions`. */
 function readRoute(key: string, path: string): Handler | undefined {
   if (key === 'GET /v1/stats') {
     return statsHandler;
+  }
+  if (key === 'GET /v1/review') {
+    return reviewHandler;
   }
   const decision = key.startsWith('GET ') ? decisionRoute.exec(path) : null;
   if (decision !== null) {
