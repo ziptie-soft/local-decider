@@ -594,7 +594,10 @@ verified, thresholded answer.
 - **Status: done (2026-11-22).** New `validate:mod` task (build + `claude plugin validate
   --strict`) runs in the `e2e-install` job with the locked `claude`; it fails when `CI=true` and
   `claude` is missing and skips locally. `test:mod` depends on it; `claude plugin test` stays out of
-  CI because its act-mode case fails even with a clean HOME (open). The `build` job regenerates
+  CI at first because its act-mode case failed: the stubbed gateway reply was not a full decision,
+  which core's `isEnforcedAllow` has rejected since the reply validation, so the test was stale,
+  not the mod. The fixture is fixed and `test:mod` (stubbed, no model or secrets) now runs in
+  `e2e-install`. The `build` job regenerates
   `schemas/` and fails on `git diff`. No bundle is committed (`dist` is built), so no rebuild-diff.
   `test:integration` runbook added to `docs/engines.md`. `check` is unchanged (no network installs).
 - **Priority:** P1. **Size:** S.
