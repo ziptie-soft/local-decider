@@ -48,7 +48,9 @@ Pick one. You can switch later in Paseo's settings or with `POST /v1/engine`.
 
 `local-decider engine install` with no flags picks for your hardware, in this order: AMD NPU,
 NVIDIA CUDA, Vulkan GPU, Apple MLX, Apple MPS, CPU. It prints the reason. Flags and an explicit
-engine in `config.yaml` override it, and `--no-download` prepares nothing that needs a download. Installing
+engine in `config.yaml` override it. `--no-download` skips only the model weights (and the
+FastFlowLM pull or llama GGUF); for strands-decider `uv sync --locked` still runs, so it needs
+network access to fetch the pinned Python packages. There is no offline install mode. Installing
 never switches the running engine.
 
 | Hardware | Command | Default model | Notes |

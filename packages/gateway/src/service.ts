@@ -396,3 +396,49 @@ export function serviceState(manager: ServiceManager, paths: Paths): string {
   const pid = readPid(paths);
   return pid === undefined ? 'not running' : `running (pid ${String(pid)})`;
 }
+
+/** The first argument of a unit's `ExecStart=` line (the Node binary), unquoted; read-only. */
+export function systemdExecBinary(unit: string): string | undefined {
+  const line = /^ExecStart=(.*)$/m.exec(unit)?.[1]?.trim();
+  if (line === undefined || line === '') {
+    return undefined;
+  }
+  const quoted = /^"((?:[^"\\]|\\.)*)"/.exec(line)?.[1];
+  return quoted === undefined ? line.split(/\s+/)[0] : quoted.replaceAll(/\\(.)/g, '$1');
+}
+
+/** The first `ProgramArguments` entry of a launchd plist (the Node binary). */
+export function launchdExecBinary(plist: string): string | undefined {
+  const array = /<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]*)<\/string>/.exec(plist);
+  return array?.[1]?.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
+}
+
+/**
+ * A hint for `gateway status` when the installed unit or plist runs a Node binary that no longer
+ * exists (typically after a Node upgrade), else undefined. Never writes or restarts anything.
+ */
+export function staleServiceExec(
+  manager: ServiceManager,
+  files: {
+    readonly unit?: string;
+    readonly plist?: string;
+    readonly read?: (file: string) => string;
+    readonly exists?: (file: string) => boolean;
+  } = {},
+): string | undefined {
+  if (manager === 'pidfile') {
+    return undefined;
+  }
+  const file = manager === 'systemd' ? (files.unit ?? unitPath()) : (files.plist ?? plistPath());
+  let content: string;
+  try {
+    content = (files.read ?? ((f: string) => readFileSync(f, 'utf8')))(file);
+  } catch {
+    return undefined;
+  }
+  const binary = (manager === 'systemd' ? systemdExecBinary : launchdExecBinary)(content);
+  if (binary === undefined || (files.exists ?? existsSync)(binary)) {
+    return undefined;
+  }
+  return `warning: the service runs ${binary}, which no longer exists; run \`local-decider gateway restart\` to rewrite ${file} with the current Node`;
+}
