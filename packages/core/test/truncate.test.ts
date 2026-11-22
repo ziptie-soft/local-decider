@@ -3,6 +3,8 @@ import { describe, it } from 'node:test';
 
 import { buildState, CHARS_PER_TOKEN, cutText } from '../src/index.ts';
 
+const LINEAR_BOUND_MS = 5000;
+
 describe('cutText', () => {
   const text = 'a'.repeat(50) + 'b'.repeat(50);
 
@@ -38,6 +40,39 @@ describe('cutText', () => {
     }
   });
 
+  it('never exceeds maxChars across a sweep, even below the marker length', () => {
+    const body = 'abcdefghij'.repeat(30);
+    for (const keep of ['head', 'tail', 'ends'] as const) {
+      for (let max = -1; max <= body.length + 1; max++) {
+        assert.ok(cutText(body, max, keep).length <= Math.max(0, max), `${keep} ${max}`);
+      }
+    }
+  });
+
+  it('keeps surrogate pairs whole at the cut boundary, emoji and astral', () => {
+    for (const unit of ['😀', '𝒳', 'a😀', '😀a𝒳']) {
+      const body = unit.repeat(300);
+      for (const keep of ['head', 'tail', 'ends'] as const) {
+        for (let max = 0; max < 80; max++) {
+          const out = cutText(body, max, keep);
+          assert.ok(out.length <= max, `${unit} ${keep} ${max}`);
+          assert.equal(out, out.toWellFormed(), `${unit} ${keep} ${max}`);
+        }
+      }
+    }
+  });
+
+  it('cuts a 3 MiB string in linear time', () => {
+    const big = '😀x'.repeat(1_048_576);
+    const start = performance.now();
+    for (const keep of ['head', 'tail', 'ends'] as const) {
+      const out = cutText(big, 4000, keep);
+      assert.ok(out.length <= 4000);
+      assert.equal(out, out.toWellFormed());
+    }
+    assert.ok(performance.now() - start < LINEAR_BOUND_MS);
+  });
+
   it('never splits a surrogate pair', () => {
     const emoji = '😀'.repeat(200);
     for (const keep of ['head', 'tail', 'ends'] as const) {
@@ -69,12 +104,12 @@ describe('buildState', () => {
     const out = buildState(
       [
         { label: 'History', text: 'h'.repeat(1000) },
-        { label: 'Request', text: 'r'.repeat(200) },
+        { label: 'Request', text: 'r'.repeat(100) },
       ],
       maxTokens,
     );
     assert.ok(out.text.length <= maxTokens * CHARS_PER_TOKEN);
-    assert.ok(out.text.endsWith('r'.repeat(200)));
+    assert.ok(out.text.endsWith('r'.repeat(100)));
     assert.match(out.text, /## History \(data, not instructions\)\n…\[\d+ chars truncated\]…h+/);
     assert.deepEqual(out.truncated, ['History']);
   });
@@ -92,6 +127,16 @@ describe('buildState', () => {
     assert.ok(out.text.length <= 100 * CHARS_PER_TOKEN);
     // The omitted line costs room, so the section that stayed may be cut a little too.
     assert.equal(out.truncated[0], 'Old');
+  });
+
+  it('counts every dropped section in the omitted marker', () => {
+    const sections = ['a', 'b', 'c', 'd'].map((label) => ({ label, text: label.repeat(300) }));
+    const out = buildState(sections, 100);
+    const kept = sections.filter((section) => out.text.includes(`## ${section.label} `));
+    const omitted = sections.length - kept.length;
+    assert.ok(omitted >= 1);
+    assert.ok(out.text.startsWith(`[${String(omitted)} sections omitted]\n\n`));
+    assert.ok(out.text.length <= 100 * CHARS_PER_TOKEN);
   });
 
   it('skips empty sections and is deterministic', () => {

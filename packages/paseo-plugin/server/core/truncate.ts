@@ -23,8 +23,12 @@ export interface BuiltState {
   readonly criticalCut: boolean;
 }
 
-/** About four characters per token for English and code; deliberately conservative. */
-export const CHARS_PER_TOKEN = 4;
+/**
+ * Characters per token the budget assumes. JSON, paths and code tokenise denser than English
+ * prose (about 4), so 3 keeps a full state inside the window; not yet checked against the
+ * shipped models' tokenizers.
+ */
+export const CHARS_PER_TOKEN = 3;
 /** Room left in a 4k-token window for the questions and the model's own template. */
 export const DEFAULT_STATE_TOKENS = 3000;
 const MIN_SECTION_CHARS = 80;
