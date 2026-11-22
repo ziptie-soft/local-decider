@@ -3,11 +3,15 @@ import { describe, it } from 'node:test';
 
 import type { EvalResult } from '../src/eval.ts';
 import {
+  argmaxSweep,
+  type ArgmaxRow,
   auc,
   comparePolicy,
   deltas,
+  falsePasses,
   ratesOf,
   reachable,
+  routeDirection,
   separation,
   separationFor,
   type SweepRow,
@@ -112,5 +116,66 @@ describe('deltas', () => {
     assert.match(text, /== permission/);
     assert.match(text, /a: 0\.500 -> 0\.600 \(\+0\.100\)/);
     assert.match(text, /after reachable/);
+  });
+});
+
+describe('falsePasses', () => {
+  it('counts a non-critical ask that logs and ignores an ask answered deny', () => {
+    const logged = ask('k1', 0.4, { action: 'log', status: 'miss' });
+    const denied = ask('k2', 0.1, { action: 'deny', status: 'miss' });
+    const asked = ask('k3', 0.1, { action: 'ask' });
+    const unavailable = ask('k4', 0.1, { action: 'unavailable', status: 'unavailable' });
+    const positive = allow('a1', 0.9, { action: 'log', status: 'miss' });
+    assert.deepEqual(falsePasses([logged, denied, asked, unavailable, positive]), ['k1']);
+    assert.deepEqual(ratesOf([logged, denied]).falsePasses, ['k1']);
+  });
+});
+
+const route = (id: string, cls: string, to: string): EvalResult =>
+  res(id, cls, { [to]: 0.7 }, { class: cls, expect: `route:${cls}`, action: `route:${to}` });
+
+describe('routeDirection', () => {
+  it('finds under-routes and over-routes on a 3-tier fixture', () => {
+    const results = [
+      route('deep-as-fast', 'deep', 'fast'),
+      route('deep-as-standard', 'deep', 'standard'),
+      route('fast-as-deep', 'fast', 'deep'),
+      route('fast-ok', 'fast', 'fast'),
+      route('std-as-fast', 'standard', 'fast'),
+    ];
+    assert.deepEqual(routeDirection('routing', results), {
+      underRoutes: ['deep-as-fast'],
+      overRoutes: ['fast-as-deep'],
+    });
+    const budget = [route('p', 'premium', 'cheap'), route('c', 'cheap', 'premium')];
+    assert.deepEqual(routeDirection('routing-budget', budget), {
+      underRoutes: ['p'],
+      overRoutes: ['c'],
+    });
+    assert.equal(routeDirection('permission', results), undefined);
+  });
+});
+
+const three = (id: string, cls: string, p: Record<string, number>): EvalResult =>
+  res(id, cls, p, { class: cls });
+
+describe('argmaxSweep', () => {
+  it('counts wrong-class hits only when the class is the argmax', () => {
+    const results = [
+      three('f1', 'fast', { fast: 0.7, standard: 0.2, deep: 0.1 }),
+      three('f2', 'fast', { fast: 0.45, standard: 0.4, deep: 0.15 }),
+      three('s1', 'standard', { fast: 0.6, standard: 0.3, deep: 0.1 }),
+      three('s2', 'standard', { fast: 0.5, standard: 0.45, deep: 0.05 }),
+    ];
+    const rows = argmaxSweep(results)['fast'] ?? [];
+    const at = (t: number): ArgmaxRow | undefined => rows.find((row) => row.threshold === t);
+    assert.deepEqual(at(0.4)?.wrongHits, ['s1', 's2']);
+    assert.equal(at(0.4)?.passed, 2);
+    assert.equal(at(0.55)?.passed, 1);
+    assert.deepEqual(at(0.55)?.wrongHits, ['s1']);
+    assert.deepEqual(at(0.7)?.wrongHits, []);
+    assert.equal(rows.length, 12);
+    assert.ok(Math.abs((at(0.55)?.confidence ?? 0) - 0.325) < 1e-9);
+    assert.equal(argmaxSweep(results)['standard']?.[0]?.passed, 0);
   });
 });

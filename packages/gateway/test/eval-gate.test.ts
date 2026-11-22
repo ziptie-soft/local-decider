@@ -5,9 +5,12 @@
  * re-record with `mise run eval:record`.
  */
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { formatEvalSummary, scoreEval, type EvalResult, type EvalSummary } from '../src/eval.ts';
 import { ReplayEngine, type Recording } from './eval-engines.ts';
@@ -59,6 +62,48 @@ describe('recorded eval gate', () => {
       assert.equal(results.length, engine.used.size, 'each case has its own recording');
     });
   }
+
+  it('replays a policy through eval-live --replay to the same results as the gate', async () => {
+    const policyId = 'turn-outcome';
+    const out = mkdtempSync(join(tmpdir(), 'eval-replay-'));
+    try {
+      execFileSync(
+        process.execPath,
+        [
+          '--conditions=source',
+          fileURLToPath(new URL('./eval-live.ts', import.meta.url)),
+          '--replay',
+          '--policy',
+          policyId,
+          '--out',
+          out,
+        ],
+        { stdio: 'pipe' },
+      );
+      const cli = JSON.parse(
+        readFileSync(join(out, `${policyId}.results.json`), 'utf8'),
+      ) as unknown;
+      const { results } = await replay(policyId, loadRecording(policyId));
+      assert.deepEqual(cli, JSON.parse(JSON.stringify(results)));
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+
+  it('reads cases from another fixtures directory', async () => {
+    const policyId = 'turn-outcome';
+    const dir = mkdtempSync(join(tmpdir(), 'eval-fixtures-'));
+    try {
+      mkdirSync(dir, { recursive: true });
+      cpSync(join(FIXTURES_DIR, `${policyId}.jsonl`), join(dir, `${policyId}.jsonl`));
+      const engine = new ReplayEngine(loadRecording(policyId));
+      const results = await evalFixture(policyId, engine, { fixturesDir: dir });
+      assert.ok(results.length > 0);
+      await assert.rejects(evalFixture(policyId, engine, { fixturesDir: join(dir, 'missing') }));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 
   it('fails a case that has no recording', async () => {
     const policyId = 'turn-outcome';

@@ -99,8 +99,8 @@ function deciderFor(
   });
 }
 
-function readFixtureCases(policyId: string): PolicyEvalCase[] {
-  const file = join(FIXTURES_DIR, `${policyId}.jsonl`);
+function readFixtureCases(policyId: string, dir: string): PolicyEvalCase[] {
+  const file = join(dir, `${policyId}.jsonl`);
   return parseEvalCases(readFileSync(file, 'utf8'), `${policyId}.jsonl`);
 }
 
@@ -112,6 +112,8 @@ export interface EvalFixtureOptions {
   readonly facts?: readonly FactGroup[];
   /** Where an A/B facts section goes relative to the request; default before. */
   readonly factsPosition?: FactsPosition;
+  /** Directory of `<policy>.jsonl` fixtures; default `policies/fixtures`. */
+  readonly fixturesDir?: string;
 }
 
 /** Decide every case of `policies/fixtures/<policyId>.jsonl` through `engine`. */
@@ -120,7 +122,7 @@ export async function evalFixture(
   engine: Engine,
   options: EvalFixtureOptions = {},
 ): Promise<EvalResult[]> {
-  const cases = readFixtureCases(policyId);
+  const cases = readFixtureCases(policyId, options.fixturesDir ?? FIXTURES_DIR);
   const ids = new Map<DecideRequest['input'], string>(
     cases.map((testCase, index) => [testCase.input, testCase.id ?? String(index + 1)]),
   );
