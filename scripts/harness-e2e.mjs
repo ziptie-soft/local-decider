@@ -41,7 +41,10 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  engineAnsweredResult,
   makeMarketplace,
+  modPreconditionSkip,
+  outcomesPreconditionSkip,
   makeWorkspace,
   parseJsonl,
   PLUGIN_REF,
@@ -378,14 +381,16 @@ function approverTest(ctx) {
   };
 }
 
-// Checks run in order; `only` limits one to a harness. To promote an INFO line to a check, move
-// it here as `countCheck(label, count, min)`.
+// Checks run in order; `only` limits one to a harness. `skipUnless(ctx)` returns a reason to SKIP a
+// model-dependent check whose precondition never occurred (undefined: run it). To promote an INFO
+// line to a check, move it here as `countCheck(label, count, min)`.
 const CHECKS = [
   countCheck(
     'routing (UserPromptSubmit)',
     policyCount((d) => d.policy.startsWith('routing')),
     1,
   ),
+  { label: 'engine answered', test: (ctx) => engineAnsweredResult(ctx.decisions) },
   countCheck(
     'command-risk (PreToolUse)',
     policyCount((d) => d.policy === 'command-risk'),
@@ -414,19 +419,33 @@ const CHECKS = [
       1,
     ),
     only: 'claude-auto',
+    skipUnless: (ctx) => modPreconditionSkip(ctx.decisions),
   },
-  { ...countCheck('outcomes (PostToolUse)', permissionOutcomes, 1, 'outcome(s)'), only: 'claude' },
+  {
+    ...countCheck('outcomes (PostToolUse)', permissionOutcomes, 1, 'outcome(s)'),
+    only: 'claude',
+    skipUnless: (ctx) => outcomesPreconditionSkip(ctx.decisions, ctx.approvals),
+  },
 ];
 
 /** Reported, not asserted (yet). */
 const INFO = [];
 
+function skipReason(c, ctx) {
+  if (c.only && ![c.only].flat().includes(ctx.name)) {
+    return `${[c.only].flat().join('/')} only`;
+  }
+  const precondition = c.skipUnless?.(ctx);
+  return precondition === undefined ? undefined : `precondition not met: ${precondition}`;
+}
+
 function check(ctx) {
-  return CHECKS.map((c) =>
-    c.only && ![c.only].flat().includes(ctx.name)
-      ? { label: c.label, ok: true, skipped: true, detail: `${[c.only].flat().join('/')} only` }
-      : { label: c.label, ...c.test(ctx) },
-  );
+  return CHECKS.map((c) => {
+    const reason = skipReason(c, ctx);
+    return reason === undefined
+      ? { label: c.label, ...c.test(ctx) }
+      : { label: c.label, ok: true, skipped: true, detail: reason };
+  });
 }
 
 function report(ctx, results) {

@@ -49,6 +49,79 @@ export function parseJsonl(text) {
   return out;
 }
 
+/** Whether a decision record carries at least one real engine answer. */
+function hasAnswer(decision) {
+  return Object.keys(decision.answers ?? {}).length > 0;
+}
+
+/**
+ * How many of a session's decisions the engine answered. A decision with `error` set and no answers
+ * is an engine failure or timeout (the policy default was used); `dominantError` is the most common
+ * such error text, shortened.
+ */
+export function engineAnswers(decisions) {
+  const errors = new Map();
+  let answered = 0;
+  for (const d of decisions) {
+    if (hasAnswer(d)) {
+      answered += 1;
+    } else if (typeof d.error === 'string' && d.error !== '') {
+      errors.set(d.error, (errors.get(d.error) ?? 0) + 1);
+    }
+  }
+  const [dominant] = [...errors.entries()].toSorted((a, b) => b[1] - a[1])[0] ?? [];
+  const dominantError = dominant === undefined ? undefined : dominant.slice(0, 160);
+  return { answered, total: decisions.length, dominantError };
+}
+
+/** The check result for `engineAnswers`: needs at least one answered decision. */
+export function engineAnsweredResult(decisions) {
+  const { answered, total, dominantError } = engineAnswers(decisions);
+  const base = `${String(answered)} of ${String(total)} decisions, need >= 1`;
+  const detail = answered > 0 || dominantError === undefined ? base : `${base} (${dominantError})`;
+  return { ok: answered >= 1, detail };
+}
+
+/**
+ * The precondition of the claude-auto mod check: the mod allows a call only when this session's
+ * command-risk policy gave a real `log` answer in auto mode (packages/hooks/src/mod/check.ts
+ * `callAllows`: `permissionMode === 'auto'`, `answered`, `action === 'log'`). Returns a skip reason,
+ * or undefined when it occurred.
+ */
+export function modPreconditionSkip(decisions) {
+  const happened = decisions.some(
+    (d) =>
+      d.policy === 'command-risk' &&
+      d.permissionMode === 'auto' &&
+      d.action === 'log' &&
+      !d.error &&
+      hasAnswer(d),
+  );
+  return happened
+    ? undefined
+    : 'no command-risk decision answered `log` in auto mode (the mod only acts on one)';
+}
+
+/**
+ * The precondition of the outcomes check. An outcome is posted by PostToolUse only for a pending
+ * entry that `rememberPermission` wrote (packages/hooks/src/outcomes.ts): a PermissionRequest the
+ * user answered, i.e. the plugin hook did not itself allow (`userAnswers`: empty stdout, no enforced
+ * allow; `translate` in output.ts only emits an allow for an enforced allow). The PostToolUse that
+ * claims it needs the tool to have run, which the approver's allow causes. Returns a skip reason,
+ * or undefined when it occurred.
+ */
+export function outcomesPreconditionSkip(decisions, approvals) {
+  const leftToUser = decisions.some(
+    (d) => d.policy === 'permission' && !(d.enforced === true && d.action === 'allow'),
+  );
+  if (!leftToUser) {
+    return 'every permission decision was an enforced allow by the plugin, so no prompt reached the user';
+  }
+  return approvals.some((a) => a.behavior === 'allow')
+    ? undefined
+    : 'the approver allowed no prompt, so no tool ran after a pending permission';
+}
+
 /** Print PASS, FAIL and SKIP lines for `{ label, ok, skipped?, detail }` results. */
 export function printResults(results) {
   console.log('');
