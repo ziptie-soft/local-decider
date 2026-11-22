@@ -21,7 +21,7 @@ export type LabelKind = 'declined' | 'interrupted' | 'auto-allowed';
 export const LABEL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /** Why a permission was left to the user without a decision. */
-export const SKIP_REASONS = ['busy', 'rate-limit', 'deadline', 'no-answer'] as const;
+const SKIP_REASONS = ['busy', 'rate-limit', 'deadline', 'no-answer'] as const;
 export type SkipReason = (typeof SKIP_REASONS)[number];
 
 export const decisionRowSchema = z.object({

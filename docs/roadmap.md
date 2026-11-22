@@ -488,6 +488,15 @@ verified, thresholded answer.
   enforce; a pending row; a "skipped: busy" row in act mode. Reuse the gateway's decision record,
   no new state text.
 - **Open questions:** Paseo timeline rows are in-memory with a 64 KiB cap; is that enough?
+- **Status:** done (2026-11-22), badge deferred, live UI check pending (tap, live replace,
+  `create.after` append). A row expands on tap or an Explain chip to the verdict and
+  probabilities, matched rule, current thresholds, precedent, variant and plugin mode, all from
+  the gateway's decision record. Routing draws a row on `agent.create.after` with what it
+  applied or why it kept the creator's model or mode. A permission decide slower than 1 s draws
+  "deciding…", replaced in place by the decided row; act mode draws "skipped: busy / rate-limit /
+  deadline / not decided". The popover pill reads `act · gateway shadow` (and Settings warns)
+  when the gateway is not in act. Paseo has no remove API and no row-driven badge yet, so the
+  sidebar badge is not built.
 
 ### H2 Paseo: routing overrides, loop guards, supervised deadlines
 

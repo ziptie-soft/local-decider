@@ -148,6 +148,27 @@ does not switch for you. In the results, Use fastest acts per family.
 - The sidebar **quick status** popover has Refresh, Details and Settings buttons. Paseo 0.15.3
   gives plugin screens no way to open other screens, so Details shows the settings inline.
 
+## Decision rows
+
+Each decision shows as a row in the agent's chat. Tap a row (or its **Explain** button) to see
+why: the verdict and its probabilities, the rule that matched, the thresholds in force now (they
+may have changed since the decision), the precedent it leaned on, the variant and the plugin
+mode. Tap again to hide it.
+
+- **Routing** adds a row to the new agent: the preset or model it moved to, or why it kept the
+  creator's model or mode. Shadow routing draws one only with *Show decisions: all*.
+- **Deciding…** appears on a permission request when the decision takes more than a second, and
+  is replaced by the decided row.
+- **Skipped** appears on a permission request the decider did not take, with the reason: busy,
+  rate limit, deadline spent or no answer. Answer it yourself. Skipped rows appear in act mode
+  only.
+- **act · gateway shadow** in the sidebar popover, and a warning in Settings, mean the plugin is
+  in Act but the gateway runs that policy in another mode, so nothing is enforced. Choose Act
+  again in Settings to set the gateway too.
+
+Rows live in the daemon's memory, so they are gone after a daemon restart. A sidebar badge for
+rows needing attention is not built yet.
+
 ## Feedback
 
 Turn and `/decide` rows can ask "Right answer?" with one button per option. Your answer goes to
