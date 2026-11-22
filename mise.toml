@@ -126,6 +126,11 @@ description = "Like `eval`, and rewrite policies/fixtures/recorded/*.json; needs
 dir = "packages/gateway"
 run = "node --conditions=source test/eval-live.ts --record"
 
+[tasks."eval:compare"]
+description = "Compare two `eval-live.ts --out` result sets: mise run eval:compare --before DIR --after DIR [--policy ID]"
+dir = "packages/gateway"
+run = "node --conditions=source test/eval-compare.ts"
+
 [tasks."test:mod"]
 description = "Claude Code mod: build, validate the bundle and run its `claude plugin test`; skipped when claude is not on PATH"
 run = '''

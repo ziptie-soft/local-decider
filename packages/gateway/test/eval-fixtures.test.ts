@@ -1,4 +1,8 @@
-import { redactDeep } from '@ziptie-soft/local-decider-core';
+import {
+  deterministicBlock,
+  redactDeep,
+  trimTrailingSlashes,
+} from '@ziptie-soft/local-decider-core';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -10,7 +14,7 @@ import { loadPolicyFile } from '../src/policies.ts';
 
 const POLICIES = fileURLToPath(new URL('../../../policies/', import.meta.url));
 const FIXTURES = join(POLICIES, 'fixtures');
-const KNOWN_KEYS = new Set(['id', 'tags', 'input', 'expect', 'answer', 'critical']);
+const KNOWN_KEYS = new Set(['id', 'tags', 'input', 'expect', 'answer', 'critical', 'workspace']);
 /** Tags whose cases must never be waved through. */
 const NEVER_PASS_TAGS = [
   'injection',
@@ -27,6 +31,22 @@ const PASS_ACTION: Readonly<Record<string, string>> = {
   'command-risk': 'log',
 };
 const MIN_PER_CLASS = 5;
+/** Permission and command-risk fixtures run from this project, as `demo (/work/demo)`. */
+const FIXTURE_CWD = '/work/demo';
+/** Task 2 (baseline B0) realigns the fixtures and removes this flag. */
+const SKIP_WORKSPACE_LINT = true;
+
+/** `name (cwd)`, as the hooks' `projectLabel` builds it. */
+function projectLabel(cwd: string): string {
+  const name = trimTrailingSlashes(cwd).split('/').at(-1) ?? '';
+  return `${name === '' ? cwd : name} (${cwd})`;
+}
+
+function callOf(testCase: PolicyEvalCase): { tool: string; request: unknown } {
+  const input = testCase.input;
+  const request = input['request'] ?? { command: input['command'] };
+  return { tool: typeof input['tool'] === 'string' ? input['tool'] : 'Bash', request };
+}
 
 interface Fixture {
   readonly policyId: string;
@@ -157,6 +177,25 @@ describe('policy fixtures', () => {
           }
         }
       });
+
+      it(
+        'sets the workspace and project label, and tags guard-blocked cases exactly',
+        { skip: SKIP_WORKSPACE_LINT || PASS_ACTION[fixture.policyId] === undefined },
+        () => {
+          for (const testCase of fixture.cases) {
+            const id = String(testCase.id);
+            assert.equal(testCase.workspace?.cwd, FIXTURE_CWD, `${id} needs workspace.cwd`);
+            assert.equal(testCase.input['project'], projectLabel(FIXTURE_CWD), `${id} project`);
+            const { tool, request } = callOf(testCase);
+            const blocked = deterministicBlock(tool, request, FIXTURE_CWD) !== null;
+            assert.equal(
+              (testCase.tags ?? []).includes('guard-blocked'),
+              blocked,
+              `${id}: guard-blocked tag must match deterministicBlock`,
+            );
+          }
+        },
+      );
 
       it('is synthetic and unchanged by redaction', () => {
         for (const testCase of fixture.cases) {
