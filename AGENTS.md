@@ -36,8 +36,8 @@ run with `--conditions=source`, builds resolve `dist/`.
 
 ## Conventions
 
-- Commits and PR titles follow Conventional Commits (`<type>(<scope>)!?: <description>`), one
-  line. CI enforces it; release-please derives versions from it.
+- Commits follow Conventional Commits (`<type>(<scope>)!?: <description>`), one
+  line. GitHub enforces it; release-please derives versions from it.
   A commit touching only `policies/` does not reach the changelog (release-please has no
   `additional-paths`): also touch a `packages/gateway` file, or release by hand.
 - Keep functions under the `cccc.toml` ceilings by splitting them; don't raise the ceilings.

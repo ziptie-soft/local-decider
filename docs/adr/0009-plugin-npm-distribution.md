@@ -28,7 +28,6 @@ marketplace commit; neither harness runs install scripts. The `npm` CLI must be 
 first release (1.0.0) was published by hand to set up trusted publishing; until a version is on
 npm, marketplace installs of it fail. release-please bumps the plugin only for commits touching
 `plugins/local-decider/`, so shared hook/core source or dependency lockfile changes need a change
-there (release-please has no `additional-paths`). Pull request CI checks this coupling and requires
-a releasable PR title for those changes. The repo
+there (release-please has no `additional-paths`). The repo
 marketplace no longer installs the working tree; develop with
 `claude --plugin-dir plugins/local-decider` after a build.
