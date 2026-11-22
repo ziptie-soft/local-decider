@@ -98,6 +98,12 @@ export class RateLimiter {
     this.#now = now;
   }
 
+  /** True when `allow(key)` would succeed; records nothing. */
+  wouldAllow(key: string): boolean {
+    const now = this.#now();
+    return (this.#hits.get(key) ?? []).filter((t) => now - t < this.#windowMs).length < this.#limit;
+  }
+
   /** Record an event for `key`; false (and nothing recorded) when over the limit. */
   allow(key: string): boolean {
     const now = this.#now();
@@ -108,6 +114,26 @@ export class RateLimiter {
     }
     recent.push(now);
     this.#hits.set(key, recent);
+    return true;
+  }
+}
+
+/** A per-key limit plus a global one; an event counts toward both only when both allow it. */
+export class DualRateLimiter {
+  readonly #perKey: RateLimiter;
+  readonly #global: RateLimiter;
+
+  constructor(perKey: number, global: number, windowMs: number, now: () => number = Date.now) {
+    this.#perKey = new RateLimiter(perKey, windowMs, now);
+    this.#global = new RateLimiter(global, windowMs, now);
+  }
+
+  allow(key: string): boolean {
+    if (!this.#perKey.wouldAllow(key) || !this.#global.wouldAllow('*')) {
+      return false;
+    }
+    this.#perKey.allow(key);
+    this.#global.allow('*');
     return true;
   }
 }

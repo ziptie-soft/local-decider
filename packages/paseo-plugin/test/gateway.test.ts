@@ -589,3 +589,145 @@ describe('token URL scoping (plugin)', () => {
     assert.equal(bearerAllowed('https://h', ''), false);
   });
 });
+
+describe('agent reads', () => {
+  const CONTROL = 'C'.repeat(43);
+  const VIEW = {
+    decisionId: '11111111-1111-4111-8111-111111111111',
+    policy: 'turn-outcome',
+    action: 'log',
+    enforced: false,
+    primary: { question: 'outcome', answer: 'done', confidence: 0.91 },
+    failedOpen: false,
+    truncated: false,
+  };
+
+  interface Seen {
+    url: string;
+    method: string;
+    headers: Headers;
+    redirect: string | undefined;
+    body: unknown;
+  }
+
+  function seeing(
+    baseUrl: string,
+    reply: () => Response,
+    extra: { controlToken?: string } = {},
+  ): { gateway: NonNullable<ReturnType<typeof createGateway>>; seen: Seen[] } {
+    const seen: Seen[] = [];
+    const gateway = createGateway({
+      baseUrl,
+      controlToken: CONTROL,
+      ...extra,
+      fetch: async (input, init) => {
+        seen.push({
+          url: input instanceof Request ? input.url : String(input),
+          method: init?.method ?? 'GET',
+          headers: new Headers(init?.headers),
+          redirect: init?.redirect,
+          body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
+        });
+        return reply();
+      },
+    });
+    assert.ok(gateway);
+    return { gateway, seen };
+  }
+
+  const request = { harness: 'mcp' as const, input: { request: 'x' }, sessionId: 'a-1' };
+
+  it('decideAgent posts with ?view=agent, no redirects, and returns the projection', async () => {
+    const { gateway, seen } = seeing('http://127.0.0.1:8765', () => Response.json(VIEW));
+    const result = await gateway.decideAgent('turn-outcome', request);
+    assert.deepEqual(result, { ok: true, value: VIEW });
+    assert.equal(seen[0]?.url, 'http://127.0.0.1:8765/v1/decide/turn-outcome?view=agent');
+    assert.equal(seen[0]?.redirect, 'error');
+    assert.deepEqual(seen[0]?.body, { ...request, budgetMs: 1500 });
+  });
+
+  it('drops any field outside the projection, and rejects a full decision', async () => {
+    const leaky = { ...VIEW, answers: { q: {} }, rule: 1, engine: 'e', precedentKey: 'k' };
+    const { gateway } = seeing('http://127.0.0.1:8765', () => Response.json(leaky));
+    const result = await gateway.decideAgent('turn-outcome', request);
+    assert.deepEqual(result, { ok: true, value: VIEW });
+    const { failedOpen: _omitted, ...old } = VIEW;
+    const older = seeing('http://127.0.0.1:8765', () => Response.json({ ...old, answers: {} }));
+    assert.deepEqual(await older.gateway.decideAgent('turn-outcome', request), {
+      ok: false,
+      error: 'unexpected gateway response',
+    });
+  });
+
+  it('turns 403, a network error and a timeout into errors without throwing', async () => {
+    const forbidden = seeing('http://127.0.0.1:8765', () =>
+      Response.json({ error: 'policy not available to agents' }, { status: 403 }),
+    );
+    assert.deepEqual(await forbidden.gateway.decideAgent('permission', request), {
+      ok: false,
+      error: 'policy not available to agents',
+    });
+    const down = createGateway({
+      baseUrl: 'http://127.0.0.1:8765',
+      fetch: async () => {
+        throw new TypeError('fetch failed\nsecond line');
+      },
+    });
+    assert.ok(down);
+    const failed = await down.decideAgent('turn-outcome', request);
+    assert.equal(failed.ok, false);
+    assert.ok(!/[\n\r]/.test((failed as { error: string }).error));
+    const slow = createGateway({
+      baseUrl: 'http://127.0.0.1:8765',
+      fetch: async (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        }),
+    });
+    assert.ok(slow);
+    const timedOut = await slow.decideAgent('turn-outcome', request, { timeoutMs: 20 });
+    assert.equal(timedOut.ok, false);
+  });
+
+  it('decision sends the control token to loopback only, encoded, with ?view=agent', async () => {
+    const { gateway, seen } = seeing('http://127.0.0.1:8765', () => Response.json(VIEW));
+    assert.deepEqual(await gateway.decision('a/b'), { ok: true, value: VIEW });
+    assert.equal(seen[0]?.url, 'http://127.0.0.1:8765/v1/decisions/a%2Fb?view=agent');
+    assert.equal(seen[0]?.headers.get('x-local-decider-control'), CONTROL);
+    assert.equal(seen[0]?.redirect, 'error');
+  });
+
+  it('decision refuses a remote gateway before any fetch', async () => {
+    const { gateway, seen } = seeing('https://gw.example', () => Response.json(VIEW));
+    assert.deepEqual(await gateway.decision('id'), {
+      ok: false,
+      error: 'explain needs a loopback gateway',
+    });
+    assert.equal(seen.length, 0);
+    const bare = createGateway({ baseUrl: 'http://127.0.0.1:8765' });
+    assert.equal((await bare?.decision('id'))?.ok, false);
+  });
+
+  it('decision maps 404 to unknown decision', async () => {
+    const { gateway } = seeing('http://127.0.0.1:8765', () =>
+      Response.json({ error: 'unknown decision' }, { status: 404 }),
+    );
+    assert.deepEqual(await gateway.decision('x'), { ok: false, error: 'unknown decision' });
+  });
+
+  it('agentPolicies reads and validates the trimmed list', async () => {
+    const list = [
+      {
+        id: 'turn-outcome',
+        description: 'd',
+        inputKeys: ['request'],
+        questions: { q: { instructions: 'i', options: ['a', 'b'] } },
+      },
+    ];
+    const { gateway, seen } = seeing('http://127.0.0.1:8765', () => Response.json(list));
+    assert.deepEqual(await gateway.agentPolicies(), { ok: true, value: list });
+    assert.equal(seen[0]?.url, 'http://127.0.0.1:8765/v1/policies?view=agent');
+    const bad = seeing('http://127.0.0.1:8765', () => Response.json([{ id: 1 }]));
+    assert.equal((await bad.gateway.agentPolicies()).ok, false);
+  });
+});

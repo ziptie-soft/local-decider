@@ -4,8 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { AgentRefLike, AppendItem, HookDeps, PaseoLike } from '../server/deps.ts';
-import type { DecideResponse, UsageReport } from '../shared/decision.ts';
-import type { Gateway } from '../shared/gateway.ts';
+import type {
+  AgentDecideRequest,
+  AgentPolicy,
+  AgentView,
+  DecideResponse,
+  UsageReport,
+} from '../shared/decision.ts';
+import type { AgentResult, Gateway } from '../shared/gateway.ts';
 import type { DeciderSettings } from '../shared/settings.ts';
 
 export function tempDir(prefix: string): string {
@@ -64,6 +70,29 @@ export interface FakeGateway extends Gateway {
   readonly usage: UsageReport[];
   /** Every mutating engine call, by name, with its input. */
   readonly posts: { name: string; input: unknown }[];
+  /** Agent-tool reads: every call, and handlers a test replaces. */
+  readonly agentCalls: {
+    name: string;
+    policy?: string;
+    id?: string;
+    request?: AgentDecideRequest;
+  }[];
+  agentDecide: (policy: string, request: AgentDecideRequest) => Promise<AgentResult<AgentView>>;
+  agentDecision: (id: string) => Promise<AgentResult<AgentView>>;
+  agentPolicyList: () => Promise<AgentResult<readonly AgentPolicy[]>>;
+}
+
+export function agentView(overrides: Partial<AgentView> = {}): AgentView {
+  return {
+    decisionId: '11111111-1111-4111-8111-111111111111',
+    policy: 'turn-outcome',
+    action: 'log',
+    enforced: false,
+    primary: { question: 'outcome', answer: 'done', confidence: 0.91 },
+    failedOpen: false,
+    truncated: false,
+    ...overrides,
+  };
 }
 
 export function fakeGateway(
@@ -79,10 +108,27 @@ export function fakeGateway(
       posts.push({ name, input });
       return { ok: true, body: {} };
     };
-  return {
+  const agentCalls: FakeGateway['agentCalls'] = [];
+  const fake: FakeGateway = {
     baseUrl: 'http://127.0.0.1:8765',
     bearer: false,
     calls,
+    agentCalls,
+    agentDecide: async () => ({ ok: true, value: agentView() }),
+    agentDecision: async () => ({ ok: true, value: agentView() }),
+    agentPolicyList: async () => ({ ok: true, value: [] }),
+    async decideAgent(policy, request) {
+      agentCalls.push({ name: 'decideAgent', policy, request });
+      return fake.agentDecide(policy, request);
+    },
+    async decision(id) {
+      agentCalls.push({ name: 'decision', id });
+      return fake.agentDecision(id);
+    },
+    async agentPolicies() {
+      agentCalls.push({ name: 'agentPolicies' });
+      return fake.agentPolicyList();
+    },
     outcomes,
     usage,
     posts,
@@ -189,6 +235,7 @@ export function fakeGateway(
       return { ok: true, body: { policies: ['permission', 'routing', 'routing-budget'] } };
     },
   };
+  return fake;
 }
 
 export function deps(s: DeciderSettings, gateway: Gateway | null): HookDeps & { logs: string[] } {

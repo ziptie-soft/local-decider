@@ -27,6 +27,16 @@ export const HOOK_POLICIES = ['turn-outcome', 'permission', 'routing'] as const;
  */
 export const HOST_POLICIES_ENV = 'LOCAL_DECIDER_HOST_POLICIES';
 
+/**
+ * The agent tools the plugin serves through Paseo's agent-scoped `paseo` MCP server. The prefix
+ * keeps them clear of Paseo's own tool names, which would fail every agent launch.
+ */
+export const AGENT_TOOL_NAMES = [
+  'local_decider_decide',
+  'local_decider_explain',
+  'local_decider_policies',
+] as const;
+
 export const PLUGIN_MODES = ['off', 'shadow', 'act'] as const;
 
 /**

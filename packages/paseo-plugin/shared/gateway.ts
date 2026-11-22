@@ -6,6 +6,9 @@
  */
 import { CONTROL_HEADER, REPORT_HEADER } from './constants.ts';
 import type {
+  AgentDecideRequest,
+  AgentPolicy,
+  AgentView,
   DecideRequest,
   DecideResponse,
   GatewayHealth,
@@ -119,6 +122,16 @@ export interface Gateway {
   config(options?: CallOptions): Promise<unknown>;
   /** `POST /v1/routing/presets`: map a preset for a harness in config.yaml; null model removes. */
   setRoutingPreset(update: PresetUpdate, options?: CallOptions): Promise<PostResult>;
+  /** `POST /v1/decide/:policy?view=agent`: the agent projection; never throws. */
+  decideAgent(
+    policy: string,
+    request: AgentDecideRequest,
+    options?: CallOptions,
+  ): Promise<AgentResult<AgentView>>;
+  /** `GET /v1/decisions/:id?view=agent` (control token, loopback only); never throws. */
+  decision(id: string, options?: CallOptions): Promise<AgentResult<AgentView>>;
+  /** `GET /v1/policies?view=agent`: the policies an agent may call; never throws. */
+  agentPolicies(options?: CallOptions): Promise<AgentResult<readonly AgentPolicy[]>>;
   /** `GET /v1/policies/:id/prompt`: the prompt that has an agent write a variant of `id`. */
   policyPrompt(policy: string, options?: CallOptions): Promise<unknown>;
 }
@@ -143,6 +156,9 @@ export interface EngineSelection {
   readonly model: string;
   readonly device?: string;
 }
+
+/** An agent-tool read: the value, or a one-line error that is safe to show to the agent. */
+export type AgentResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** A mutating call's outcome: the response body, or the gateway's error message. */
 export type PostResult = { ok: true; body: unknown } | { ok: false; error: string };
@@ -184,6 +200,112 @@ function isDecideResponse(value: unknown): value is DecideResponse {
     typeof v['answers'] === 'object' &&
     v['answers'] !== null
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parsePrimary(value: unknown): AgentView['primary'] | null | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !isRecord(value) ||
+    typeof value['question'] !== 'string' ||
+    typeof value['answer'] !== 'string' ||
+    typeof value['confidence'] !== 'number'
+  ) {
+    return null;
+  }
+  return { question: value['question'], answer: value['answer'], confidence: value['confidence'] };
+}
+
+/**
+ * The agent projection, rebuilt field by field so nothing else a gateway sends can reach an agent.
+ * A full decision from an older gateway (no `failedOpen`) is rejected.
+ */
+function parseAgentView(value: unknown): AgentView | null {
+  if (!isRecord(value)) return null;
+  const primary = parsePrimary(value['primary']);
+  if (
+    typeof value['decisionId'] !== 'string' ||
+    typeof value['policy'] !== 'string' ||
+    typeof value['action'] !== 'string' ||
+    typeof value['enforced'] !== 'boolean' ||
+    typeof value['failedOpen'] !== 'boolean' ||
+    typeof value['truncated'] !== 'boolean' ||
+    primary === null
+  ) {
+    return null;
+  }
+  return {
+    decisionId: value['decisionId'],
+    policy: value['policy'],
+    action: value['action'] as AgentView['action'],
+    enforced: value['enforced'],
+    ...(primary === undefined ? {} : { primary }),
+    failedOpen: value['failedOpen'],
+    truncated: value['truncated'],
+  };
+}
+
+function parseQuestions(value: unknown): AgentPolicy['questions'] | null {
+  if (!isRecord(value)) return null;
+  const entries = Object.entries(value).map(([id, q]) =>
+    isRecord(q) &&
+    typeof q['instructions'] === 'string' &&
+    Array.isArray(q['options']) &&
+    q['options'].every((o) => typeof o === 'string')
+      ? ([id, { instructions: q['instructions'], options: q['options'] }] as const)
+      : null,
+  );
+  return entries.includes(null)
+    ? null
+    : Object.fromEntries(entries as (readonly [string, AgentPolicy['questions'][string]])[]);
+}
+
+function parseAgentPolicy(value: unknown): AgentPolicy | null {
+  if (!isRecord(value)) return null;
+  const questions = parseQuestions(value['questions']);
+  const keys = value['inputKeys'];
+  if (
+    typeof value['id'] !== 'string' ||
+    typeof value['description'] !== 'string' ||
+    !Array.isArray(keys) ||
+    !keys.every((k) => typeof k === 'string') ||
+    questions === null
+  ) {
+    return null;
+  }
+  return {
+    id: value['id'],
+    description: value['description'],
+    inputKeys: keys,
+    questions,
+  };
+}
+
+function parseAgentPolicies(value: unknown): readonly AgentPolicy[] | null {
+  if (!Array.isArray(value)) return null;
+  const parsed = value.map(parseAgentPolicy);
+  return parsed.includes(null) ? null : (parsed as AgentPolicy[]);
+}
+
+const AGENT_ERROR_CHARS = 160;
+
+/** One line without control characters, capped: gateway and network text shown to an agent. */
+export function agentErrorText(text: string): string {
+  const clean = text
+    .replaceAll(/\p{Cc}+/gu, ' ')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+  return clean.slice(0, AGENT_ERROR_CHARS);
+}
+
+async function agentFailure(res: Response, notFound: string | undefined): Promise<string> {
+  if (res.status === 404 && notFound !== undefined) return notFound;
+  const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+  const reason = typeof body?.error === 'string' ? agentErrorText(body.error) : '';
+  return reason === '' ? `gateway answered HTTP ${String(res.status)}` : reason;
 }
 
 function isHealth(value: unknown): value is GatewayHealth {
@@ -305,6 +427,35 @@ export function createGateway(options: GatewayOptions = {}): Gateway | null {
     }
   }
 
+  async function agentRead<T>(
+    method: 'GET' | 'POST',
+    path: string,
+    body: unknown,
+    call: CallOptions | undefined,
+    parse: (value: unknown) => T | null,
+    notFound?: string,
+  ): Promise<AgentResult<T>> {
+    try {
+      const res = await send(method, path, body, call);
+      if (!res.ok) {
+        return { ok: false, error: await agentFailure(res, notFound) };
+      }
+      const value = parse(await res.json().catch(() => null));
+      return value === null
+        ? { ok: false, error: 'unexpected gateway response' }
+        : { ok: true, value };
+    } catch (error) {
+      return { ok: false, error: agentErrorText(errorMessage(error)) || 'gateway unreachable' };
+    }
+  }
+
+  const explainBlocker = (): string | null => {
+    if (!loopbackUrl(baseUrl)) return 'explain needs a loopback gateway';
+    return controlToken === undefined || controlToken === ''
+      ? 'explain needs the gateway control token'
+      : null;
+  };
+
   return {
     baseUrl,
     bearer: token !== undefined,
@@ -315,6 +466,31 @@ export function createGateway(options: GatewayOptions = {}): Gateway | null {
       const res = await request('POST', `/v1/decide/${encodeURIComponent(policy)}`, body, call);
       return isDecideResponse(res) ? res : null;
     },
+    async decideAgent(policy, req, call) {
+      const budgetMs = req.budgetMs ?? budgetFor(call?.timeoutMs ?? timeoutMs);
+      const body = budgetMs === undefined ? req : { ...req, budgetMs };
+      return agentRead(
+        'POST',
+        `/v1/decide/${encodeURIComponent(policy)}?view=agent`,
+        body,
+        call,
+        parseAgentView,
+      );
+    },
+    async decision(id, call) {
+      const blocker = explainBlocker();
+      if (blocker !== null) return { ok: false, error: blocker };
+      return agentRead(
+        'GET',
+        `/v1/decisions/${encodeURIComponent(id)}?view=agent`,
+        undefined,
+        call,
+        parseAgentView,
+        'unknown decision',
+      );
+    },
+    agentPolicies: async (call) =>
+      agentRead('GET', '/v1/policies?view=agent', undefined, call, parseAgentPolicies),
     async reportOutcome(decisionId, outcome, source, call) {
       const res = await request('POST', '/v1/outcomes', { decisionId, outcome, source }, call);
       return res !== null;
