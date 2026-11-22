@@ -69,6 +69,35 @@ export function strandsPinMismatch(paths: Paths, project?: string): string | nul
   return `strands-decider venv has ${installed}, pinned ${pinned}; run local-decider engine install`;
 }
 
+/** The accelerator a torch version label names: `+cpu`, `+cu126` or `+rocm7.2`; none when unlabeled. */
+function torchBuild(torch: string): 'cpu' | 'gpu' | null {
+  const label = torch.split('+')[1]?.toLowerCase();
+  if (label === undefined) return null;
+  return label === 'cpu' ? 'cpu' : 'gpu';
+}
+
+/**
+ * A one-line report when the torch in the managed venv cannot serve `device` (`cuda` on a `+cpu`
+ * build, `cuda` on unlabeled macOS torch, `mps` off macOS), else `null` (fine, no venv, no torch,
+ * or `auto`, which lets strands-decider pick what exists). ROCm torch reports as `cuda`. Read-only.
+ */
+export function strandsDeviceProblem(
+  paths: Paths,
+  device: string,
+  platform: NodeJS.Platform,
+): string | null {
+  const torch = strandsVenvPackages(paths)?.torch;
+  if (torch === undefined || torch === null) return null;
+  const build = torchBuild(torch);
+  if (device === 'cuda' && (build === 'cpu' || (build === null && platform === 'darwin'))) {
+    return `device ${device} is configured but the venv has a CPU-only torch (${torch}); run local-decider engine install --flavor cuda (or rocm), or set the device to cpu`;
+  }
+  if (device === 'mps' && platform !== 'darwin') {
+    return `device mps needs macOS, but this is ${platform} (torch ${torch}); set the device to cpu or cuda`;
+  }
+  return null;
+}
+
 /** PEP 440: a pin without a local label (`+...`) also matches an installed local version. */
 function samePin(installed: string, pinned: string): boolean {
   return installed === pinned || (!pinned.includes('+') && installed.split('+')[0] === pinned);

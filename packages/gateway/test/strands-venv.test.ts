@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { engineProjectDir } from '../src/engine-install.ts';
-import { pinnedStrandsVersion, strandsPinMismatch } from '../src/engines/strands/venv.ts';
+import {
+  pinnedStrandsVersion,
+  strandsDeviceProblem,
+  strandsPinMismatch,
+} from '../src/engines/strands/venv.ts';
 import { tempPaths } from './helpers.ts';
 
 function project(pin: string): string {
@@ -22,6 +26,15 @@ function venvWith(installed: string | null): ReturnType<typeof tempPaths> {
   const site = join(paths.venvs, 'strands-decider', 'lib', 'python3.12', 'site-packages');
   mkdirSync(site, { recursive: true });
   if (installed !== null) mkdirSync(join(site, `strands_decider-${installed}.dist-info`));
+  return paths;
+}
+
+function venvWithTorch(torch: string | null): ReturnType<typeof tempPaths> {
+  const paths = venvWith('0.4.0');
+  if (torch !== null) {
+    const site = join(paths.venvs, 'strands-decider', 'lib', 'python3.12', 'site-packages');
+    mkdirSync(join(site, `torch-${torch}.dist-info`));
+  }
   return paths;
 }
 
@@ -55,6 +68,40 @@ describe('Strands venv pin check', () => {
 
   it('reports nothing when the pin is unreadable', () => {
     assert.equal(strandsPinMismatch(venvWith('0.3.1'), tmpdir()), null);
+  });
+
+  describe('device check', () => {
+    it('flags cuda on a +cpu torch, with the remedy', () => {
+      const problem = strandsDeviceProblem(venvWithTorch('2.9.0+cpu'), 'cuda', 'linux');
+      assert.match(problem ?? '', /device cuda is configured but the venv has a CPU-only torch/);
+      assert.match(problem ?? '', /engine install --flavor cuda/);
+    });
+
+    it('accepts cuda on CUDA and ROCm torch, and cpu or auto on any build', () => {
+      for (const torch of ['2.9.0+cu126', '2.9.0+rocm7.2', '2.9.0']) {
+        assert.equal(strandsDeviceProblem(venvWithTorch(torch), 'cuda', 'linux'), null, torch);
+      }
+      for (const device of ['cpu', 'auto', 'mlx']) {
+        assert.equal(strandsDeviceProblem(venvWithTorch('2.9.0+cpu'), device, 'linux'), null);
+      }
+    });
+
+    it('flags cuda on unlabeled macOS torch and mps off macOS', () => {
+      assert.match(
+        strandsDeviceProblem(venvWithTorch('2.9.0'), 'cuda', 'darwin') ?? '',
+        /CPU-only torch/,
+      );
+      assert.match(
+        strandsDeviceProblem(venvWithTorch('2.9.0+cu126'), 'mps', 'linux') ?? '',
+        /mps needs macOS/,
+      );
+      assert.equal(strandsDeviceProblem(venvWithTorch('2.9.0'), 'mps', 'darwin'), null);
+    });
+
+    it('reports nothing without a venv or torch (the MLX flavor has none)', () => {
+      assert.equal(strandsDeviceProblem(tempPaths(), 'cuda', 'linux'), null);
+      assert.equal(strandsDeviceProblem(venvWithTorch(null), 'cuda', 'linux'), null);
+    });
   });
 
   it('reads the bundled pin', () => {

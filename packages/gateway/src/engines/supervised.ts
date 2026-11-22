@@ -99,6 +99,19 @@ export interface ServerSpec {
   maxLength?(body: Record<string, unknown>): number | undefined;
 }
 
+/** Child output worth a remedy: the strands engine started on a CUDA device with CPU-only torch. */
+const OUTPUT_HINTS: readonly { readonly match: string; readonly hint: string }[] = [
+  {
+    match: 'Torch not compiled with CUDA enabled',
+    hint: 'torch has no CUDA support: set the device to cpu, or run local-decider engine install --flavor cuda (or rocm)',
+  },
+];
+const OUTPUT_TAIL_CHARS = 4096;
+
+function outputHint(tail: string): string | undefined {
+  return OUTPUT_HINTS.find((entry) => tail.includes(entry.match))?.hint;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -121,6 +134,9 @@ export class SupervisedEngine implements Engine {
   #child: ChildProcess | undefined;
   #state: EngineState = 'stopped';
   #detail: string | undefined;
+  /** The last bit of the child's output, for `outputHint`; reset per launch. */
+  #outputTail = '';
+  #hint: string | undefined;
   #maxLength: number | undefined;
   #restarts = 0;
   /** When the engine last became ready; a long healthy run resets the restart budget. */
@@ -180,7 +196,9 @@ export class SupervisedEngine implements Engine {
 
   async decide(request: SystemOneRequest, signal: AbortSignal): Promise<SystemOneResponse> {
     if (this.#state !== 'ready' || this.#url === undefined) {
-      throw new EngineError(`engine ${this.#state}`);
+      throw new EngineError(
+        `engine ${this.#state}${this.#hint === undefined ? '' : ` (${this.#hint})`}`,
+      );
     }
     try {
       const answer = await postSystemOne(
@@ -331,8 +349,12 @@ export class SupervisedEngine implements Engine {
       log.destroy();
       throw error;
     }
-    child.stdout?.pipe(createEngineLogFilter()).pipe(log, { end: false });
-    child.stderr?.pipe(createEngineLogFilter()).pipe(log, { end: false });
+    this.#outputTail = '';
+    this.#hint = undefined;
+    for (const stream of [child.stdout, child.stderr]) {
+      stream?.on('data', (chunk: Buffer | string) => this.#noteOutput(String(chunk)));
+      stream?.pipe(createEngineLogFilter()).pipe(log, { end: false });
+    }
     child.once('exit', (code, signal) => {
       log.end();
       this.#onExit(child, gen, code, signal);
@@ -345,6 +367,11 @@ export class SupervisedEngine implements Engine {
     trackChild(child);
     this.#child = child;
     return true;
+  }
+
+  #noteOutput(chunk: string): void {
+    this.#outputTail = (this.#outputTail + chunk).slice(-OUTPUT_TAIL_CHARS);
+    this.#hint = outputHint(this.#outputTail) ?? this.#hint;
   }
 
   #onSpawnError(child: ChildProcess, gen: number, error: Error): void {
@@ -365,7 +392,8 @@ export class SupervisedEngine implements Engine {
       return; // stopped, failed or replaced: this exit is an orphan's
     }
     this.#child = undefined;
-    const reason = `engine exited (${signal ?? `code ${String(code)}`})`;
+    const exited = `engine exited (${signal ?? `code ${String(code)}`})`;
+    const reason = this.#hint === undefined ? exited : `${exited}: ${this.#hint}`;
     // A crash after a long healthy run is a fresh failure, not part of a crash loop.
     if (this.#readyAt !== undefined && this.#deps.now() - this.#readyAt >= STABLE_MS) {
       this.#restarts = 0;
@@ -427,6 +455,7 @@ export class SupervisedEngine implements Engine {
     this.#timeouts = 0;
     this.#readyAt = this.#deps.now();
     this.#detail = undefined;
+    this.#hint = undefined;
     this.#maxLength = this.#spec.maxLength?.(body);
   }
 

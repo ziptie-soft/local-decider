@@ -299,6 +299,38 @@ describe('SupervisedEngine start idempotence', () => {
   });
 });
 
+describe('SupervisedEngine output hints', () => {
+  const TORCH_ERROR =
+    'Traceback (most recent call last):\nAssertionError: Torch not compiled with CUDA enabled\n';
+
+  it('adds a remedy to the exit detail and the decision error', async () => {
+    const h = harness();
+    await startHealthy(h);
+    h.children[0]!.stderr.write(TORCH_ERROR);
+    await settle();
+    h.children[0]!.die(1, null);
+    assert.match(h.engine.health().detail ?? '', /engine exited \(code 1\): torch has no CUDA/);
+    assert.match(h.engine.health().detail ?? '', /--flavor cuda/);
+    await assert.rejects(
+      h.engine.decide(REQUEST, AbortSignal.timeout(1000)),
+      /engine starting \(torch has no CUDA support/,
+    );
+    await h.engine.stop();
+  });
+
+  it('says nothing extra for an exit without a known cause', async () => {
+    const h = harness();
+    await startHealthy(h);
+    h.children[0]!.die(1, null);
+    assert.equal(h.engine.health().detail, 'engine exited (code 1); restart 1');
+    await assert.rejects(
+      h.engine.decide(REQUEST, AbortSignal.timeout(1000)),
+      (error: Error) => error.message === 'engine starting',
+    );
+    await h.engine.stop();
+  });
+});
+
 describe('SupervisedEngine stop and orphans', () => {
   it('drops the old backoff timer when stop() then start() runs inside the window', async () => {
     const h = harness();
