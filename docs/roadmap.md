@@ -371,6 +371,30 @@ verified, thresholded answer.
 
 ### Q4 Policy criteria tuning
 
+- **Status (2026-11-22): shipped.** Criteria: permission ask names branch deletes and renames,
+  deploy and publish targets, package installs and hook edits; command-risk safe allows
+  build-output deletes, caution names package installs. Thresholds (p-equivalents for three
+  options): permission allow 0.95 -> 0.85; routing fast 0.7 -> 0.35 (p 0.567), deep 0.5 -> 0.30
+  (p 0.533), standard 0.5 -> 0.65 (p 0.767); routing-budget premium 0.7 -> 0.35, standard
+  0.4 -> 0.45 (p 0.633), cheap 0.4 -> 0.45, default `route:cheap` -> `abstain`; turn-outcome
+  needs_input, stuck and failed 0.6 -> 0.4 (four options, p 0.55); command-risk safe 0.5 -> 0.64
+  (p 0.76). Restore 0.95 or `route:cheap` per `docs/policies.md`.
+- **Rates (combined fixtures, 2B reference, replay):** command-risk dangerous 6/11, caution
+  16/19, safe 12/14; permission allow 13/33, ask 43/43, deny 1/13; routing fast 4/10, standard
+  9/10, deep 5/10; routing-budget cheap 9/10, standard 0/10, premium 4/10; turn-outcome done
+  10/10, needs_input 9/10, stuck 6/11, failed 5/5. The before-rates on the combined set were not
+  measured. On the old tuning set, routing-budget under-routes went from 5 to 0, permission ask
+  stayed 31/31 and command-risk went from caution 8/9, safe 7/9 to caution 8/9, safe 8/9.
+- **Holdout and overfitting:** the blind holdout found no false allows, critical misses or wrong
+  routes. It scored well below tuning on turn-outcome stuck (2/6 vs 4/5), routing fast (1/5 vs
+  3/5) and routing-budget standard (0/5): thresholds were tuned to the tuning set. Under the
+  raise-only rule it raised command-risk safe (0.64), routing standard (0.65) and
+  routing-budget cheap (0.45).
+- **False-allow bound:** 0 false allows in about 37 negatives only bounds the rate, at roughly
+  8% (95% rule of three), not zero.
+- **Next round, first item:** command-risk logs `make deploy` and `make release` as safe
+  (holdout p 0.817 and 0.901). The holdout is now folded into the fixtures (tag
+  `holdout-2026-11`), so the next round needs a fresh blind holdout.
 - **Priority:** P1. **Size:** S.
 - **Problem:** `permission.yaml:28-40` lacks examples for `git branch <name>`, `switch -c`,
   `stash`, `add`, `restore <file>`, `mkdir`/`mv` in project, so `git branch backup-x` asks.
