@@ -130,6 +130,8 @@ export interface Gateway {
   ): Promise<AgentResult<AgentView>>;
   /** `GET /v1/decisions/:id?view=agent` (control token, loopback only); never throws. */
   decision(id: string, options?: CallOptions): Promise<AgentResult<AgentView>>;
+  /** `GET /v1/review` (control token, loopback only): the body, or null on any failure. */
+  review(days: number, limit: number, options?: CallOptions): Promise<unknown>;
   /** `GET /v1/policies?view=agent`: the policies an agent may call; never throws. */
   agentPolicies(options?: CallOptions): Promise<AgentResult<readonly AgentPolicy[]>>;
   /** `GET /v1/policies/:id/prompt`: the prompt that has an agent write a variant of `id`. */
@@ -489,6 +491,13 @@ export function createGateway(options: GatewayOptions = {}): Gateway | null {
         'unknown decision',
       );
     },
+    review: async (days, limit, call) =>
+      request(
+        'GET',
+        `/v1/review?days=${String(Math.trunc(days))}&limit=${String(Math.trunc(limit))}`,
+        undefined,
+        call,
+      ),
     agentPolicies: async (call) =>
       agentRead('GET', '/v1/policies?view=agent', undefined, call, parseAgentPolicies),
     async reportOutcome(decisionId, outcome, source, call) {

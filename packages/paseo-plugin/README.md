@@ -87,6 +87,20 @@ Caveats:
   that current Codex speaks. The plugin skips Codex approvals for the `paseo` server.
 - The old `injectMcp` setting is migrated to this one.
 
+## Daily review
+
+Off by default; turn on **Daily review** under Advanced. The plugin then fetches the gateway's
+review of the last 24 h (`GET /v1/review`, the same data as `local-decider review --days 1`) 30 s
+after you turn it on and once a day after that, and shows the disagreement counts in the status
+popover and the newest five on the Details page. The `local-decider explain <id>` command shown
+with each row explains it.
+
+- Read-only: it runs no agent and no model, and posts nothing into any conversation.
+- Hashes and ids only, like the gateway's result; the plugin keeps counts and five rows.
+- Off means no timer. A gateway that is down is retried hourly and never logged or shown as an
+  error. The review lives in the plugin's memory, so it starts again after a reload.
+- It needs a loopback gateway: the control token is never sent anywhere else.
+
 ## Privacy and what it runs
 
 - Transcripts and tool requests go only to the gateway URL in settings (default

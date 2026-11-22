@@ -14,6 +14,7 @@ import { engineStateNote } from '../shared/lifecycle.ts';
 import { mismatchLabel, modeMismatch } from '../shared/policies.ts';
 import { type Status, useDeciderValues, useGatewayStatus, useServiceInfo } from './hooks.ts';
 import { useGatewayModes } from './policy-modes.ts';
+import { ReviewPopoverSection } from './review.tsx';
 import { useServiceRun } from './service.tsx';
 import { Button, type Theme } from './ui.tsx';
 
@@ -233,6 +234,7 @@ export function QuickStatus(props: PluginPopoverProps): ReactNode {
           </View>
         ))}
       </View>
+      <ReviewPopoverSection theme={theme} />
       <View style={styles.divider} />
       <View style={[styles.section, { gap: 10 }]}>
         <Text style={styles.caption} numberOfLines={1}>

@@ -28,6 +28,7 @@ export function settings(overrides: Partial<DeciderSettings> = {}): DeciderSetti
       deep: { model: '', modeId: '' },
     },
     agentTools: false,
+    dailyReview: false,
     preloadOnStart: false,
     sidebar: { position: 'footer', label: 'full', press: 'popover' },
     rows: { show: 'all', details: true, feedback: true },
@@ -80,6 +81,9 @@ export interface FakeGateway extends Gateway {
   agentDecide: (policy: string, request: AgentDecideRequest) => Promise<AgentResult<AgentView>>;
   agentDecision: (id: string) => Promise<AgentResult<AgentView>>;
   agentPolicyList: () => Promise<AgentResult<readonly AgentPolicy[]>>;
+  /** `review` reads: every call, and the body a test replaces. */
+  readonly reviewCalls: { days: number; limit: number }[];
+  reviewBody: () => Promise<unknown>;
 }
 
 export function agentView(overrides: Partial<AgentView> = {}): AgentView {
@@ -109,6 +113,7 @@ export function fakeGateway(
       return { ok: true, body: {} };
     };
   const agentCalls: FakeGateway['agentCalls'] = [];
+  const reviewCalls: FakeGateway['reviewCalls'] = [];
   const fake: FakeGateway = {
     baseUrl: 'http://127.0.0.1:8765',
     bearer: false,
@@ -117,6 +122,12 @@ export function fakeGateway(
     agentDecide: async () => ({ ok: true, value: agentView() }),
     agentDecision: async () => ({ ok: true, value: agentView() }),
     agentPolicyList: async () => ({ ok: true, value: [] }),
+    reviewCalls,
+    reviewBody: async () => null,
+    async review(days, limit) {
+      reviewCalls.push({ days, limit });
+      return fake.reviewBody();
+    },
     async decideAgent(policy, request) {
       agentCalls.push({ name: 'decideAgent', policy, request });
       return fake.agentDecide(policy, request);

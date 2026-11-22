@@ -16,6 +16,7 @@ import {
   policyVariantsSchema,
   routingSettingsSchema,
 } from './policies.ts';
+import { reviewSummarySchema } from './review.ts';
 import { decisionRowSchema, LABEL_CHOICES } from './row.ts';
 import { policyStatsSchema } from './stats.ts';
 
@@ -38,6 +39,17 @@ export const statusRpc = defineRpc({
     /** Consecutive failed checks, for client-side backoff. */
     downStreak: z.number().int(),
     checkedAt: z.string(),
+  }),
+});
+
+/** The daily review kept by the daemon: nothing is fetched for this call. */
+export const reviewRpc = defineRpc({
+  name: 'review',
+  input: z.object({}),
+  output: z.object({
+    enabled: z.boolean(),
+    checkedAt: z.string().nullable(),
+    review: reviewSummarySchema.nullable(),
   }),
 });
 

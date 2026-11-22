@@ -22,6 +22,7 @@ describe('settings migration', () => {
     ]) {
       const migrated = settingsSchema.parse(migrateSettings(old));
       assert.equal(migrated.agentTools, false);
+      assert.equal(migrated.dailyReview, false);
       assert.equal(migrated.sidebar.position, 'footer');
       assert.equal(migrated.rows.show, 'all');
       for (const key of ['engine', 'model', 'device', 'keepModel']) {
