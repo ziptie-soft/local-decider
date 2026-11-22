@@ -28,4 +28,22 @@ describe('Strands runtime stamp', () => {
       model: 'abc123',
     });
   });
+
+  it('stamps strands-decider alone when torch is absent, and nothing without strands-decider', () => {
+    const cases: readonly [string, string | null][] = [
+      ['strands_decider-0.4.0.dist-info', 'strands-decider 0.4.0'],
+      ['torch-2.7.0.dist-info', null],
+    ];
+    for (const [distInfo, runtime] of cases) {
+      const paths = tempPaths();
+      const site = join(paths.venvs, 'strands-decider', 'lib', 'python3.12', 'site-packages');
+      mkdirSync(join(site, distInfo), { recursive: true });
+      const ctx = {
+        paths,
+        env: { HF_HUB_CACHE: join(paths.data, 'hf') },
+        host: { platform: 'linux', arch: 'x64', totalMemoryBytes: 1 },
+      } as EngineContext;
+      assert.equal(strandsRuntimeStamp('StrandsAgents/any', ctx).runtime, runtime);
+    }
+  });
 });
