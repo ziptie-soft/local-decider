@@ -2,6 +2,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
+  LATEST_PROTOCOL_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from '@modelcontextprotocol/sdk/types.js';
+import {
   mcpOpen,
   type DecideRequest,
   type DecideResponse,
@@ -186,6 +190,26 @@ export function createMcpServer(backend: McpBackend): McpServer {
   return server;
 }
 
+/**
+ * Newer clients (Codex, Claude Code) send `mcp-protocol-version: 2026-07-28` on every request
+ * after `initialize`, which negotiates down to a version the SDK knows. The SDK rejects any other
+ * header value with 400, so rewrite an unsupported one to the SDK's latest, as the server would
+ * have negotiated at `initialize`. Supported and absent values pass through. The SDK's Node
+ * adapter builds its Request from `rawHeaders`, so both views are rewritten.
+ */
+function clampProtocolVersionHeader(req: IncomingMessage): void {
+  const version = req.headers['mcp-protocol-version'];
+  if (typeof version !== 'string' || SUPPORTED_PROTOCOL_VERSIONS.includes(version)) {
+    return;
+  }
+  req.headers['mcp-protocol-version'] = LATEST_PROTOCOL_VERSION;
+  for (let i = 0; i + 1 < req.rawHeaders.length; i += 2) {
+    if (req.rawHeaders[i]?.toLowerCase() === 'mcp-protocol-version') {
+      req.rawHeaders[i + 1] = LATEST_PROTOCOL_VERSION;
+    }
+  }
+}
+
 /** Stateless streamable HTTP: a fresh server and transport per request. */
 export async function handleMcpHttp(
   decider: Decider,
@@ -193,6 +217,7 @@ export async function handleMcpHttp(
   res: ServerResponse,
   body: unknown,
 ): Promise<void> {
+  clampProtocolVersionHeader(req);
   const server = createMcpServer(deciderBackend(decider));
   const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true }); // no sessionIdGenerator = stateless;
   res.on('close', () => {

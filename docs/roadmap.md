@@ -1098,7 +1098,10 @@ other models. Verify cited lines before implementing; they come from a read-only
   sends, so no Paseo tool (ours included) reaches Codex agents. Checked on 0.17.3: `initialize`
   succeeds (negotiates `2025-11-25`) but every later request carrying the header fails with
   `Unsupported protocol version` (supports 2025-11-25 down to 2024-10-07). The gateway's own
-  `/mcp` behaves identically.
+  `/mcp` behaved identically; fixed there (`clampProtocolVersionHeader` in `mcp.ts` rewrites an
+  unsupported `mcp-protocol-version` to the SDK's latest before the transport sees it, because
+  `@modelcontextprotocol/sdk` 1.32.2, the latest release, still tops out at 2025-11-25). Paseo's
+  own `/mcp/agents` still needs its fix.
 - **Upstream requests (Paseo)** (still open on 0.17.3: `defineAgentTool` takes only name, title,
   description, input and execute):
   1. *Preapproval for plugin agent tools.* "`toolPolicy.preapproved` cannot name tools that
