@@ -11,6 +11,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 
 import type { Decider } from './decider.ts';
+import { agentViewOfResponse, type AgentView } from './explain.ts';
 import { GATEWAY_VERSION } from './version.ts';
 
 /** One question a policy asks, without its criteria text, rules or thresholds. */
@@ -86,23 +87,35 @@ export function parseMcpPolicies(body: unknown): McpPolicyInfo[] {
 
 /** What the MCP tools need: the in-process decider, or a client of a running gateway. */
 export interface McpBackend {
-  decide(policy: string, request: DecideRequest, signal: AbortSignal): Promise<DecideResponse>;
+  decide(policy: string, request: DecideRequest, signal: AbortSignal): Promise<AgentView>;
   /** Every loaded policy, hook-enforced ones included (`mcp: false`); the tools filter them. */
   listPolicies(): Promise<readonly McpPolicyInfo[]>;
 }
 
+/** What an agent may see of a live decision; the policy that answered gives its primary question. */
+export function agentProjection(decider: Decider, response: DecideResponse): AgentView {
+  const answering = decider.policies.get(response.variant ?? response.policy);
+  return agentViewOfResponse(response, answering?.policy);
+}
+
 export function deciderBackend(decider: Decider): McpBackend {
   return {
-    decide: (policy, request, signal) => decider.decide(policy, request, signal),
+    decide: async (policy, request, signal) =>
+      agentProjection(decider, await decider.decide(policy, request, signal)),
     listPolicies: async () =>
       [...decider.policies.values()].map(({ policy }) => policyInfo(policy)),
   };
 }
 
+/** True when `policy` is loaded but hook-enforced: no MCP or agent caller may run it. */
+export function closedToAgents(policies: readonly McpPolicyInfo[], policy: string): boolean {
+  const found = policies.find((p) => p.id === policy);
+  return found !== undefined && !found.mcp;
+}
+
 /** Throws a tool error when `policy` is loaded but not open to MCP callers. */
 async function assertMcpPolicy(backend: McpBackend, policy: string): Promise<void> {
-  const found = (await backend.listPolicies()).find((p) => p.id === policy);
-  if (found !== undefined && !found.mcp) {
+  if (closedToAgents(await backend.listPolicies(), policy)) {
     throw new Error(
       `policy "${policy}" is not available through MCP (enforced by harness hooks, or the gateway ` +
         'predates the mcp flag and must be updated); see the policies tool for the ones you can call',
@@ -122,9 +135,9 @@ export function createMcpServer(backend: McpBackend): McpServer {
     {
       title: 'Local decision model',
       description:
-        'Ask the local decision model a fixed-choice question through a policy. Returns the action, ' +
-        'per-option probabilities and a confidence from the configured engine (calibrated only ' +
-        'when that engine reports calibrated probabilities). Fast and local; no free text.',
+        'Ask the local decision model a fixed-choice question through a policy. Returns the action ' +
+        'it would take, the question that decided it with its answer and confidence, and whether ' +
+        'it failed open. The answer is advisory and never enforced. Fast and local; no free text.',
       inputSchema: {
         policy: z
           .string()

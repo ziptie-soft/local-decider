@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { mcpOpen, parsePolicy, type DecideResponse } from '@ziptie-soft/local-decider-core';
+import { mcpOpen, parsePolicy } from '@ziptie-soft/local-decider-core';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
@@ -38,7 +38,14 @@ async function connect(called: string[]): Promise<Client> {
   const backend: McpBackend = {
     async decide(id) {
       called.push(id);
-      return { policy: id, action: 'allow' } as unknown as DecideResponse;
+      return {
+        decisionId: 'd',
+        policy: id,
+        action: 'allow',
+        enforced: false,
+        failedOpen: false,
+        truncated: false,
+      };
     },
     listPolicies: async () => POLICIES.map(policyInfo),
   };
@@ -107,6 +114,22 @@ describe('MCP tools', () => {
       verdict: { instructions: 'Judge.', options: ['allow', 'ask'] },
     });
     assert.doesNotMatch(raw, /minProbability|threshold|rules|precedent|calibration/i);
+  });
+
+  it('returns the agent projection, not the full decision', async () => {
+    const client = await connect([]);
+    const result = await client.callTool({
+      name: 'decide',
+      arguments: { policy: 'turn-outcome', input: { request: 'x' } },
+    });
+    assert.deepEqual(JSON.parse(text(result)), {
+      decisionId: 'd',
+      policy: 'turn-outcome',
+      action: 'allow',
+      enforced: false,
+      failedOpen: false,
+      truncated: false,
+    });
   });
 
   it('annotates decide as writing to the log and policies as read-only', async () => {

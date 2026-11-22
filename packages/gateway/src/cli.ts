@@ -32,7 +32,13 @@ import {
   SettingsUsageError,
   useVariant,
 } from './cli-settings.ts';
-import { fetchPolicyList, parseInputJson, runFlmStep, UsageError } from './cli-support.ts';
+import {
+  fetchAgentDecision,
+  fetchPolicyList,
+  parseInputJson,
+  runFlmStep,
+  UsageError,
+} from './cli-support.ts';
 import { ConfigFile } from './config-file.ts';
 import { DEFAULT_FLM_MODEL, DEFAULT_PORT, loadConfig, type GatewayConfig } from './config.ts';
 import type { AutoInstall } from './engine-install-auto.ts';
@@ -663,15 +669,15 @@ async function benchCmd(ctx: Context): Promise<void> {
 }
 
 async function mcp(ctx: Context): Promise<void> {
-  const gw = client(ctx, ctx.config.decisionTimeoutMs);
   const backend: McpBackend = {
-    async decide(policy, request) {
-      const result = await gw.decide(policy, request);
-      if (result === null) {
-        throw new Error('local-decider gateway unreachable');
-      }
-      return result;
-    },
+    decide: (policy, request) =>
+      fetchAgentDecision(
+        (path, init) => gatewayFetch(ctx, path, init),
+        policy,
+        request,
+        ctx.config.decisionTimeoutMs,
+        refusedMessage(ctx),
+      ),
     async listPolicies() {
       return parseMcpPolicies(await fetchPolicies(ctx));
     },

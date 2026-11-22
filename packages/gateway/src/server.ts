@@ -37,7 +37,7 @@ import {
 import { allModels } from './engines/registry.ts';
 import { TokenBucket, UNVERIFIED_BURST, UNVERIFIED_PER_MINUTE, validOutcome } from './ingest.ts';
 import type { LogStore } from './log-store.ts';
-import { handleMcpHttp, policyInfo } from './mcp.ts';
+import { agentProjection, closedToAgents, handleMcpHttp, policyInfo } from './mcp.ts';
 import { modelFits } from './models.ts';
 import { withConfiguredRoutes, withRoute } from './routing.ts';
 import type { Pricing } from './savings.ts';
@@ -518,6 +518,26 @@ const callRoute = /^\/v1\/calls\/([\w-]{1,128})$/;
 /** The policy whose scope mode the mod reads from `GET /v1/calls/:id`. */
 const CALL_POLICY = 'permission';
 
+/** `?view=agent`: true for it, false when absent, 400 for any other view. */
+function agentViewParam(req: IncomingMessage): boolean {
+  const view = new URL(req.url ?? '/', 'http://localhost').searchParams.get('view');
+  if (view !== null && view !== 'agent') {
+    throw new HttpError(400, 'view must be agent, or absent for the full response');
+  }
+  return view === 'agent';
+}
+
+/** Harness `mcp` is the agent channel: it may not run a policy a harness hook enforces. */
+function assertAgentPolicy(decider: Decider, policy: string, harness: string): void {
+  if (harness !== 'mcp') {
+    return;
+  }
+  const infos = [...decider.policies.values()].map((loaded) => policyInfo(loaded.policy));
+  if (closedToAgents(infos, policy)) {
+    throw new HttpError(403, 'policy not available to agents');
+  }
+}
+
 const decideRoute = /^\/v1\/decide\/([a-z][a-z0-9_-]{0,63})$/;
 
 /** Retention bound for `days` when no live settings are wired (the config default). */
@@ -608,6 +628,44 @@ function readRoute(key: string, path: string): Handler | undefined {
   return id === undefined ? undefined : callHandler(id);
 }
 
+/** What an agent sees of the policies it may call, without thresholds or rules. */
+function agentPolicyList(decider: Decider): unknown[] {
+  return [...decider.policies.values()]
+    .map(({ policy }) => policyInfo(policy))
+    .filter((info) => info.mcp)
+    .map(({ id, description, inputKeys, questions }) => ({
+      id,
+      description,
+      inputKeys,
+      questions,
+    }));
+}
+
+/** `GET /v1/policies[?view=agent]`: the full list, or the agent-safe one for `view=agent`. */
+const policiesHandler: Handler = async (req, res, { decider }) => {
+  if (agentViewParam(req)) {
+    send(res, 200, agentPolicyList(decider));
+    return;
+  }
+  send(
+    res,
+    200,
+    [...decider.policies.values()].map(({ policy, mode }) => ({
+      id: policy.id,
+      mode,
+      description: policy.description,
+      mcp: mcpOpen(policy),
+      questions: policyInfo(policy).questions,
+      inputKeys: policy.state.sections.map((s) => s.from).filter((k) => k !== 'facts'),
+      routes: policyRoutes(policy),
+      thresholds: decider.thresholdsOf(policy.id),
+      ...(policy.variantOf === undefined
+        ? { variant: decider.activeVariant(policy.id), variants: decider.variantsOf(policy.id) }
+        : { variantOf: policy.variantOf }),
+    })),
+  );
+};
+
 function route(method: string, path: string): Handler | undefined {
   const key = `${method} ${path}`;
   if (key === 'GET /health' || key === 'GET /ping') {
@@ -633,24 +691,7 @@ function route(method: string, path: string): Handler | undefined {
     return control;
   }
   if (key === 'GET /v1/policies') {
-    return async (_req, res, { decider }) =>
-      send(
-        res,
-        200,
-        [...decider.policies.values()].map(({ policy, mode }) => ({
-          id: policy.id,
-          mode,
-          description: policy.description,
-          mcp: mcpOpen(policy),
-          questions: policyInfo(policy).questions,
-          inputKeys: policy.state.sections.map((s) => s.from).filter((k) => k !== 'facts'),
-          routes: policyRoutes(policy),
-          thresholds: decider.thresholdsOf(policy.id),
-          ...(policy.variantOf === undefined
-            ? { variant: decider.activeVariant(policy.id), variants: decider.variantsOf(policy.id) }
-            : { variantOf: policy.variantOf }),
-        })),
-      );
+    return policiesHandler;
   }
   if (key === 'POST /v1/systemone' || key === 'POST /invocations') {
     return async (req, res, { decider }) => {
@@ -683,7 +724,13 @@ function route(method: string, path: string): Handler | undefined {
       const parsed = parseDecideRequest(await readJson(req));
       signal.throwIfAborted();
       const request = config === undefined ? parsed : withConfiguredRoutes(config, parsed);
+      const view = agentViewParam(req);
+      assertAgentPolicy(decider, policy, request.harness);
       const response = await decider.decide(policy, request, signal);
+      if (view) {
+        send(res, 200, agentProjection(decider, response));
+        return;
+      }
       send(
         res,
         200,

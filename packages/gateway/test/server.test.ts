@@ -394,6 +394,59 @@ describe('gateway HTTP', () => {
     assert.equal(ok.status, 200, 'a normal request is not aborted');
   });
 
+  it('refuses harness mcp on a hook-enforced policy with 403, other harnesses unaffected', async () => {
+    const mcp = await post('/v1/decide/permission', { harness: 'mcp', input: {} });
+    assert.equal(mcp.status, 403);
+    assert.deepEqual(await mcp.json(), { error: 'policy not available to agents' });
+    const hook = await post('/v1/decide/permission', { harness: 'claude-code', input: {} });
+    assert.equal(hook.status, 200);
+    const open = await post('/v1/decide/turn-outcome', { harness: 'mcp', input: {} });
+    assert.equal(open.status, 200);
+  });
+
+  it('POST /v1/decide?view=agent returns only the projection, 400 for another view', async () => {
+    const res = await post('/v1/decide/turn-outcome?view=agent', { harness: 'mcp', input: {} });
+    assert.equal(res.status, 200);
+    const body = await json(res);
+    assert.deepEqual(Object.keys(body).toSorted(), [
+      'action',
+      'decisionId',
+      'enforced',
+      'failedOpen',
+      'policy',
+      'primary',
+      'truncated',
+    ]);
+    assert.equal(body['enforced'], false);
+    for (const hidden of ['answers', 'rule', 'precedentKey', 'engine', 'model']) {
+      assert.equal(hidden in body, false, hidden);
+    }
+    assert.equal(
+      (await post('/v1/decide/turn-outcome?view=full', { harness: 'mcp', input: {} })).status,
+      400,
+    );
+    const plain = await json(await post('/v1/decide/turn-outcome', { harness: 'cli', input: {} }));
+    assert.ok('answers' in plain, 'the body is unchanged without the query');
+  });
+
+  it('GET /v1/policies?view=agent lists only open policies, trimmed', async () => {
+    const res = await fetch(`${gw.url}/v1/policies?view=agent`);
+    assert.equal(res.status, 200);
+    const list = (await res.json()) as Record<string, unknown>[];
+    const ids = list.map((p) => p['id']);
+    assert.ok(ids.includes('turn-outcome'));
+    assert.ok(!ids.includes('permission'));
+    for (const entry of list) {
+      assert.deepEqual(Object.keys(entry).toSorted(), [
+        'description',
+        'id',
+        'inputKeys',
+        'questions',
+      ]);
+    }
+    assert.equal((await fetch(`${gw.url}/v1/policies?view=x`)).status, 400);
+  });
+
   it('GET /models and /v1/policies', async () => {
     const models = await json(await fetch(`${gw.url}/models`));
     assert.ok(Array.isArray(models['models']));
