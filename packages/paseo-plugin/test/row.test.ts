@@ -20,6 +20,7 @@ import {
   labelChoices,
   permissionNote,
   rowDetail,
+  rowExplain,
   rowLabelKind,
   rowId,
   rowSummary,
@@ -330,5 +331,115 @@ describe('permission labels', () => {
       permissionNote(row({ applied: true, label: 'unsafe' })),
       '✗ Marked unsafe · past allows no longer lower the threshold; high-confidence rules may still allow it',
     );
+  });
+});
+
+const explainResponse = (extra: Partial<DecideResponse> = {}): DecideResponse =>
+  response({
+    policy: 'permission',
+    action: 'allow',
+    answers: {
+      verdict: {
+        type: 'choice',
+        answer: 'allow',
+        probabilities: { allow: 0.7812, deny: 0.15, unsure: 0.0688 },
+        confidence: 0.78,
+      },
+    },
+    ...extra,
+  });
+
+describe('row explanation', () => {
+  const res = explainResponse;
+  const rowOf = (extra: Partial<DecideResponse> = {}, pluginMode?: 'act' | 'shadow'): DecisionRow =>
+    toRowData(res(extra), {
+      source: 'permission',
+      key: 'r1',
+      enforced: false,
+      ...(pluginMode === undefined ? {} : { pluginMode }),
+    });
+  const threshold = {
+    key: 'verdict.allow',
+    question: 'verdict',
+    answer: 'allow',
+    action: 'allow',
+    kind: 'minProbability' as const,
+    default: 0.85,
+    value: 0.85,
+    floor: 0.5,
+  };
+
+  it('keeps rounded probabilities, rule, precedent, variant and truncation', () => {
+    const row = rowOf({
+      rule: 2,
+      precedent: { allows: 3, denies: 0 },
+      variant: 'strict',
+      truncated: ['History'],
+    });
+    assert.deepEqual(row.probabilities, { allow: 0.781, deny: 0.15, unsure: 0.069 });
+    assert.deepEqual(
+      [row.rule, row.precedent, row.variant, row.truncated],
+      [2, { allows: 3, denies: 0 }, 'strict', true],
+    );
+  });
+
+  it('caps probabilities at twelve entries', () => {
+    const many = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`o${String(i)}`, 0.05]));
+    const row = rowOf({
+      answers: { verdict: { type: 'choice', answer: 'o0', probabilities: many, confidence: 0.05 } },
+    });
+    assert.equal(Object.keys(row.probabilities).length, 12);
+  });
+
+  it('parses old row data with defaults', () => {
+    const { probabilities, rule, precedent, variant, truncated, pluginMode, ...old } = rowOf();
+    void [probabilities, rule, precedent, variant, truncated, pluginMode];
+    const row = decisionRowSchema.parse(old);
+    assert.deepEqual(row.probabilities, {});
+    assert.deepEqual(
+      [row.rule, row.precedent, row.truncated, row.pluginMode],
+      [-1, null, false, null],
+    );
+  });
+
+  it('explains a default-rule row', () => {
+    const lines = rowExplain(rowOf({ rule: -1 }), [threshold]);
+    assert.deepEqual(lines.slice(0, 3), [
+      'verdict: allow 0.78 · deny 0.15 · unsure 0.07',
+      'rule: none matched → default allow',
+      'thresholds now: allow at p(allow) ≥ 0.85',
+    ]);
+    assert.equal(lines.at(-1), rowDetail(rowOf()));
+  });
+
+  it('explains a matched rule, precedent and truncation, and omits unknown thresholds', () => {
+    const lines = rowExplain(
+      rowOf({ rule: 1, precedent: { allows: 1, denies: 2 }, variant: 'v', truncated: ['A'] }),
+      null,
+    );
+    assert.ok(lines.includes('rule: #1 matched → allow'));
+    assert.ok(lines.includes('precedent: 1 allow · 2 denies'));
+    assert.ok(lines.includes('variant: v'));
+    assert.ok(lines.includes('input truncated'));
+    assert.ok(!lines.some((l) => l.startsWith('thresholds')));
+  });
+
+  it('flags a plugin act the gateway did not enforce', () => {
+    const row = rowOf({ mode: 'shadow' }, 'act');
+    assert.match(rowSummary(row), /act \(gateway: shadow\)$/);
+    assert.match(rowSummary(rowOf({ mode: 'shadow' }, 'shadow')), /shadow$/);
+    assert.doesNotMatch(rowSummary({ ...row, error: 'x' }), /gateway:/);
+  });
+
+  it('keeps a maximal row under 8 KB', () => {
+    const many = Object.fromEntries(
+      Array.from({ length: 12 }, (_, i) => [`${'k'.repeat(90)}${String(i)}`, 0.123]),
+    );
+    const row = rowOf({
+      answers: { verdict: { type: 'choice', answer: 'x', probabilities: many, confidence: 1 } },
+      variant: 'v'.repeat(100),
+      precedent: { allows: 99, denies: 99 },
+    });
+    assert.ok(JSON.stringify(row).length < 8192);
   });
 });

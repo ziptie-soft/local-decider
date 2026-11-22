@@ -299,12 +299,19 @@ describe('detach', () => {
   it('reports whether the task started', async () => {
     const logs: string[] = [];
     const bg = new Background(1);
-    let release = (): void => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const first = detach(bg, (m) => logs.push(m), 'a', async () => gate);
-    const second = detach(bg, (m) => logs.push(m), 'b', async () => {});
+    const { promise: gate, resolve: release } = Promise.withResolvers<void>();
+    const first = detach(
+      bg,
+      (m) => logs.push(m),
+      'a',
+      async () => gate,
+    );
+    const second = detach(
+      bg,
+      (m) => logs.push(m),
+      'b',
+      async () => {},
+    );
     assert.equal(first, true);
     assert.equal(second, false);
     assert.ok(logs.some((l) => l.includes('b skipped: too many decisions in flight')));
@@ -312,7 +319,12 @@ describe('detach', () => {
     await bg.idle();
     bg.stop();
     assert.equal(
-      detach(bg, (m) => logs.push(m), 'c', async () => {}),
+      detach(
+        bg,
+        (m) => logs.push(m),
+        'c',
+        async () => {},
+      ),
       false,
     );
   });

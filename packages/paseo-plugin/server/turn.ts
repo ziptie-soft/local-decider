@@ -121,6 +121,7 @@ async function handleTurn(
     source: 'turn',
     key: turn,
     enforced,
+    pluginMode: mode,
     ...(enforced && res.action === 'notify' ? { note: noteFor(res) } : {}),
   });
   if (!rowVisible(data, settings.rows.show)) {

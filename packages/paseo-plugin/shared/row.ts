@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { MCP_SERVER_NAME, type RowVisibility } from './constants.ts';
 import type { Answer, DecideResponse, Mode } from './decision.ts';
 import { shortModel } from './models.ts';
+import { thresholdText, type ThresholdSetting } from './policies.ts';
 
 const MAX_OPTIONS = 12;
 /** Below this confidence a shadow row counts as notable. */
@@ -56,6 +57,20 @@ export const decisionRowSchema = z.object({
   vetoable: z.boolean().default(false),
   /** The user's label on a permission row, once given. */
   label: z.enum(LABEL_CHOICES).nullable().default(null),
+  /** The primary question's probabilities (3 dp, at most `MAX_OPTIONS`), for the expanded row. */
+  probabilities: z.record(z.string().max(100), z.number()).default({}),
+  /** Index of the first matching rule; -1 is the policy default. */
+  rule: z.number().int().default(-1),
+  /** Exact-match precedent tally the decision used, when configured. */
+  precedent: z
+    .object({ allows: z.number().int().nonnegative(), denies: z.number().int().nonnegative() })
+    .nullable()
+    .default(null),
+  variant: z.string().max(100).nullable().default(null),
+  /** Some state sections were cut before the engine saw them. */
+  truncated: z.boolean().default(false),
+  /** The plugin's own mode for this policy when the row was drawn. */
+  pluginMode: z.enum(['off', 'shadow', 'act']).nullable().default(null),
 });
 
 export type DecisionRow = z.output<typeof decisionRowSchema>;
@@ -73,15 +88,39 @@ export interface RowContext {
   readonly enforced: boolean;
   readonly applied?: boolean;
   readonly note?: string;
+  /** The plugin's mode for the policy, to flag a plugin `act` the gateway did not enforce. */
+  readonly pluginMode?: Mode;
 }
 
 function gatewayMode(mode: Mode | undefined): DecisionRow['gatewayMode'] {
   return mode === 'act' || mode === 'off' ? mode : 'shadow';
 }
 
+/** The explanation fields: probabilities, rule, precedent, variant, truncation. */
+function explainFields(
+  res: DecideResponse,
+  primary: [string, Answer] | null,
+): Pick<DecisionRow, 'probabilities' | 'rule' | 'precedent' | 'variant' | 'truncated'> {
+  const entries = Object.entries(primary?.[1].probabilities ?? {}).slice(0, MAX_OPTIONS);
+  return {
+    probabilities: Object.fromEntries(
+      entries.map(([key, p]) => [key, Math.round((Number.isFinite(p) ? p : 0) * 1000) / 1000]),
+    ),
+    rule: Number.isInteger(res.rule) ? res.rule : -1,
+    precedent:
+      res.precedent === undefined
+        ? null
+        : { allows: res.precedent.allows, denies: res.precedent.denies },
+    variant: res.variant?.slice(0, 100) ?? null,
+    truncated: (res.truncated?.length ?? 0) > 0,
+  };
+}
+
 export function toRowData(res: DecideResponse, ctx: RowContext): DecisionRow {
   const primary = primaryAnswer(res);
   return {
+    ...explainFields(res, primary),
+    pluginMode: ctx.pluginMode ?? null,
     decisionId: res.decisionId,
     policy: res.policy,
     source: ctx.source,
@@ -161,7 +200,14 @@ function modeLabel(row: DecisionRow): string {
   if (row.enforced) {
     return 'act';
   }
-  return row.gatewayMode === 'act' ? 'act (plugin: shadow)' : row.gatewayMode;
+  if (row.gatewayMode === 'act') {
+    return 'act (plugin: shadow)';
+  }
+  // The plugin would act but the gateway did not enforce (a YAML edit, a failed write, a retune).
+  if (row.pluginMode === 'act' && row.error === null) {
+    return `act (gateway: ${row.gatewayMode})`;
+  }
+  return row.gatewayMode;
 }
 
 /**
@@ -184,6 +230,62 @@ export function rowDetail(row: DecisionRow): string {
     parts.push(`engine error: ${row.error}`);
   }
   return parts.filter((p) => p !== '').join(' · ');
+}
+
+const EXPLAIN_TOP = 6;
+
+/** `allow 0.78 · deny 0.15 · unsure 0.07`, highest first, at most six. */
+function verdictLine(probabilities: DecisionRow['probabilities']): string | null {
+  const sorted = Object.entries(probabilities).toSorted((a, b) => b[1] - a[1]);
+  if (sorted.length === 0) {
+    return null;
+  }
+  const shown = sorted.slice(0, EXPLAIN_TOP).map(([key, p]) => `${key} ${p.toFixed(2)}`);
+  return `verdict: ${shown.join(' · ')}${sorted.length > EXPLAIN_TOP ? ' · …' : ''}`;
+}
+
+function ruleLine(row: DecisionRow): string {
+  return row.rule < 0
+    ? `rule: none matched → default ${row.action}`
+    : `rule: #${String(row.rule)} matched → ${row.action}`;
+}
+
+/** `thresholds now: allow at p(allow) ≥ 0.85`; null when unknown (the RPC failed) or none apply. */
+function thresholdLine(
+  row: DecisionRow,
+  thresholds: readonly ThresholdSetting[] | null,
+): string | null {
+  const own = (thresholds ?? []).filter((t) => t.question === row.question);
+  if (own.length === 0) {
+    return null;
+  }
+  return `thresholds now: ${own.map((t) => `${t.action} at ${thresholdText(t)}`).join(' · ')}`;
+}
+
+/**
+ * The lines an expanded row shows: why the decider answered as it did. The thresholds are the
+ * ones in force now, not at decision time (they can be retuned), hence "now".
+ */
+export function rowExplain(
+  row: DecisionRow,
+  thresholds: readonly ThresholdSetting[] | null,
+): readonly string[] {
+  const tally = row.precedent;
+  return [
+    verdictLine(row.probabilities),
+    ruleLine(row),
+    thresholdLine(row, thresholds),
+    tally === null
+      ? null
+      : `precedent: ${plural(tally.allows, 'allow')} · ${plural(tally.denies, 'deny', 'denies')}`,
+    row.variant === null ? null : `variant: ${row.variant}`,
+    row.truncated ? 'input truncated' : null,
+    rowDetail(row),
+  ].filter((line): line is string => line !== null && line !== '');
+}
+
+function plural(count: number, one: string, many = `${one}s`): string {
+  return `${String(count)} ${count === 1 ? one : many}`;
 }
 
 /** The label kind of a row the daemon drew, or null when it offers no label chips. */

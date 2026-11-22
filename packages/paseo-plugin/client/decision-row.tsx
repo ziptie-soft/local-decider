@@ -15,6 +15,7 @@ import {
 } from '../shared/row.ts';
 import { feedbackRpc, permissionLabelRpc } from '../shared/rpc.ts';
 import { useDeciderValues } from './hooks.ts';
+import { RowExplain } from './row-explain.tsx';
 import type { Theme } from './ui.tsx';
 
 type ChipTheme = Pick<Theme, 'colors'>;
@@ -218,6 +219,30 @@ function RowAnswer({
   );
 }
 
+/** A fallback for the row tap (the host list might swallow it): toggles the same state. */
+function ExplainChip({
+  expanded,
+  onPress,
+  theme,
+}: {
+  expanded: boolean;
+  onPress: () => void;
+  theme: Theme;
+}): ReactNode {
+  return (
+    <View style={{ flexDirection: 'row' }}>
+      <RowChip
+        label={expanded ? 'Hide' : 'Explain'}
+        accessibilityLabel={expanded ? 'Hide the explanation' : 'Explain this decision'}
+        highlighted={expanded}
+        busy={false}
+        onPress={onPress}
+        theme={theme}
+      />
+    </View>
+  );
+}
+
 function useRowStyles(row: DecisionRow, theme: Theme): Record<'box' | 'title' | 'detail', object> {
   return useMemo(() => {
     const accent = row.attention
@@ -251,22 +276,34 @@ export function DecisionRowView({
   const [labelled, setLabelled] = useState<LabelChoice | null>(null);
   const row = item.data;
   const shown: DecisionRow = { ...row, label: row.label ?? labelled };
+  const [expanded, setExpanded] = useState(false);
   const styles = useRowStyles(row, theme);
   const details = values?.rows.details ?? true;
+  const toggle = (): void => setExpanded((open) => !open);
   return (
     <View
       style={styles.box}
       accessibilityLabel={`Local decider: ${rowSummary(row)}. ${rowDetail(row)}`}
     >
-      <Text style={styles.title} numberOfLines={1}>
-        {row.attention ? '⚑ ' : '◆ '}
-        {rowSummary(row)}
-      </Text>
-      {details ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${expanded ? 'Hide' : 'Show'} why: ${rowSummary(row)}`}
+        accessibilityState={{ expanded }}
+        onPress={toggle}
+      >
+        <Text style={styles.title} numberOfLines={expanded ? undefined : 1}>
+          {row.attention ? '⚑ ' : '◆ '}
+          {rowSummary(row)}
+          {expanded ? ' ▾' : ' ▸'}
+        </Text>
+      </Pressable>
+      {details && !expanded ? (
         <Text style={styles.detail} numberOfLines={1}>
           {rowDetail(row)}
         </Text>
       ) : null}
+      {expanded ? <RowExplain row={row} detailStyle={styles.detail} /> : null}
+      <ExplainChip expanded={expanded} onPress={toggle} theme={theme} />
       <RowAnswer
         row={row}
         shown={shown}
