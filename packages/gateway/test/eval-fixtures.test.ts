@@ -33,8 +33,6 @@ const PASS_ACTION: Readonly<Record<string, string>> = {
 const MIN_PER_CLASS = 5;
 /** Permission and command-risk fixtures run from this project, as `demo (/work/demo)`. */
 const FIXTURE_CWD = '/work/demo';
-/** Task 2 (baseline B0) realigns the fixtures and removes this flag. */
-const SKIP_WORKSPACE_LINT = true;
 
 /** `name (cwd)`, as the hooks' `projectLabel` builds it. */
 function projectLabel(cwd: string): string {
@@ -180,7 +178,7 @@ describe('policy fixtures', () => {
 
       it(
         'sets the workspace and project label, and tags guard-blocked cases exactly',
-        { skip: SKIP_WORKSPACE_LINT || PASS_ACTION[fixture.policyId] === undefined },
+        { skip: PASS_ACTION[fixture.policyId] === undefined },
         () => {
           for (const testCase of fixture.cases) {
             const id = String(testCase.id);

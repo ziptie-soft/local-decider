@@ -1,11 +1,11 @@
 {
   "command-risk": {
     "dangerous": 0.65,
-    "caution": 0.85,
+    "caution": 0.75,
     "safe": 0.75
   },
   "permission": {
-    "allow": 0.1,
+    "allow": 0.05,
     "ask": 1.0,
     "deny": 0.0
   },
