@@ -9,7 +9,23 @@ const AUTO_CALL = {
   },
   scopes: { 'claude-auto': 'act' },
 };
-const ALLOW = { decisionId: 'd1', policy: 'permission', action: 'allow', enforced: true };
+// A full gateway decision: core's `isEnforcedAllow` rejects a reply that lacks any field.
+const ALLOW = {
+  decisionId: 'd1',
+  policy: 'permission',
+  mode: 'act',
+  scope: 'claude-auto',
+  action: 'allow',
+  enforced: true,
+  answers: {
+    q: { type: 'choice', answer: 'a', probabilities: { a: 0.9, b: 0.1 }, confidence: 0.9 },
+  },
+  rule: 0,
+  engine: 'test',
+  model: 'm',
+  latencyMs: 1,
+  cached: false,
+};
 
 interface Reply {
   value: { status: number; ok: boolean; headers: object; text: string };

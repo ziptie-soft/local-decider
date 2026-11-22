@@ -141,10 +141,11 @@ against a live engine. CI does not run it; run it by hand after changing an engi
 state building or a prompt:
 
 ```sh
-# terminal 1: start the engine from the managed venv (see `strands-decider serve --help` for the port)
-strands-decider serve StrandsAgents/strands-decider-2B-qwen3.5-v1-2610 --device cpu
-# terminal 2: wait until it reports ready, then use its URL
-LOCAL_DECIDER_IT_ENGINE_URL=http://127.0.0.1:PORT mise run test:integration
+# terminal 1: start the engine from the managed venv
+~/.local/share/local-decider/venvs/strands-decider/bin/strands-decider serve \
+  StrandsAgents/strands-decider-2B-qwen3.5-v1-2610 --host 127.0.0.1 --port 8791 --device cpu --no-warmup
+# terminal 2: wait until it reports ready, then
+LOCAL_DECIDER_IT_ENGINE_URL=http://127.0.0.1:8791 mise run test:integration
 ```
 
 Without `LOCAL_DECIDER_IT_ENGINE_URL` the cases are skipped. A failure on a borderline

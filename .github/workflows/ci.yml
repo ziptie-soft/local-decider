@@ -133,9 +133,9 @@ jobs:
           cache: false
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      # Same pinned claude: the manifests, hooks and skills must pass `--strict`. `claude plugin
-      # test` (mise run test:mod) stays local until its act-mode case passes.
-      - name: Validate the Claude Code plugin
-        run: mise run validate:mod
+      # Same pinned claude: the manifests, hooks and skills must pass `--strict`, then the mod's
+      # stubbed `claude plugin test` (no gateway, model or secrets) runs.
+      - name: Validate and test the Claude Code plugin
+        run: mise run test:mod
       - name: Plugin install e2e
         run: mise run e2e:install
