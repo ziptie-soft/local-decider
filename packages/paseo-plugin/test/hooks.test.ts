@@ -16,7 +16,8 @@ import { allowResponse, createPermissionHandlers } from '../server/permission.ts
 import { createRoutingHandler, type CreateRequest } from '../server/routing.ts';
 import { createStatusHandler, manualDecide } from '../server/rpc.ts';
 import { createTurnHandler, pluginEnforces } from '../server/turn.ts';
-import { ctx, deps, fakeGateway, fakePaseo, response, settings } from './fakes.ts';
+import { POLICY_WRITER_TITLE } from '../shared/constants.ts';
+import { ctx, deps, fakeGateway, fakePaseo, response, settings, withConfigDir } from './fakes.ts';
 
 type Paseo = ReturnType<typeof fakePaseo>;
 
@@ -687,15 +688,22 @@ const autoProfileRoute = (): ReturnType<typeof response> =>
     enforced: true,
     route: { preset: 'fast', profile: 'implementer' },
   });
-const paseoWithProfile = {
-  config: {
-    get: async () => ({
-      config: {
-        agentProfiles: [{ id: 'implementer', provider: 'claude', model: 'haiku', modeId: 'auto' }],
-      },
-    }),
+const noItems = { entries: [] };
+const profileConfig = {
+  get: async () => ({
+    config: {
+      agentProfiles: [{ id: 'implementer', provider: 'claude', model: 'haiku', modeId: 'auto' }],
+    },
+  }),
+};
+const userPaseo = {
+  config: profileConfig,
+  agents: {
+    list: async () => noItems,
+    ref: () => ({ timeline: { refetch: async () => noItems } }),
   },
 };
+const paseoWithProfile = userPaseo;
 const withMode = (modeId: string | undefined, provider = 'claude'): { request: CreateRequest } => ({
   request: {
     config: {
@@ -708,6 +716,71 @@ const withMode = (modeId: string | undefined, provider = 'claude'): { request: C
   },
 });
 
+const outer = new AbortController().signal;
+
+const createCall = (name: string, title: string): AgentTimelineItem =>
+  ({
+    type: 'tool_call',
+    callId: 'c1',
+    name,
+    status: 'running',
+    detail: { type: 'unknown', input: { title }, output: null },
+    error: null,
+  }) as unknown as AgentTimelineItem;
+
+const parentWith = (items: AgentTimelineItem[], order: string[] = []): typeof userPaseo => ({
+  ...userPaseo,
+  agents: {
+    list: async () => {
+      order.push('list');
+      return { entries: [{ agent: { id: 'p1' } }] } as typeof noItems;
+    },
+    ref: () => ({
+      timeline: {
+        refetch: async () => ({ entries: items.map((item) => ({ item })) }) as typeof noItems,
+      },
+    }),
+  },
+});
+
+const route = async (
+  paseo: unknown,
+  title = 'Rename',
+): Promise<{ out: CreateRequest | undefined; d: ReturnType<typeof deps> }> => {
+  const d = deps(routingAct, fakeGateway(autoProfileRoute));
+  const out = await createRoutingHandler(d)(createRequest(title), {
+    signal: outer,
+    paseo: paseo as typeof userPaseo,
+  });
+  return { out, d };
+};
+
+const writer = (cwd: string): { request: CreateRequest } => ({
+  request: { config: { provider: 'claude', cwd, model: 'opus', title: POLICY_WRITER_TITLE } },
+});
+
+const routeWith = async (
+  mode: string,
+  model: string,
+  config: CreateRequest['config'],
+): Promise<{ out: CreateRequest | undefined; d: ReturnType<typeof deps> }> => {
+  const gw = fakeGateway(() =>
+    response({
+      policy: 'routing',
+      action: 'route:fast',
+      mode: 'act',
+      enforced: true,
+      route: { preset: 'fast', model, mode },
+    }),
+  );
+  const d = deps(routingAct, gw);
+  const out = await createRoutingHandler(d)(
+    { request: { config } },
+    { signal: outer, paseo: userPaseo },
+  );
+  return { out, d };
+};
+
 describe('agent.create.before', () => {
   const signal = new AbortController().signal;
 
@@ -717,6 +790,7 @@ describe('agent.create.before', () => {
     );
     const out = await createRoutingHandler(deps(routingAct, gw))(createRequest('Rename foo'), {
       signal,
+      paseo: userPaseo,
     });
     assert.equal(out?.config.model, 'haiku');
     assert.deepEqual(gw.calls[0]?.input, { project: '/p', prompt: 'Rename foo' });
@@ -734,6 +808,7 @@ describe('agent.create.before', () => {
     );
     const out = await createRoutingHandler(deps(routingAct, gw))(createRequest('Rename'), {
       signal,
+      paseo: userPaseo,
     });
     assert.equal(out?.config.provider, 'codex');
     assert.equal(out?.config.model, 'gpt-mini');
@@ -772,6 +847,7 @@ describe('agent.create.before', () => {
       );
       const out = await createRoutingHandler(deps(routingAct, gw))(withMode('default', 'codex'), {
         signal,
+        paseo: userPaseo,
       });
       assert.equal(out, undefined);
     });
@@ -788,7 +864,10 @@ describe('agent.create.before', () => {
       }),
     );
     const mine = { ...routingAct, presets: { cheap: { model: 'codex/gpt-mini', modeId: '' } } };
-    const out = await createRoutingHandler(deps(mine, gw))(createRequest('Docs'), { signal });
+    const out = await createRoutingHandler(deps(mine, gw))(createRequest('Docs'), {
+      signal,
+      paseo: userPaseo,
+    });
     assert.equal(out?.config.provider, 'codex');
     assert.equal(out?.config.model, 'gpt-mini');
   });
@@ -807,13 +886,16 @@ describe('agent.create.before', () => {
             s,
             fakeGateway(() => res),
           ),
-        )(createRequest('Task'), { signal }),
+        )(createRequest('Task'), { signal, paseo: userPaseo }),
         undefined,
       );
     }
     const gw = fakeGateway(() => response());
     assert.equal(
-      await createRoutingHandler(deps(routingAct, gw))(createRequest(null), { signal }),
+      await createRoutingHandler(deps(routingAct, gw))(createRequest(null), {
+        signal,
+        paseo: userPaseo,
+      }),
       undefined,
     );
     assert.equal(gw.calls.length, 0);
@@ -824,6 +906,7 @@ describe('agent.create.before', () => {
     const started = Date.now();
     const out = await createRoutingHandler(deps(settings(), slow))(createRequest('Task'), {
       signal,
+      paseo: userPaseo,
     });
     assert.equal(out, undefined);
     assert.ok(Date.now() - started < 50);
@@ -835,6 +918,7 @@ describe('agent.create.before', () => {
     const started = Date.now();
     const out = await createRoutingHandler(deps(routingAct, slow), 100)(createRequest('Task'), {
       signal,
+      paseo: userPaseo,
     });
     assert.equal(out, undefined);
     assert.ok(Date.now() - started < 1000);
@@ -843,14 +927,20 @@ describe('agent.create.before', () => {
     broken.settings = async () => {
       throw new Error('settings exploded');
     };
-    assert.equal(await createRoutingHandler(broken)(createRequest('Task'), { signal }), undefined);
+    assert.equal(
+      await createRoutingHandler(broken)(createRequest('Task'), { signal, paseo: userPaseo }),
+      undefined,
+    );
     assert.match(broken.logs[0] ?? '', /settings exploded/);
   });
 
   it('skips the gateway entirely while it is known to be down', async () => {
     const gw = fakeGateway(() => response({ action: 'route:fast', mode: 'act', enforced: true }));
     const d = { ...deps(routingAct, gw), gatewayKnownDown: () => true };
-    assert.equal(await createRoutingHandler(d)(createRequest('Task'), { signal }), undefined);
+    assert.equal(
+      await createRoutingHandler(d)(createRequest('Task'), { signal, paseo: userPaseo }),
+      undefined,
+    );
     assert.equal(gw.calls.length, 0);
   });
 
@@ -860,7 +950,7 @@ describe('agent.create.before', () => {
       const gw = fakeGateway(budgetRes);
       const d = clockDeps(gw, clock, 1200);
       const h = createRoutingHandler(d, 2000, undefined, () => clock.t);
-      assert.equal(await h(createRequest('Task'), { signal }), undefined);
+      assert.equal(await h(createRequest('Task'), { signal, paseo: userPaseo }), undefined);
       assert.equal(gw.calls.length, 0);
       assert.ok(d.logs.some((l) => l.includes('budget spent before decide')));
       assert.equal(d.downs, 0);
@@ -871,7 +961,10 @@ describe('agent.create.before', () => {
       const gw = fakeGateway(budgetRes);
       const d = clockDeps(gw, clock, 500);
       const h = createRoutingHandler(d, 2000, undefined, () => clock.t);
-      assert.equal((await h(createRequest('Task'), { signal }))?.config.model, 'haiku');
+      assert.equal(
+        (await h(createRequest('Task'), { signal, paseo: userPaseo }))?.config.model,
+        'haiku',
+      );
       assert.equal(gw.calls[0]?.timeoutMs, 1500);
     });
 
@@ -879,7 +972,7 @@ describe('agent.create.before', () => {
       const gw = fakeGateway(async () => new Promise(() => {}));
       const d = clockDeps(gw, { t: 0 }, 0);
       const h = createRoutingHandler(d, 1100);
-      assert.equal(await h(createRequest('Task'), { signal }), undefined);
+      assert.equal(await h(createRequest('Task'), { signal, paseo: userPaseo }), undefined);
       await new Promise((resolve) => setImmediate(resolve));
       assert.equal(d.downs, 1);
     });
@@ -890,7 +983,7 @@ describe('agent.create.before', () => {
         { t: 0 },
         0,
       );
-      await createRoutingHandler(fast)(createRequest('Task'), { signal });
+      await createRoutingHandler(fast)(createRequest('Task'), { signal, paseo: userPaseo });
       assert.equal(fast.downs, 0);
 
       const controller = new AbortController();
@@ -909,12 +1002,118 @@ describe('agent.create.before', () => {
     });
   });
 
-  it('skips internal agents', async () => {
-    const gw = fakeGateway(() => response());
-    const req = createRequest('Commit message');
-    req.request.config.internal = true;
-    assert.equal(await createRoutingHandler(deps(routingAct, gw))(req, { signal }), undefined);
-    assert.equal(gw.calls.length, 0);
+  describe('delegation', () => {
+    it('keeps the creator model of a delegated agent (Claude and Codex tool names)', async () => {
+      for (const name of ['mcp__paseo__create_agent', 'paseo.create_agent']) {
+        const { out, d } = await route(parentWith([createCall(name, 'Rename')]));
+        assert.equal(out, undefined, name);
+        assert.ok(d.logs.some((l) => l.includes("kept the creator's model (delegated)")));
+      }
+    });
+
+    it('still asks the gateway for a delegated agent, to log the decision', async () => {
+      const gw = fakeGateway(autoProfileRoute);
+      await createRoutingHandler(deps(routingAct, gw))(createRequest('Rename'), {
+        signal,
+        paseo: parentWith([createCall('mcp__paseo__create_agent', 'Rename')]),
+      });
+      assert.equal(gw.calls.length, 1);
+    });
+
+    it('routes when no running agent is creating one with that title', async () => {
+      const other = parentWith([createCall('mcp__paseo__create_agent', 'Other')]);
+      assert.equal((await route(other)).out?.config.model, 'haiku');
+      assert.equal((await route(userPaseo)).out?.config.model, 'haiku');
+    });
+
+    it('skips the route when the lookup fails, hangs, or is unavailable', async () => {
+      const failing = {
+        ...userPaseo,
+        agents: {
+          list: async () => {
+            throw new Error('boom');
+          },
+          ref: userPaseo.agents.ref,
+        },
+      };
+      assert.equal((await route(failing)).out, undefined);
+      assert.equal((await route({ config: profileConfig })).out, undefined);
+      const hung = {
+        agents: { list: async () => new Promise(() => {}), ref: userPaseo.agents.ref },
+      };
+      const gw = fakeGateway(autoProfileRoute);
+      const controller = new AbortController();
+      const pending = createRoutingHandler(deps(routingAct, gw), 300)(createRequest('Rename'), {
+        signal: controller.signal,
+        paseo: hung as unknown as typeof userPaseo,
+      });
+      assert.equal(await pending, undefined);
+    });
+
+    it('starts the lookup concurrently with decide', async () => {
+      const order: string[] = [];
+      const gw = fakeGateway(() => {
+        order.push('decide');
+        return autoProfileRoute();
+      });
+      await createRoutingHandler(deps(routingAct, gw))(createRequest('Rename'), {
+        signal,
+        paseo: parentWith([], order),
+      });
+      assert.deepEqual(order.toSorted(), ['decide', 'list']);
+    });
+  });
+
+  describe('policy writer', () => {
+    it('skips the plugin policy writer in the config dir, but not the same title elsewhere', async () => {
+      await withConfigDir('/cfg/local-decider', async () => {
+        const gw = fakeGateway(autoProfileRoute);
+        const h = createRoutingHandler(deps(routingAct, gw));
+        assert.equal(
+          await h(writer('/cfg/local-decider'), { signal, paseo: userPaseo }),
+          undefined,
+        );
+        assert.equal(gw.calls.length, 0);
+        const out = await h(writer('/elsewhere'), { signal, paseo: userPaseo });
+        assert.equal(out?.config.model, 'haiku');
+        assert.equal(gw.calls.length, 1);
+      });
+    });
+  });
+
+  describe('mode guard', () => {
+    it('applies a mode no more permissive than the agent has', async () => {
+      const { out } = await routeWith('plan', 'claude/haiku', {
+        provider: 'claude',
+        cwd: '/p',
+        model: 'opus',
+        title: 'T',
+      });
+      assert.equal(out?.config.modeId, 'plan');
+    });
+
+    it('drops a more permissive mode on the same provider and keeps the model', async () => {
+      const { out, d } = await routeWith('bypassPermissions', 'claude/haiku', {
+        provider: 'claude',
+        cwd: '/p',
+        model: 'opus',
+        title: 'T',
+      });
+      assert.equal(out?.config.model, 'haiku');
+      assert.equal(out?.config.modeId, undefined);
+      assert.ok(d.logs.some((l) => l.includes('dropped preset mode bypassPermissions')));
+    });
+
+    it('skips a route to another provider whose mode would raise permissions', async () => {
+      const { out, d } = await routeWith('full-access', 'codex/gpt-5.5', {
+        provider: 'claude',
+        cwd: '/p',
+        model: 'opus',
+        title: 'T',
+      });
+      assert.equal(out, undefined);
+      assert.ok(d.logs.some((l) => l.includes('would raise permissions')));
+    });
   });
 });
 

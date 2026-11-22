@@ -285,7 +285,7 @@ A `route:<preset>` action changes nothing until you map the preset for a harness
 `routing.presets.<harness>`:
 
 ```sh
-local-decider routing map paseo premium codex/gpt-5.5 --mode full-access   # provider/model, mode
+local-decider routing map paseo premium codex/gpt-5.5 --mode auto          # provider/model, mode
 local-decider routing map paseo fast codex/gpt-6-luna --thinking xhigh      # thinking level
 local-decider routing map paseo deep --profile design-opus                  # Paseo agent profile
 local-decider routing map claude-code cheap haiku
@@ -294,7 +294,11 @@ local-decider routing unmap paseo fast
 
 - **Paseo** switches the new agent's provider, model, mode and thinking level, or starts it from
   an agent profile. A mode set by whoever created the agent wins over the preset's; if that
-  creator pinned a mode on another provider, routing leaves the agent alone.
+  creator pinned a mode on another provider, routing leaves the agent alone. The preset's mode
+  applies only when it is no more permissive than the agent's own (tiers: planning < safe <
+  moderate < dangerous): a more permissive mode on the same provider is dropped and the agent
+  keeps its own; on another provider the route is skipped. An agent created by another agent
+  (`create_agent`) keeps its creator's model and is not routed.
 - **Claude Code and Codex** cannot switch the session model from a hook. Their hint names the
   model and thinking level; Claude Code can pass it to subagents, and you can switch with
   `/model`. `--mode` and `--profile` are Paseo only.

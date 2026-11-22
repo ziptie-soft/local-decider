@@ -18,8 +18,8 @@ Paseo's behaviour only when the gateway's mode and the plugin's setting for that
 | Policy | When | What `act` does |
 |---|---|---|
 | Turn outcome | After each completed or failed turn (not cancelled ones) | Classifies done, needs input, stuck or failed, and highlights the attention cases in the row. Never sends a prompt. |
-| Permission | When an agent asks to use a tool | Auto-allows when the model is confident (p(allow) ≥ 0.85 by default). Never denies; everything else stays pending for you. Questions and plan approvals are left to you. |
-| Routing | When a new agent is created | Applies the preset the routing policy picks: provider, model, mode and thinking level, or an agent profile. A mode the creator set wins. Paseo 0.15.3 does not pass the first prompt, so routing uses the agent title and skips agents without one. |
+| Permission | When an agent asks to use a tool | Auto-allows when the model is confident (p(allow) ≥ 0.85 by default). Never denies; everything else stays pending for you. Questions and plan approvals are left to you. The decision has a 10 s deadline and a rate limit (20 per agent, 120 in all per minute); past either, the request stays with you. It never auto-allows edits to the decider's own config directory. |
+| Routing | When a new agent is created | Applies the preset the routing policy picks: provider, model, mode and thinking level, or an agent profile. A mode the creator set wins, and a mode more permissive than the agent's own is never applied. An agent created by another agent keeps its creator's model. Paseo 0.15.3 does not pass the first prompt, so routing uses the agent title and skips agents without one. |
 
 With child agents, the parent can answer a pending request; that answer is reported as
 supervised feedback and can become exact-match precedent. See the

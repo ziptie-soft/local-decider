@@ -491,6 +491,13 @@ verified, thresholded answer.
 
 ### H2 Paseo: routing overrides, loop guards, supervised deadlines
 
+- **Status:** done (2026-11-22) — routing correlates a new agent with a running `create_agent`
+  call (by title, in parallel with `decide`) and leaves delegated agents alone; a mode tier table
+  stops routing from raising a permission mode; the policy writer and the config dir are guarded
+  (Paseo itself excludes `internal` agents from every hook, daemon 0.16.2); permissions are rate
+  limited (20 per agent, 120 global a minute, turns 60 global) and decided within 10 s, so docs
+  say "wait about 12 s". Labels exist (`ParentAgentId`) but `create.before` does not see them;
+  upstream request to file: pass labels or the parent agent id to `agent.create.before`.
 - **Priority:** P1. **Size:** M.
 - **Problem:** `applyRouteTarget` overrides an explicit `model` and provider set by the creator;
   only `modeId` is guarded (`server/routing.ts:239-246`). Turn and permission handlers never

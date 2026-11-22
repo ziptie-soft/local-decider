@@ -60,6 +60,15 @@ describe('usage links', () => {
     ]);
   });
 
+  it('says whether routing changed the agent it links', () => {
+    const links = new UsageLinks();
+    links.creating('/p', 'Rename foo', Promise.resolve('d-1'));
+    links.applied('/p', 'Rename foo');
+    assert.equal(links.created(agent), true);
+    links.creating('/p', 'Docs', Promise.resolve('d-2'));
+    assert.equal(links.created({ ...agent, id: 'a-2', title: 'Docs' }), false);
+  });
+
   it('ignores agents without a decision, stale links and failed decisions', async () => {
     const gw = fakeGateway(() => response());
     const d = deps(settings(), gw);

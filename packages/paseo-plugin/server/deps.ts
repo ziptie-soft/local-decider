@@ -59,16 +59,21 @@ export interface HookDeps {
   markGatewayDown?(): void;
 }
 
+/** The gateway's config directory: `LOCAL_DECIDER_CONFIG_DIR`, then XDG, then `~/.config`. */
+export function configDir(env: NodeJS.ProcessEnv = process.env): string {
+  return (
+    env['LOCAL_DECIDER_CONFIG_DIR'] ??
+    join(env['XDG_CONFIG_HOME'] ?? join(homedir(), '.config'), 'local-decider')
+  );
+}
+
 /** Read a local token using the gateway's config directory precedence. */
 export function readLocalToken(
   name: 'report-token' | 'control-token',
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
-  const config =
-    env['LOCAL_DECIDER_CONFIG_DIR'] ??
-    join(env['XDG_CONFIG_HOME'] ?? join(homedir(), '.config'), 'local-decider');
   try {
-    const token = readFileSync(join(config, name), 'utf8').trim();
+    const token = readFileSync(join(configDir(env), name), 'utf8').trim();
     // Same format as the gateway's `isLocalToken`.
     return /^[A-Za-z0-9_-]{43}$/.test(token) ? token : undefined;
   } catch {

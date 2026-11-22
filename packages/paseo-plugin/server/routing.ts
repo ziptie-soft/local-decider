@@ -2,9 +2,18 @@
  * `agent.create.before` → `routing`. A waiting hook: a throw or a slow answer would fail agent
  * creation, so the whole hook has a ~2 s budget and returns `undefined` (no change) on any failure,
  * when not enforced, or when the chosen preset is not mapped.
+ *
+ * Two rules keep a route from overriding the creator. An agent created by another agent's
+ * `create_agent` call keeps the model its creator chose (`delegation.ts`; the hook has no labels
+ * or parent, so it is found by correlation, and any doubt skips the route). And a preset or
+ * profile mode is applied only when it is no more permissive than the agent's own (`mode-tiers.ts`).
+ * The plugin's own policy-writer agent is never routed. Paseo excludes `internal` agents from
+ * every plugin hook (daemon 0.16.2), so no internal check is needed here.
  */
 import type { AgentSessionConfig } from '@getpaseo/protocol/agent-types';
+import { resolve as resolvePath } from 'node:path';
 
+import { POLICY_WRITER_TITLE } from '../shared/constants.ts';
 import type { DecideRequest, DecideResponse, DecisionModels } from '../shared/decision.ts';
 import type { Gateway } from '../shared/gateway.ts';
 import {
@@ -15,8 +24,10 @@ import {
   type ProfileLike,
 } from '../shared/presets.ts';
 import type { DeciderSettings } from '../shared/settings.ts';
-import { errorText, type HookDeps } from './deps.ts';
+import { creatorOf, type Creator, type DelegationPaseo } from './delegation.ts';
+import { configDir, errorText, type HookDeps } from './deps.ts';
 import { buildRoutingInput } from './history.ts';
+import { guardMode } from './mode-tiers.ts';
 import { pluginEnforces } from './turn.ts';
 import type { UsageLinks } from './usage.ts';
 
@@ -32,6 +43,9 @@ export interface ProfileSource {
     get(): Promise<{ config: { agentProfiles?: readonly ProfileLike[] | undefined } }>;
   };
 }
+
+/** What routing reads from the hook context's `paseo`: profiles, and agents to find a parent. */
+export type RoutingPaseo = ProfileSource & DelegationPaseo;
 
 /** Paseo's agent profiles; none when unavailable (an older Paseo, or the call failed). */
 async function loadProfiles(paseo: ProfileSource | undefined): Promise<readonly ProfileLike[]> {
@@ -69,7 +83,7 @@ export function createRoutingHandler(
   now: () => number = Date.now,
 ): (
   payload: { request: CreateRequest },
-  ctx: { signal: AbortSignal; paseo?: ProfileSource },
+  ctx: { signal: AbortSignal; paseo?: RoutingPaseo },
 ) => Promise<CreateRequest | undefined> {
   return async ({ request }, ctx) => {
     const deadline = now() + budgetMs;
@@ -153,14 +167,14 @@ async function route(
   request: CreateRequest,
   budget: Budget,
   usage: UsageLinks | undefined,
-  paseo: ProfileSource | undefined,
+  paseo: RoutingPaseo | undefined,
 ): Promise<CreateRequest | undefined> {
   const plan = await routePlan(deps, request, paseo);
   if (plan === undefined) {
     return undefined;
   }
   return plan.mode === 'act'
-    ? routeAct(plan, deps, request, budget, usage)
+    ? routeAct(plan, deps, request, { budget, usage, paseo })
     : routeShadow(plan, request, usage);
 }
 
@@ -169,8 +183,7 @@ async function routePlan(
   request: CreateRequest,
   paseo: ProfileSource | undefined,
 ): Promise<RoutePlan | undefined> {
-  // Internal helper agents (commit messages, titles) are not user tasks.
-  if (request.config.internal === true || deps.gatewayKnownDown?.() === true) {
+  if (isPolicyWriter(request.config) || deps.gatewayKnownDown?.() === true) {
     return undefined;
   }
   const settings = await deps.settings();
@@ -197,6 +210,14 @@ async function routePlan(
   };
 }
 
+/** The plugin's "Write with an agent" agent: the user picked its model, and it edits the policy. */
+function isPolicyWriter(config: { title?: string | null | undefined; cwd: string }): boolean {
+  return (
+    config.title === POLICY_WRITER_TITLE &&
+    resolvePath(config.cwd) === resolvePath(configDir(process.env))
+  );
+}
+
 function routeShadow(
   plan: RoutePlan,
   request: CreateRequest,
@@ -214,18 +235,27 @@ function routeShadow(
   return undefined;
 }
 
+/** What `routeAct` needs beyond the plan: the deadline, usage links and the daemon API. */
+interface ActContext {
+  readonly budget: Budget;
+  readonly usage: UsageLinks | undefined;
+  readonly paseo: RoutingPaseo | undefined;
+}
+
 async function routeAct(
   plan: RoutePlan,
   deps: HookDeps,
   request: CreateRequest,
-  budget: Budget,
-  usage: UsageLinks | undefined,
+  act: ActContext,
 ): Promise<CreateRequest | undefined> {
+  const { budget, usage } = act;
   const remaining = budget.remaining();
   if (remaining < MIN_ROUTE_DECIDE_MS) {
     deps.log('routing skipped: budget spent before decide');
     return undefined;
   }
+  // Concurrent with the decision, so finding the creator adds no latency.
+  const creator = creatorOf(act.paseo, request.config.title, budget.signal);
   const pending = plan.gateway.decide(ROUTING_POLICY, plan.body, {
     timeoutMs: remaining,
     signal: budget.signal,
@@ -250,7 +280,25 @@ async function routeAct(
   if (target === null) {
     return undefined;
   }
-  return applyRouteTarget(deps, request, res, target);
+  return applyIfUser(deps, request, { res, target, creator: await creator }, usage);
+}
+
+/** Apply the route unless the creator is (or may be) another agent. */
+function applyIfUser(
+  deps: HookDeps,
+  request: CreateRequest,
+  chosen: { res: DecideResponse; target: PresetTarget; creator: Creator },
+  usage: UsageLinks | undefined,
+): CreateRequest | undefined {
+  if (chosen.creator !== 'user') {
+    deps.log(`routing kept the creator's model (${chosen.creator})`);
+    return undefined;
+  }
+  const out = applyRouteTarget(deps, request, chosen.res, chosen.target);
+  if (out !== undefined) {
+    usage?.applied(request.config.cwd, request.config.title);
+  }
+  return out;
 }
 
 /**
@@ -276,7 +324,14 @@ function applyRouteTarget(
     deps.log('routing skipped: caller pinned mode on another provider');
     return undefined;
   }
-  const applied = pinned ? { ...target, modeId: '' } : target;
+  const guard = guardMode(request.config, pinned ? { ...target, modeId: '' } : target);
+  if (guard.kind === 'skip') {
+    deps.log(`routing skipped: ${target.provider} mode would raise permissions`);
+    return undefined;
+  }
+  if (guard.kind === 'dropped') {
+    deps.log(`routing dropped preset mode ${guard.modeId}: more permissive`);
+  }
   deps.log(`routing ${res.action} → ${target.provider}/${target.model} (${res.decisionId})`);
-  return { ...request, config: applyPreset(request.config, applied) };
+  return { ...request, config: applyPreset(request.config, guard.target) };
 }
