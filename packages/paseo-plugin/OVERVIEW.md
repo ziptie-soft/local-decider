@@ -27,7 +27,7 @@ supervised feedback and can become exact-match precedent. See the
 
 ## Setup
 
-- **Paseo** `>=0.15.3 <0.17.0`, with plugins enabled on the daemon.
+- **Paseo** `>=0.15.3 <1.0.0`, with plugins enabled on the daemon.
 - **Operating system:** the daemon host runs macOS (Apple Silicon for the MLX runtime) or Linux.
   The AMD Ryzen AI NPU (FastFlowLM) and Vulkan GPU (llama.cpp) runtimes are Linux-only.
 - **The local-decider gateway** on the daemon machine, with an engine and a model. The plugin does
