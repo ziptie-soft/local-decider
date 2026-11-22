@@ -25,6 +25,8 @@ const WILSON_Z_95 = 1.959963984540054;
 const TEMP_MIN = 0.25;
 const TEMP_MAX = 4;
 const TEMP_STEP = 0.005;
+/** The wire rounds probabilities to 4 places, so a true value below this arrives as 0. */
+const PROBABILITY_FLOOR = 5e-5;
 const ECE_BINS = 10;
 
 export interface CalibrationMetrics {
@@ -224,7 +226,12 @@ function nll(samples: readonly Sample[], temperature: number): number {
     samples.reduce(
       (sum, sample) =>
         sum -
-        Math.log(temperatureProbabilities(sample.probabilities, temperature)[sample.outcome] ?? 0),
+        Math.log(
+          Math.max(
+            temperatureProbabilities(sample.probabilities, temperature)[sample.outcome] ?? 0,
+            PROBABILITY_FLOOR,
+          ),
+        ),
       0,
     ) / samples.length
   );
