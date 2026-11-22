@@ -4,9 +4,17 @@
  * `selection` (set by the settings pages and `engine use`) wins whenever it names a usable engine
  * and model (`EngineControl.#initialSelection`), `engine.device` is the fallback; so both are kept
  * in line. A device the installed flavor cannot serve (a `cuda` device on CPU-only torch) crashes
- * the engine at start (`Torch not compiled with CUDA enabled`), so install rewrites it. The reverse
- * (a GPU flavor over a `cpu` device) is rewritten too: it would run on the CPU without a word. A
- * `cpu` flavor install still forces `cpu`.
+ * the engine at start (`Torch not compiled with CUDA enabled`), so install rewrites it.
+ *
+ * Rewrite rules, per flavor (`auto` is never touched; the target is `FLAVOR_DEVICE`):
+ * - `cpu`: any device the CPU build cannot serve becomes `cpu` (`mps` is kept on macOS).
+ * - `cuda` / `rocm`: an incompatible device (`mlx`, `mps`) becomes `cuda` (ROCm torch names the AMD
+ *   GPU `cuda`). An explicit `cpu` device is also upgraded to `cuda`, on purpose: asking for a GPU
+ *   build means using the GPU. The printed notice says so.
+ * - `mlx`: any other explicit device becomes `mlx`, `cpu` included, except for v2 (transformers)
+ *   models, which are left alone because MLX is v1-only.
+ * `Device` is a closed set, so there is no custom or unknown device to skip here. `selection.device`
+ * and `engine.device` are both rewritten, so they stay consistent.
  */
 import { ConfigFile, type ConfigEdit } from './config-file.ts';
 import type { GatewayConfig } from './config.ts';
@@ -23,7 +31,10 @@ const FLAVOR_DEVICE: Readonly<Record<InstallFlavor, Exclude<Device, 'auto' | 'mp
   rocm: 'cuda',
 };
 
-/** Whether the torch (or MLX) build of `flavor` can run on `device`. `auto` always can. */
+/**
+ * Whether the torch (or MLX) build of `flavor` can run on `device`. `auto` always can; `mlx` only
+ * serves `mlx`; `cpu` serves `cpu` (and `mps` on macOS); `cuda`/`rocm` serve `cuda` and `cpu`.
+ */
 function serves(flavor: InstallFlavor, device: Device, platform: NodeJS.Platform): boolean {
   if (device === 'auto') {
     return true;
@@ -39,7 +50,10 @@ function serves(flavor: InstallFlavor, device: Device, platform: NodeJS.Platform
   return device === 'cuda' || device === 'cpu';
 }
 
-/** A GPU torch build installed over a `cpu` device would silently leave the GPU idle. */
+/**
+ * A GPU torch build (`cuda`/`rocm`) installed over an explicit `cpu` device is upgraded to `cuda`
+ * even though `serves` accepts it: the GPU would otherwise sit idle, and a GPU build means use it.
+ */
 function upgrades(flavor: InstallFlavor, device: Device): boolean {
   return (flavor === 'cuda' || flavor === 'rocm') && device === 'cpu';
 }
@@ -91,8 +105,9 @@ function deviceChanges(
 }
 
 /**
- * Rewrite incompatible devices in config.yaml (through `ConfigFile`, which keeps comments and
- * validates) and return the one-line notice, or `undefined` when nothing changed.
+ * Rewrite incompatible devices (and a `cpu` device under a GPU flavor) in config.yaml, through
+ * `ConfigFile`, which keeps comments and validates. Rules are in the file header. Returns the
+ * one-line notice, or `undefined` when nothing changed.
  */
 export function reconcileDevice(
   paths: Paths,
