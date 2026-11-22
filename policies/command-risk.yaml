@@ -13,6 +13,7 @@ state:
   sections:
     - { label: Project, from: project, keep: head }
     - { label: Tool, from: tool, keep: head }
+    - { label: Call facts, from: facts, keep: head }
     - { label: Command, from: command, keep: ends, critical: true }
 questions:
   risk:

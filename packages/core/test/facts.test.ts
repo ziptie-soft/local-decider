@@ -27,8 +27,8 @@ function line(text: string, label: string): string {
 }
 
 describe('facts: groups', () => {
-  it('ships no groups yet and derives nothing for an empty set', () => {
-    assert.deepEqual(SHIPPED_FACTS, []);
+  it('ships kind for command-risk only and derives nothing for an empty set', () => {
+    assert.deepEqual(SHIPPED_FACTS, { 'command-risk': ['kind'] });
     assert.equal(facts('Bash', { command: 'ls' }, []), '');
   });
 

@@ -23,8 +23,13 @@ export const FACT_GROUPS = [
 ] as const;
 export type FactGroup = (typeof FACT_GROUPS)[number];
 
-/** The groups the gateway derives by default; empty until a measured set ships. */
-export const SHIPPED_FACTS: readonly FactGroup[] = [];
+/**
+ * The groups the gateway derives by default, per policy id, as measured by the Q3 A/B (keep rule in
+ * docs/research/q3-plan.md): `kind` helped command-risk; no group helped permission.
+ */
+export const SHIPPED_FACTS: Readonly<Record<string, readonly FactGroup[]>> = {
+  'command-risk': ['kind'],
+};
 
 /** The state section cap for facts. */
 export const FACTS_MAX_CHARS = 800;

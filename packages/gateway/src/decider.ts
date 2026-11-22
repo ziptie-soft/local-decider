@@ -148,7 +148,7 @@ export interface DeciderOptions {
   readonly now?: () => Date;
   /** How long an engine job that ignores its deadline keeps the engine; default 1 s. For tests. */
   readonly queueGraceMs?: number;
-  /** Fact groups derived for policies with a `facts` section; default {@link SHIPPED_FACTS}. */
+  /** Fact groups derived for policies with a `facts` section; default {@link SHIPPED_FACTS} for the policy. */
   readonly facts?: readonly FactGroup[];
 }
 
@@ -214,7 +214,7 @@ export class Decider {
   readonly #log: LogStore;
   readonly #timeoutMs: number;
   readonly #now: () => Date;
-  readonly #factGroups: ReadonlySet<FactGroup>;
+  readonly #factGroups: ReadonlySet<FactGroup> | undefined;
   readonly #queue: SerialQueue;
   /** Decisions waiting for a managed engine to load (outside the queue). */
   #preparing = 0;
@@ -251,7 +251,7 @@ export class Decider {
     this.#log = options.log;
     this.#timeoutMs = options.decisionTimeoutMs;
     this.#now = options.now ?? (() => new Date());
-    this.#factGroups = new Set(options.facts ?? SHIPPED_FACTS);
+    this.#factGroups = options.facts === undefined ? undefined : new Set(options.facts);
     this.#precedent = new PrecedentStore(
       (id) => this.#policies.get(id)?.policy.precedent,
       () => this.#now().getTime(),
@@ -682,7 +682,8 @@ export class Decider {
       tool,
       typeof request === 'object' && request !== null ? request : input['command'],
       cwd,
-      this.#factGroups,
+      this.#factGroups ??
+        new Set(Object.hasOwn(SHIPPED_FACTS, policy.id) ? SHIPPED_FACTS[policy.id] : []),
     );
     return redactSecrets(text).text;
   }
