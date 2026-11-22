@@ -46,7 +46,7 @@ Installed from the local marketplace, hooks trusted in the TUI, then:
 
 ```sh
 codex plugin marketplace add ~/src/local-decider
-codex plugin add local-decider@ziptie-soft
+codex plugin add local-decider@local-decider
 # codex → /hooks → trust the four local-decider hooks
 codex exec --skip-git-repo-check -s read-only "Run the shell command: cat notes.txt. Then reply with its content and the word DONE."
 ```
@@ -58,6 +58,16 @@ codex exec --skip-git-repo-check -s read-only "Run the shell command: cat notes.
 ```
 
 `PermissionRequest` did not fire: the read-only sandbox ran `cat` without asking.
+
+Don't keep the local checkout enabled next to the published `local-decider@ziptie-soft` plugin
+(see [install](install.md)): both register the same hooks, so every Codex hook runs twice. Codex
+names a local marketplace after its directory, so the command above adds `local-decider` and the
+plugin `local-decider@local-decider`. Remove them once you are done:
+
+```sh
+codex plugin remove local-decider@local-decider
+codex plugin marketplace remove local-decider
+```
 
 ## Paseo 0.15.3
 
