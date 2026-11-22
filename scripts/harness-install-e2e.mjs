@@ -218,10 +218,9 @@ function bareEnv(spec, home, cwd) {
   return { PATH: `${binDir(spec.bin)}:/usr/bin:/bin` };
 }
 
+/** A node on the bare PATH (/usr/bin:/bin) would be found before the shim fallback. */
 function systemNode() {
-  return ['/usr/bin/node', '/bin/node', '/usr/local/bin/node', '/opt/homebrew/bin/node'].find((p) =>
-    existsSync(p),
-  );
+  return ['/usr/bin/node', '/bin/node'].find((p) => existsSync(p));
 }
 
 async function checkCodex(ctx) {

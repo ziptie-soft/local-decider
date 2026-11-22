@@ -1,0 +1,7 @@
+# The Claude Code and Codex CLIs for the plugin install e2e (`mise run e2e:install`, the CI job
+# e2e-install): MISE_ENV=e2e layers this over mise.toml, and mise.e2e.lock pins it. Kept out of the
+# default tools so `mise install` stays light. Bump a version together with its lock:
+# `MISE_ENV=e2e mise lock -p linux-x64,linux-arm64,macos-arm64,macos-x64 claude-code github:openai/codex`.
+[tools]
+claude-code = "2.1.319"
+"github:openai/codex" = "rust-v0.167.0"

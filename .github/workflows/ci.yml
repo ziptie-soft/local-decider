@@ -56,7 +56,7 @@ jobs:
         run: >-
           mise run --jobs 4
           lint ::: typecheck ::: lint:pins ::: lint:actions ::: lint:shell ::: test:shim :::
-          md-check ::: lint:complexity ::: lint:fallow
+          test:scripts ::: md-check ::: lint:complexity ::: lint:fallow
 
   build:
     name: Build and test (${{ matrix.os }}, Node ${{ matrix.node }})
@@ -100,3 +100,29 @@ jobs:
         run: scripts/check-plugin-pack.sh
       - name: Test
         run: pnpm -r test
+
+  # No secrets: both harnesses fire SessionStart and UserPromptSubmit before the first model call,
+  # so the packed plugin is installed for real and checked against a stub gateway and a model that
+  # answers 400. Live tool-event runs stay manual (`mise run e2e`, docs/demos.md). The harness CLIs
+  # come from mise.e2e.toml, pinned and locked.
+  e2e-install:
+    name: Plugin install e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MISE_ENV: e2e
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install node, pnpm, Claude Code and Codex (versions from mise.toml and mise.e2e.toml)
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          install_args: node pnpm claude-code github:openai/codex
+          cache: false
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Plugin install e2e
+        run: mise run e2e:install
