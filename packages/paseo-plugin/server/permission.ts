@@ -18,7 +18,13 @@ import type {
 
 import { isEnforcedAllow, type DecideResponse, type Mode } from '../shared/decision.ts';
 import type { Gateway } from '../shared/gateway.ts';
-import { rowVisible, toRowData, type DecisionRow } from '../shared/row.ts';
+import {
+  placeholderRow,
+  rowVisible,
+  toRowData,
+  type DecisionRow,
+  type SkipReason,
+} from '../shared/row.ts';
 import { Background, detach } from './background.ts';
 import { touchesConfig } from './config-guard.ts';
 import { deterministicBlock } from './core/block.ts';
@@ -55,6 +61,8 @@ const GLOBAL_LIMIT = 120;
 const LIMIT_WINDOW_MS = 60_000;
 /** A send that outlasts this is ambiguous, like a throw. */
 const RESPOND_TIMEOUT_MS = 10_000;
+/** A decision still running this long after it started gets a "deciding…" row. */
+const PENDING_AFTER_MS = 1000;
 
 export interface PermissionEvent {
   readonly agent: PluginHookAgent;
@@ -90,6 +98,10 @@ interface Pending {
   reported: boolean;
   /** The row as last appended; null until appended, or when hidden. */
   row: DecisionRow | null;
+  /** True once a "deciding…" row is drawn: its id must then end in a final row. */
+  pendingDrawn: boolean;
+  /** The pending row's append; the final row waits for it so it always lands last. */
+  pendingDraw: Promise<void> | null;
 }
 
 const PERSISTENT_ACTION =
@@ -160,6 +172,8 @@ export interface PermissionOptions {
   /** Tests only: the decision deadline, and the least of it worth a gateway call. */
   readonly deadlineMs?: number;
   readonly minDecideMs?: number;
+  /** Tests only: how long a decision runs before its "deciding…" row is drawn. */
+  readonly pendingAfterMs?: number;
 }
 
 interface PermissionState {
@@ -173,6 +187,9 @@ interface PermissionState {
   readonly limitLog: ThrottledLog;
   readonly deadlineMs: number;
   readonly minDecideMs: number;
+  readonly pendingAfterMs: number;
+  /** One skipped row per agent per minute, so a flood cannot flood the timeline. */
+  readonly skipLimiter: RateLimiter;
 }
 
 export function createPermissionHandlers(
@@ -195,6 +212,8 @@ export function createPermissionHandlers(
     limitLog: new ThrottledLog(LIMIT_WINDOW_MS, now),
     deadlineMs: options.deadlineMs ?? PERMISSION_DEADLINE_MS,
     minDecideMs: options.minDecideMs ?? MIN_PERMISSION_DECIDE_MS,
+    pendingAfterMs: options.pendingAfterMs ?? PENDING_AFTER_MS,
+    skipLimiter: new RateLimiter(1, LIMIT_WINDOW_MS, now),
   };
 
   // Returns at once: the request stays pending for the user while the decision runs detached.
@@ -203,16 +222,18 @@ export function createPermissionHandlers(
     if (event.request.kind !== 'tool') {
       return;
     }
+    const agent = ctx.paseo.agents.ref(event.agent.id);
     // Over a limit: no decision and no entry; the request stays with the user.
     if (!underLimits(deps, state, event.agent.id)) {
+      await drawSkipped(deps, state, { agent, event, reason: 'rate-limit' });
       return;
     }
     const end = state.now() + state.deadlineMs;
     // Tracked synchronously, before any await: an early user answer is then never lost.
-    const entry = newPending(ctx.paseo.agents.ref(event.agent.id), event);
+    const entry = newPending(agent, event);
     const key = `${event.agent.id}:${event.request.id}`;
     state.pending.set(key, entry);
-    detach(
+    const started = detach(
       background,
       (m) => deps.log(m),
       `permission for ${event.agent.id}`,
@@ -227,6 +248,10 @@ export function createPermissionHandlers(
         }
       },
     );
+    if (!started) {
+      state.pending.take(key);
+      await drawSkipped(deps, state, { agent, event, reason: 'busy' });
+    }
   };
 
   const after = async (event: PermissionResolvedEvent): Promise<void> => {
@@ -276,6 +301,8 @@ function newPending(agent: AgentRef, event: PermissionEvent): Pending {
     answeredAt: null,
     reported: false,
     row: null,
+    pendingDrawn: false,
+    pendingDraw: null,
   };
 }
 
@@ -325,9 +352,12 @@ async function handleRequest(
   );
   if (deadline.remaining() < state.minDecideMs) {
     deps.log('permission skipped: deadline spent before decide');
+    await drawSkipped(deps, state, { agent: entry.agent, event, reason: 'deadline' });
     return;
   }
-  const res = await decidePermission(gateway, event, context, deadline);
+  const res = await withPending(deps, state, { event, entry, settings }, async () =>
+    decidePermission(gateway, event, context, deadline),
+  );
   if (res === null) {
     return;
   }
@@ -337,10 +367,90 @@ async function handleRequest(
     await autoAllow(state, entry, event.request);
   }
   const data = permissionRow(res, event, entry, enforced, mode);
-  if (rowVisible(data, settings.rows.show)) {
+  // A drawn "deciding…" row must end in the decided row, whatever `rows.show` says.
+  if (entry.pendingDrawn || rowVisible(data, settings.rows.show)) {
     await drawRow(state, entry, data);
   }
   await settleUser(deps, state, entry);
+}
+
+type Settings = Awaited<ReturnType<HookDeps['settings']>>;
+
+/** Placeholder rows (deciding…, skipped) show only where a user waits on us: plugin `act`. */
+function showsPlaceholders(settings: Settings): boolean {
+  return settings.modes[PERMISSION_POLICY] === 'act' && settings.rows.show !== 'off';
+}
+
+/** Appends a placeholder row. Fails open: an error is logged, never thrown. */
+async function drawPlaceholder(deps: HookDeps, agent: AgentRef, row: DecisionRow): Promise<void> {
+  try {
+    await appendRow(agent, row);
+  } catch (error) {
+    deps.log(`permission placeholder row not drawn: ${errorText(error)}`);
+  }
+}
+
+/**
+ * Draws a "skipped: <reason> · answer it yourself" row, at most one per agent a minute, in `act`
+ * only (in shadow nobody waits on the decider). Runs outside `Background`, so it is never refused.
+ */
+async function drawSkipped(
+  deps: HookDeps,
+  state: PermissionState,
+  skipped: { agent: AgentRef; event: PermissionEvent; reason: SkipReason },
+): Promise<void> {
+  const { agent, event, reason } = skipped;
+  try {
+    if (!showsPlaceholders(await deps.settings()) || !state.skipLimiter.allow(event.agent.id)) {
+      return;
+    }
+  } catch (error) {
+    deps.log(`permission placeholder row not drawn: ${errorText(error)}`);
+    return;
+  }
+  const row = placeholderRow('permission', event.request.id, PERMISSION_POLICY, 'skipped', reason);
+  await drawPlaceholder(deps, agent, row);
+}
+
+/**
+ * Runs `decide`, drawing a "deciding…" row if it is still running after `pendingAfterMs` and the
+ * user has not answered. The pending row is always finalized: by the caller's decided row, or here
+ * with a "not decided" row when there is no decision.
+ */
+async function withPending<T>(
+  deps: HookDeps,
+  state: PermissionState,
+  ctx: { event: PermissionEvent; entry: Pending; settings: Settings },
+  decide: () => Promise<T | null>,
+): Promise<T | null> {
+  const { event, entry, settings } = ctx;
+  const timer = showsPlaceholders(settings)
+    ? setTimeout(() => {
+        if (entry.resolution === null) {
+          entry.pendingDrawn = true;
+          const row = placeholderRow('permission', event.request.id, PERMISSION_POLICY, 'pending');
+          entry.pendingDraw = drawPlaceholder(deps, entry.agent, row);
+        }
+      }, state.pendingAfterMs)
+    : undefined;
+  let result: T | null = null;
+  try {
+    result = await decide();
+  } finally {
+    clearTimeout(timer);
+    await entry.pendingDraw;
+    if (result === null && entry.pendingDrawn) {
+      const row = placeholderRow(
+        'permission',
+        event.request.id,
+        PERMISSION_POLICY,
+        'skipped',
+        'no-answer',
+      );
+      await drawPlaceholder(deps, entry.agent, row);
+    }
+  }
+  return result;
 }
 
 function mayAllow(res: DecideResponse, event: PermissionEvent, entry: Pending): boolean {

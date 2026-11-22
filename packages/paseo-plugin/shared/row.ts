@@ -20,6 +20,10 @@ export type LabelKind = 'declined' | 'interrupted' | 'auto-allowed';
 /** Label chips stay actionable this long after the answer or auto-allow (gateway replays 25 h). */
 export const LABEL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+/** Why a permission was left to the user without a decision. */
+export const SKIP_REASONS = ['busy', 'rate-limit', 'deadline', 'no-answer'] as const;
+export type SkipReason = (typeof SKIP_REASONS)[number];
+
 export const decisionRowSchema = z.object({
   decisionId: z.string(),
   policy: z.string(),
@@ -71,6 +75,9 @@ export const decisionRowSchema = z.object({
   truncated: z.boolean().default(false),
   /** The plugin's own mode for this policy when the row was drawn. */
   pluginMode: z.enum(['off', 'shadow', 'act']).nullable().default(null),
+  /** `pending` and `skipped` rows are placeholders without a decision (`placeholderRow`). */
+  state: z.enum(['decided', 'pending', 'skipped']).default('decided'),
+  reason: z.enum(SKIP_REASONS).nullable().default(null),
 });
 
 export type DecisionRow = z.output<typeof decisionRowSchema>;
@@ -121,6 +128,8 @@ export function toRowData(res: DecideResponse, ctx: RowContext): DecisionRow {
   return {
     ...explainFields(res, primary),
     pluginMode: ctx.pluginMode ?? null,
+    state: 'decided',
+    reason: null,
     decisionId: res.decisionId,
     policy: res.policy,
     source: ctx.source,
@@ -210,11 +219,66 @@ function modeLabel(row: DecisionRow): string {
   return row.gatewayMode;
 }
 
+const SKIP_TEXT: Readonly<Record<Exclude<SkipReason, 'no-answer'>, string>> = {
+  'busy': 'skipped: busy',
+  'rate-limit': 'skipped: rate limit',
+  'deadline': 'skipped: out of time',
+};
+
+/** `permission · deciding… · act`, `permission · skipped: busy · answer it yourself`. */
+function placeholderSummary(row: DecisionRow): string {
+  if (row.state === 'pending') {
+    return `${row.policy} · deciding… · ${modeLabel(row)}`;
+  }
+  const what =
+    row.reason === null || row.reason === 'no-answer' ? 'not decided' : SKIP_TEXT[row.reason];
+  return `${row.policy} · ${what} · answer it yourself`;
+}
+
+/**
+ * A row without a decision: `pending` while a slow decision runs, `skipped` when the request was
+ * left to the user. Same row id as the decided row, so that replaces it in place.
+ */
+export function placeholderRow(
+  source: DecisionRow['source'],
+  key: string,
+  policy: string,
+  state: 'pending' | 'skipped',
+  reason: SkipReason | null = null,
+): DecisionRow {
+  return decisionRowSchema.parse({
+    decisionId: '',
+    policy,
+    source,
+    question: '',
+    answer: '',
+    confidence: 0,
+    action: 'ask',
+    gatewayMode: 'act',
+    enforced: true,
+    applied: false,
+    attention: false,
+    engine: '',
+    model: '',
+    latencyMs: 0,
+    cached: false,
+    error: null,
+    note: null,
+    rowId: rowId(source, key),
+    pluginMode: 'act',
+    state,
+    reason,
+  });
+}
+
 /**
  * One line, what happened first: `permission · asked you · leaned allow 72% · act`,
  * `turn-outcome · notify · leaned needs_input 82% · shadow`.
  */
 export function rowSummary(row: DecisionRow): string {
+  if (row.state !== 'decided') {
+    return placeholderSummary(row);
+  }
   return `${row.policy} · ${outcome(row)} · ${leaning(row)} · ${modeLabel(row)}`;
 }
 
