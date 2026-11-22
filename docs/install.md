@@ -55,7 +55,7 @@ never switches the running engine.
 
 | Hardware | Command | Default model | Notes |
 |---|---|---|---|
-| Any CPU (Linux default) | `local-decider engine install` | 2B, ~4.8 GB download | 1.2–2.5 s per short decision |
+| Any CPU (Linux default when no GPU is detected) | `local-decider engine install` | 2B, ~4.8 GB download | 1.2–2.5 s per short decision |
 | Apple Silicon (macOS default) | `local-decider engine install` | 2B on MLX | `--flavor mlx` is picked for you |
 | NVIDIA GPU | `local-decider engine install --flavor cuda` | 2B | `device: auto` lets strands-decider pick; or set `engine.device: cuda` |
 | AMD GPU with ROCm (Linux) | `local-decider engine install --flavor rocm` | 2B, plus ~3 GB of ROCm torch | ROCm torch reports the GPU as `cuda`; about 4× faster than CPU on a Radeon 880M |
@@ -64,7 +64,9 @@ never switches the running engine.
 
 - **strands-decider** syncs a pinned uv project into
   `~/.local/share/local-decider/venvs/strands-decider` and downloads the weights into the Hugging
-  Face cache. Flags: `--flavor cpu|mlx|cuda|rocm`, `--model <id>`, `--no-download`.
+  Face cache. Flags: `--flavor cpu|mlx|cuda|rocm`, `--model <id>`, `--no-download`. Without
+  `--flavor` it picks one from the hardware (`cuda`, `rocm`, `mlx` or `cpu`), prints which and why,
+  and `--flavor` overrides it.
 - **FastFlowLM** is installed by you, never downloaded by local-decider. Install it with your
   distribution's package (which also brings the NPU driver) or the upstream installer: see
   [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM). `engine install --engine fastflowlm`

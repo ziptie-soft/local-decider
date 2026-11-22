@@ -153,8 +153,10 @@ Ranges come from interleaved runs (Vulkan, NPU, Vulkan, NPU) under the same load
 - **llama.cpp builds:** b12110 and b12318 gave the same `llama-bench` prompt throughput on d3-lite
   Q8_0 (about 2,370 tokens/s at pp512).
 - **Strands 2B on ROCm:** about 4× faster than on the CPU. Setting
-  `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` improved long states by about 25%. The engine has
-  no ROCm flavour yet; this ran outside `engine install`.
+  `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` improved long states by about 25% (see
+  [engines](engines.md#5-macos-and-linux-defaults)). These numbers ran in a scratch venv; the same
+  torch now comes from `engine install --flavor rocm`, which an explicit config picks on its own on
+  an AMD GPU host.
 
 ## Other paths
 

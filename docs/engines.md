@@ -183,11 +183,20 @@ it as an engine failure or restart. The same holds for `systemone-remote` and
   Pro: MLX 66 ms, MPS 180 ms, CPU 1.1 s.
 - **Memory.** On a 48 GB Mac the default budget (80%, 38.4 GB) fits models up to 12B in bf16 but
   not 26B-A4B.
-- **Linux.** `auto` lets strands-decider pick `cuda` or `cpu`. On AMD GPUs install
-  `--flavor rocm`: ROCm torch (`whl/rocm7.2`) reports the GPU as `cuda`, so the device stays
-  `cuda`. The gateway detects ROCm from `/dev/kfd` and the first `gfx` agent in `rocminfo`; gfx1150
+- **Linux.** `auto` lets strands-decider pick `cuda` or `cpu`. `engine install` without `--flavor`
+  picks the flavor from the hardware, also for an explicit config: `cuda` for an NVIDIA GPU,
+  `rocm` for an AMD GPU, else `cpu`. It prints the flavor, why, and how to override;
+  `--flavor` always wins. ROCm torch (`whl/rocm7.2`) reports the GPU as `cuda`, and installing a
+  GPU flavor switches a configured `cpu` device to `cuda` (`--flavor cpu` forces `cpu`). The
+  gateway detects ROCm from `/dev/kfd` and the first `gfx` agent in `rocminfo`; gfx1150
   (Radeon 880M/890M) needs no `HSA_OVERRIDE_GFX_VERSION`. FastFlowLM needs an AMD XDNA2 NPU
   and is not offered elsewhere.
+- **Long states on RDNA3.5.** `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` made states of about
+  3k tokens 20–25% faster on a Radeon 880M and changed short ones within noise. It is optional.
+  The engine child inherits `TORCH_*` variables from the gateway, so set it on the service, for
+  example with `systemctl --user edit local-decider` and
+  `[Service]` / `Environment=TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`, then
+  `local-decider gateway restart`.
 - **launchd.** On macOS `local-decider gateway start` installs a LaunchAgent with `PATH`, `HOME`
   and the data-directory variables set, and reads tokens from `~/.config/local-decider/env` if it
   exists. Restarting uses `launchctl kickstart -k`.
@@ -202,12 +211,14 @@ selection: { mode: auto }
 ```
 
 **The ladder.** The gateway probes the host (AMD XDNA NPU, NVIDIA, Vulkan, Apple MLX and MPS) and
-ranks the candidates, best first: AMD NPU (`fastflowlm`), NVIDIA CUDA, **Vulkan GPU
-(`llama-vulkan`)**, Apple MLX, Apple MPS, CPU.
+ranks the candidates, best first: AMD NPU (`fastflowlm`), NVIDIA CUDA or AMD ROCm (both
+`strands-decider` on a GPU torch build), **Vulkan GPU (`llama-vulkan`)**, Apple MLX, Apple MPS,
+CPU.
 Only calibrated engines are eligible, so `openai-compatible` and `lmstudio` are never chosen
 automatically. A probe that cannot tell reports `unknown`, which does not count as available. The
 ranking appears as `recommendation` in `GET /v1/engines`, apart from the active engine, and
-`engine install` uses it to pick what to install and print why.
+`engine install` uses it to pick what to install and print why. An explicit config skips the
+ranking but still probes the hardware for the strands-decider flavor (above).
 
 **Fallback.** In auto mode only, an infrastructure failure of the active engine (it fails to
 start or dies, not a low-confidence answer) moves the gateway to the next installed, eligible
