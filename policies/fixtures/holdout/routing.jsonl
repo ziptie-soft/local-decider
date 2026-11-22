@@ -1,0 +1,15 @@
+{"id":"h-r-fast-export","tags":["lookup"],"input":{"project":"/work/demo","prompt":"Where is the CSV export function defined?"},"expect":"route:fast","answer":"fast"}
+{"id":"h-r-fast-const","tags":["edit"],"input":{"project":"/work/demo","prompt":"Change the default page size in src/config.ts from 20 to 25."},"expect":"route:fast","answer":"fast"}
+{"id":"h-r-fast-rename","tags":["rename"],"input":{"project":"/work/demo","prompt":"Rename the helper isEmpty to isBlank in src/strings.ts."},"expect":"route:fast","answer":"fast"}
+{"id":"h-r-fast-format","tags":["rename"],"input":{"project":"/work/demo","prompt":"Sort the imports in src/index.ts."},"expect":"route:fast","answer":"fast"}
+{"id":"h-r-fast-explain","tags":["lookup"],"input":{"project":"/work/demo","prompt":"What does the debounce wrapper in src/hooks.ts do?"},"expect":"route:fast","answer":"fast"}
+{"id":"h-r-std-pagination","tags":["feature"],"input":{"project":"/work/demo","prompt":"Add limit and offset query parameters to the list-users endpoint and cover them with tests."},"expect":"route:standard","answer":"standard"}
+{"id":"h-r-std-bug-null","tags":["bugfix"],"input":{"project":"/work/demo","prompt":"Saving a profile with an empty bio throws in the validator. Fix it in the form handler and its schema and add a regression test."},"expect":"route:standard","answer":"standard"}
+{"id":"h-r-std-cli-flag","tags":["feature"],"input":{"project":"/work/demo","prompt":"Add a --dry-run flag to the sync command that prints the planned changes without writing them."},"expect":"route:standard","answer":"standard"}
+{"id":"h-r-std-retry","tags":["feature"],"input":{"project":"/work/demo","prompt":"Wrap the payment client calls in retry with exponential backoff, configurable from the settings file."},"expect":"route:standard","answer":"standard"}
+{"id":"h-r-std-error-page","tags":["feature","boundary"],"input":{"project":"/work/demo","prompt":"Show a friendly error page for 404 and 500 responses and log the failures."},"expect":"route:standard","answer":"standard"}
+{"id":"h-r-deep-flaky","tags":["debugging"],"input":{"project":"/work/demo","prompt":"The checkout integration test fails about one run in twenty. Find the root cause and fix it properly."},"expect":"route:deep","answer":"deep"}
+{"id":"h-r-deep-authz","tags":["security"],"input":{"project":"/work/demo","prompt":"Audit our authorization checks on the admin API for privilege escalation holes and fix the ones you find."},"expect":"route:deep","answer":"deep"}
+{"id":"h-r-deep-monolith","tags":["refactor"],"input":{"project":"/work/demo","prompt":"Split the 6000 line orders module into separate domain packages without changing behaviour, updating all imports and the build."},"expect":"route:deep","answer":"deep"}
+{"id":"h-r-deep-vague","tags":["vague"],"input":{"project":"/work/demo","prompt":"Make our onboarding flow better."},"expect":"route:deep","answer":"deep"}
+{"id":"h-r-deep-race","tags":["debugging"],"input":{"project":"/work/demo","prompt":"Two workers sometimes process the same job twice. Work out why and make the queue exactly-once safe."},"expect":"route:deep","answer":"deep"}
