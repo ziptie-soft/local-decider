@@ -41,8 +41,9 @@ import {
 } from './cli-support.ts';
 import { ConfigFile } from './config-file.ts';
 import { DEFAULT_FLM_MODEL, DEFAULT_PORT, loadConfig, type GatewayConfig } from './config.ts';
+import { reconcileDevice } from './engine-device.ts';
 import type { AutoInstall } from './engine-install-auto.ts';
-import { installStrandsEngine } from './engine-install.ts';
+import { installStrandsEngine, type InstallFlavor } from './engine-install.ts';
 import type { HostInfo } from './engines/descriptor.ts';
 import { FLM_INSTALL_URL } from './engines/fastflowlm/status.ts';
 import { probeHostCapabilities } from './engines/host-capabilities.ts';
@@ -401,6 +402,19 @@ async function installEngine(ctx: Context, args: readonly string[]): Promise<voi
   }
   installStrandsEngine(ctx.paths, plan.flavor, plan.model);
   console.log(`strands-decider engine installed (${plan.flavor}) under ${ctx.paths.venvs}`);
+  reportDeviceChange(ctx.paths, plan.flavor, host.platform);
+}
+
+/** Align the configured device with the installed flavor; a failure only warns. */
+function reportDeviceChange(paths: Paths, flavor: InstallFlavor, platform: NodeJS.Platform): void {
+  try {
+    const notice = reconcileDevice(paths, flavor, platform);
+    if (notice !== undefined) console.log(notice);
+  } catch (error) {
+    console.warn(
+      `could not check the configured device against the ${flavor} flavor: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 function llamaBinaryHint(config: GatewayConfig, binary: string | undefined): string {
