@@ -122,8 +122,11 @@ function strandsRuntimeVersion(ctx: EngineContext): string | null {
       const site = join(venv, 'lib', version, 'site-packages');
       const names = readdirSync(site);
       const strands = packageVersion(names, ['strands_decider', 'strands-decider']);
+      if (strands === null) continue;
       const torch = packageVersion(names, ['torch']);
-      if (strands !== null && torch !== null) return `strands-decider ${strands}, torch ${torch}`;
+      return torch === null
+        ? `strands-decider ${strands}`
+        : `strands-decider ${strands}, torch ${torch}`;
     }
   } catch {
     return null;
