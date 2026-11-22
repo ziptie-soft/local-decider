@@ -639,7 +639,7 @@ verified, thresholded answer.
 - **Priority:** P2. **Size:** M.
 - **Problem:** The Paseo package ships TS sources with `workspace:*` deps
   (`packages/paseo-plugin/package.json:23-48`); no tarball-install test; no icon or screenshots
-  in the manifest; dev deps pin 0.15.3 while the requirement allows `<0.17.0`. The Claude/Codex
+  in the manifest; dev deps pin 0.15.3 while the requirement allows `<1.0.0`. The Claude/Codex
   plugin's npm distribution (ADR-0009) has open risks: first publish 2FA, pins before publish,
   hooks-only changes not bumping the plugin.
 - **Direction:** `npm pack` install test in a clean plugin dir; manifest assets; a CI matrix
@@ -1094,10 +1094,13 @@ other models. Verify cited lines before implementing; they come from a read-only
   setting is on, and skips Codex `paseo` elicitations.
 - **Pending live check:** open a Claude agent with `agentTools` on and call each tool once
   (skipped in the implementation run; unit tests cover the tool, hook and migration paths).
-- **Codex gap:** daemon 0.16.2 rejects MCP protocol `2026-07-28`, which current Codex sends, so no
-  Paseo tool (ours included) reaches Codex agents. The gateway's own `/mcp` uses the same SDK
-  version and likely fails the same way; verify separately.
-- **Upstream requests (Paseo):**
+- **Codex gap:** daemons 0.16.2 and 0.17.3 reject MCP protocol `2026-07-28`, which current Codex
+  sends, so no Paseo tool (ours included) reaches Codex agents. Checked on 0.17.3: `initialize`
+  succeeds (negotiates `2025-11-25`) but every later request carrying the header fails with
+  `Unsupported protocol version` (supports 2025-11-25 down to 2024-10-07). The gateway's own
+  `/mcp` behaves identically.
+- **Upstream requests (Paseo)** (still open on 0.17.3: `defineAgentTool` takes only name, title,
+  description, input and execute):
   1. *Preapproval for plugin agent tools.* "`toolPolicy.preapproved` cannot name tools that
      plugins attach in `agent.open.before`: validation runs after the internal `paseo` server is
      stripped, so `{kind:'mcp', server:'paseo', tool}` fails agent creation, and on Codex it would
@@ -1105,7 +1108,7 @@ other models. Verify cited lines before implementing; they come from a read-only
      `annotations: {readOnlyHint}` and `preapproved: true`, so the daemon adds
      `mcp__paseo__<tool>` to Claude's `allowedTools` and a per-tool `approval_mode: 'approve'` for
      Codex, for that agent only."
-  2. *MCP protocol 2026-07-28.* "Codex agents get no Paseo tools on daemon 0.16.2: `/mcp/agents`
+  2. *MCP protocol 2026-07-28.* "Codex agents get no Paseo tools on daemons 0.16.2 and 0.17.3: `/mcp/agents`
      rejects `mcp-protocol-version: 2026-07-28` (`Unsupported protocol version`). Please bump
      `@modelcontextprotocol/sdk` or negotiate down."
 

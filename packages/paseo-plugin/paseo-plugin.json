@@ -5,6 +5,6 @@
   "icon": "assets/icon.png",
   "media": ["assets/status.png", "assets/settings.png"],
   "requirements": {
-    "paseo": ">=0.15.3 <0.17.0"
+    "paseo": ">=0.15.3 <1.0.0"
   }
 }

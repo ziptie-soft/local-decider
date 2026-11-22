@@ -10,7 +10,7 @@ until you switch a policy to `act`.
 
 ## Requirements
 
-- Paseo `>=0.15.3 <0.17.0`, with plugins enabled on the daemon (**Settings → Plugins → Enable
+- Paseo `>=0.15.3 <1.0.0`, with plugins enabled on the daemon (**Settings → Plugins → Enable
   plugins**).
 - The **local-decider gateway** running on the daemon machine. The plugin is a thin client and
   never runs a model itself. Install the gateway first:
@@ -83,8 +83,8 @@ Caveats:
   sessions get them only when reopened.
 - They vanish when Paseo's tool injection is off (`daemon.mcp.injectIntoAgents: false`), when a
   provider has `paseoTools.enabled: false`, or when a tool is in `disabledTools`.
-- Codex agents cannot use them yet: daemon 0.16.2 rejects the MCP protocol version `2026-07-28`
-  that current Codex speaks. The plugin skips Codex approvals for the `paseo` server.
+- Codex agents cannot use them yet: daemons 0.16.2 and 0.17.3 reject the MCP protocol version
+  `2026-07-28` that current Codex speaks. The plugin skips Codex approvals for the `paseo` server.
 - The old `injectMcp` setting is migrated to this one.
 
 ## Daily review
