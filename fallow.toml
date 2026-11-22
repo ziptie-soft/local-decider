@@ -6,6 +6,7 @@ entry = [
   "packages/gateway/src/stats-worker.ts",
   "scripts/harness-e2e.mjs",
   "scripts/e2e-approve.mjs",
+  "packages/gateway/test/eval-live.ts",
 ]
 
 # local-decider-auto-mode.mjs is generated from packages/hooks/src/mod; tests/ runs under

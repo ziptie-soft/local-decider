@@ -116,6 +116,16 @@ description = "Gateway integration tests against a real engine; LOCAL_DECIDER_IT
 dir = "packages/gateway"
 run = "node --test --conditions=source test/integration.test.ts"
 
+[tasks.eval]
+description = "Replay policies/fixtures against a live engine; LOCAL_DECIDER_EVAL_URL=http://127.0.0.1:PORT of a `strands-decider serve` or gateway; exits 1 on a failed gate"
+dir = "packages/gateway"
+run = "node --conditions=source test/eval-live.ts"
+
+[tasks."eval:record"]
+description = "Like `eval`, and rewrite policies/fixtures/recorded/*.json; needs the pinned reference model (or --force)"
+dir = "packages/gateway"
+run = "node --conditions=source test/eval-live.ts --record"
+
 [tasks."test:mod"]
 description = "Claude Code mod: build, validate the bundle and run its `claude plugin test`; skipped when claude is not on PATH"
 run = '''

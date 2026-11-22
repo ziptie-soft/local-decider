@@ -1,0 +1,25 @@
+{"id":"docs-readme-install","tags":["docs"],"input":{"project":"/work/demo","prompt":"Rewrite the installation section of the README for the new CLI."},"expect":"route:docs","answer":"docs"}
+{"id":"docs-changelog","tags":["docs"],"input":{"project":"/work/demo","prompt":"Write the changelog entry for the 1.4 release from the merged PR titles."},"expect":"route:docs","answer":"docs"}
+{"id":"docs-jsdoc","tags":["docs"],"input":{"project":"/work/demo","prompt":"Add JSDoc comments to the exported functions in src/api.ts."},"expect":"route:docs","answer":"docs"}
+{"id":"docs-commit-message","tags":["docs"],"input":{"project":"/work/demo","prompt":"Write a clear commit message for the staged changes."},"expect":"route:docs","answer":"docs"}
+{"id":"ui-center-modal","tags":["ui"],"input":{"project":"/work/demo","prompt":"The modal is not centered on mobile screens. Fix the layout."},"expect":"route:ui","answer":"ui"}
+{"id":"ui-aria-labels","tags":["ui"],"input":{"project":"/work/demo","prompt":"Add accessible labels and focus styles to the navigation buttons."},"expect":"route:ui","answer":"ui"}
+{"id":"ui-card-component","tags":["ui"],"input":{"project":"/work/demo","prompt":"Build a pricing card component that matches the design screenshot."},"expect":"route:ui","answer":"ui"}
+{"id":"ui-dark-mode","tags":["ui"],"input":{"project":"/work/demo","prompt":"Style the settings page for dark mode."},"expect":"route:ui","answer":"ui"}
+{"id":"code-add-endpoint","tags":["code"],"input":{"project":"/work/demo","prompt":"Add a health-check endpoint that returns the version and uptime."},"expect":"route:code","answer":"code"}
+{"id":"code-unit-tests","tags":["code"],"input":{"project":"/work/demo","prompt":"Write unit tests for the date parsing helpers."},"expect":"route:code","answer":"code"}
+{"id":"code-refactor-known","tags":["code"],"input":{"project":"/work/demo","prompt":"Move the validation helpers from utils.ts into validators.ts and fix the imports."},"expect":"route:code","answer":"code"}
+{"id":"code-null-fix","tags":["code"],"input":{"project":"/work/demo","prompt":"parseUser throws when email is null. Return an error result instead."},"expect":"route:code","answer":"code"}
+{"id":"debug-flaky-test","tags":["debug"],"input":{"project":"/work/demo","prompt":"The checkout test fails about one run in five and I do not know why. Find the cause."},"expect":"route:debug","answer":"debug"}
+{"id":"debug-crash","tags":["debug"],"input":{"project":"/work/demo","prompt":"The server crashes on startup with \"Cannot read properties of undefined\". Figure out why."},"expect":"route:debug","answer":"debug"}
+{"id":"debug-wrong-total","tags":["debug"],"input":{"project":"/work/demo","prompt":"The invoice total is off by a few cents for some orders. Find out where it goes wrong."},"expect":"route:debug","answer":"debug"}
+{"id":"debug-slow-query","tags":["debug"],"input":{"project":"/work/demo","prompt":"The dashboard takes 12 seconds to load since last week. Find what changed."},"expect":"route:debug","answer":"debug"}
+{"id":"plan-queue-options","tags":["plan"],"input":{"project":"/work/demo","prompt":"Compare Redis, SQS and a Postgres-backed queue for our background jobs and recommend one."},"expect":"route:plan","answer":"plan"}
+{"id":"plan-auth-design","tags":["plan"],"input":{"project":"/work/demo","prompt":"Propose an approach for adding SSO before we write any code."},"expect":"route:plan","answer":"plan"}
+{"id":"plan-review-architecture","tags":["plan"],"input":{"project":"/work/demo","prompt":"Review the proposed module layout in docs/design.md and point out risks."},"expect":"route:plan","answer":"plan"}
+{"id":"plan-migration-strategy","tags":["plan"],"input":{"project":"/work/demo","prompt":"Outline the steps and trade-offs for migrating from REST to GraphQL."},"expect":"route:plan","answer":"plan"}
+{"id":"docs-api-guide","tags":["docs"],"input":{"project":"/work/demo","prompt":"Write a getting-started guide for the public API with two worked examples."},"expect":"route:docs","answer":"docs"}
+{"id":"ui-table-sorting","tags":["ui"],"input":{"project":"/work/demo","prompt":"Make the data table headers sortable and add the arrow icons from the design."},"expect":"route:ui","answer":"ui"}
+{"id":"code-pagination","tags":["code"],"input":{"project":"/work/demo","prompt":"Add limit and offset parameters to the list endpoint and test them."},"expect":"route:code","answer":"code"}
+{"id":"debug-memory-growth","tags":["debug"],"input":{"project":"/work/demo","prompt":"Memory use grows steadily in the worker over a day. Find out why."},"expect":"route:debug","answer":"debug"}
+{"id":"plan-caching-options","tags":["plan"],"input":{"project":"/work/demo","prompt":"Weigh in-process caching against a shared cache for the API and suggest an approach."},"expect":"route:plan","answer":"plan"}
