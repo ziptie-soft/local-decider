@@ -202,6 +202,15 @@ describe('explainDecision', () => {
     );
     assert.equal(view.error, 'boom');
     assert.equal(
+      explainDecision(
+        recorded({ a: 1 }, 'a', { error: 'bad \u001b[31mred\u001b[0m\u0007 end' }),
+        [],
+        [],
+        context,
+      ).error,
+      'bad [31mred[0m end',
+    );
+    assert.equal(
       explainDecision(recorded({ a: 1 }, 'a', { error: 'y'.repeat(400) }), [], [], context).error
         ?.length,
       160,

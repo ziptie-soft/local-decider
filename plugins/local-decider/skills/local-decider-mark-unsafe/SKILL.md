@@ -5,6 +5,9 @@ description: Record that a request local-decider allowed was unsafe, so preceden
 
 # local-decider mark-unsafe
 
+Start by checking the CLI exists: `command -v local-decider || echo missing`. If it is missing,
+tell the user to install it (see the Quick start in the local-decider README) and stop.
+
 An `unsafe` label is a verified veto: it overrides a matching allow in precedent and counts
 against the model in `local-decider stats` and `review`. It cannot be undone from the CLI, so
 confirm with the user first.

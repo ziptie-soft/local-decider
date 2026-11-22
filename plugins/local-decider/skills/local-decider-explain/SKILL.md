@@ -5,6 +5,9 @@ description: Explain why local-decider decided as it did for one tool call or de
 
 # local-decider explain
 
+Start by checking the CLI exists: `command -v local-decider || echo missing`. If it is missing,
+tell the user to install it (see the Quick start in the local-decider README) and stop.
+
 `local-decider explain` reads the decision log read-only, so it works with the gateway down.
 Its output is hash-only: it never contains the request text, so it is safe to quote.
 
