@@ -227,11 +227,7 @@ function routeShadow(
   const pending = plan.gateway
     .decide(ROUTING_POLICY, plan.body, { timeoutMs: SHADOW_TIMEOUT_MS })
     .catch(() => null);
-  usage?.creating(
-    request.config.cwd,
-    request.config.title,
-    pending.then((r) => r?.decisionId ?? null),
-  );
+  usage?.creating(request.config.cwd, request.config.title, pending);
   return undefined;
 }
 
@@ -263,10 +259,7 @@ async function routeAct(
   usage?.creating(
     request.config.cwd,
     request.config.title,
-    pending.then(
-      (r) => r?.decisionId ?? null,
-      () => null,
-    ),
+    pending.catch(() => null),
   );
   const res = await pending;
   if (res === null) {
@@ -292,13 +285,21 @@ function applyIfUser(
 ): CreateRequest | undefined {
   if (chosen.creator !== 'user') {
     deps.log(`routing kept the creator's model (${chosen.creator})`);
+    usage?.outcome(request.config.cwd, request.config.title, {
+      applied: false,
+      note: "kept the creator's model",
+    });
     return undefined;
   }
-  const out = applyRouteTarget(deps, request, chosen.res, chosen.target);
-  if (out !== undefined) {
-    usage?.applied(request.config.cwd, request.config.title);
-  }
+  const { out, note } = applyRouteTarget(deps, request, chosen.res, chosen.target);
+  usage?.outcome(request.config.cwd, request.config.title, { applied: out !== undefined, note });
   return out;
+}
+
+/** The new request (undefined: unchanged) and what happened, for the log and the routing row. */
+interface RouteResult {
+  readonly out: CreateRequest | undefined;
+  readonly note: string;
 }
 
 /**
@@ -317,21 +318,24 @@ function applyRouteTarget(
   request: CreateRequest,
   res: DecideResponse,
   target: PresetTarget,
-): CreateRequest | undefined {
+): RouteResult {
   // A preset's or profile's mode applies only when the creator left modeId unset.
   const pinned = (request.config.modeId ?? '').trim() !== '';
   if (pinned && target.provider !== request.config.provider) {
     deps.log('routing skipped: caller pinned mode on another provider');
-    return undefined;
+    return { out: undefined, note: 'skipped: caller pinned mode' };
   }
   const guard = guardMode(request.config, pinned ? { ...target, modeId: '' } : target);
   if (guard.kind === 'skip') {
     deps.log(`routing skipped: ${target.provider} mode would raise permissions`);
-    return undefined;
+    return { out: undefined, note: 'skipped: mode would raise permissions' };
   }
   if (guard.kind === 'dropped') {
     deps.log(`routing dropped preset mode ${guard.modeId}: more permissive`);
   }
   deps.log(`routing ${res.action} → ${target.provider}/${target.model} (${res.decisionId})`);
-  return { ...request, config: applyPreset(request.config, guard.target) };
+  return {
+    out: { ...request, config: applyPreset(request.config, guard.target) },
+    note: `→ ${target.provider}/${target.model}${guard.kind === 'dropped' ? ', preset mode dropped' : ''}`,
+  };
 }

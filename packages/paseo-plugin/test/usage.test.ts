@@ -35,7 +35,7 @@ describe('usage links', () => {
     const gw = fakeGateway(() => response());
     const d = deps(settings(), gw);
     const links = new UsageLinks();
-    links.creating('/p', 'Rename foo', Promise.resolve('d-9'));
+    links.creating('/p', 'Rename foo', Promise.resolve(response({ decisionId: 'd-9' })));
     links.created(agent);
     const paseo = paseoWithUsage({
       inputTokens: 10,
@@ -60,13 +60,17 @@ describe('usage links', () => {
     ]);
   });
 
-  it('says whether routing changed the agent it links', () => {
+  it('says what routing did to the agent it links', async () => {
     const links = new UsageLinks();
-    links.creating('/p', 'Rename foo', Promise.resolve('d-1'));
-    links.applied('/p', 'Rename foo');
-    assert.equal(links.created(agent), true);
-    links.creating('/p', 'Docs', Promise.resolve('d-2'));
-    assert.equal(links.created({ ...agent, id: 'a-2', title: 'Docs' }), false);
+    links.creating('/p', 'Rename foo', Promise.resolve(response({ decisionId: 'd-1' })));
+    links.outcome('/p', 'Rename foo', { applied: true, note: '→ claude/haiku' });
+    const link = links.created(agent);
+    assert.equal(link?.applied, true);
+    assert.equal(link?.note, '→ claude/haiku');
+    assert.equal((await link?.decision)?.decisionId, 'd-1');
+    links.creating('/p', 'Docs', Promise.resolve(response({ decisionId: 'd-2' })));
+    const plain = links.created({ ...agent, id: 'a-2', title: 'Docs' });
+    assert.deepEqual([plain?.applied, plain?.note], [false, null]);
   });
 
   it('ignores agents without a decision, stale links and failed decisions', async () => {
@@ -76,9 +80,9 @@ describe('usage links', () => {
     const links = new UsageLinks(() => now);
     const paseo = paseoWithUsage({ inputTokens: 1, outputTokens: 1 });
     await links.turnEnded(d, { agent, turnId: 't1' }, paseo);
-    links.creating('/p', 'Rename foo', Promise.resolve('d-1'));
+    links.creating('/p', 'Rename foo', Promise.resolve(response({ decisionId: 'd-1' })));
     now = 120_000;
-    links.created(agent);
+    assert.equal(links.created(agent), null);
     await links.turnEnded(d, { agent, turnId: 't1' }, paseo);
     links.creating('/p', 'Other', Promise.resolve(null));
     links.created({ ...agent, title: 'Other' });
