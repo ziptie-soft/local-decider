@@ -1,5 +1,60 @@
 # Changelog
 
+## [3.0.0](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v2.3.0...paseo-plugin-v3.0.0) (2026-11-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **paseo-plugin:** the injected local-decider MCP server is removed; enable "Agent tools" instead (settings migrate injectMcp). Agents call mcp__paseo__local_decider_* tools.
+* **paseo-plugin:** routing no longer applies a preset or profile mode more permissive than the agent's own (for example full-access over auto).
+* **policies:** auto-allow permission at p(allow) >= 0.85, abstain by default in routing-budget, retune thresholds
+* **core:** reject duplicate threshold keys and mismatched policy ids, coerce scalar answers and type harness ids and actions
+* **gateway:** gate usage on the report token, reject unknown decisions and outcome values, rate-limit unverified posts and keep unverified rows out of stats
+* **hooks:** guard oversized hook input, close shell-splitter bypasses and gate Paseo auto-allow deterministically
+* **paseo-plugin:** record early user answers, never report own allows as user, allow once and only shell or edit tools
+
+### Features
+
+* **gateway:** derive call facts from the redacted input behind a reserved facts key, shipped empty ([64f3978](https://github.com/ziptie-soft/local-decider/commit/64f39785f942dc709157df2a8c95369fdc77ad8d))
+* **gateway:** scale queue slots with engine concurrency and refuse requests whose budgetMs the queue cannot meet ([8a4139c](https://github.com/ziptie-soft/local-decider/commit/8a4139cfe58a539bb852aa6a268ff584b87deae5))
+* **gateway:** strands-decider 0.4.0 with a ROCm install flavour, maxConcurrency and upstream attribution ([6a938e4](https://github.com/ziptie-soft/local-decider/commit/6a938e48e19c71b287f5ccc9a7ffff9a88a731da))
+* **paseo-plugin:** add an opt-in daily review to the status popover and Details page ([a960d98](https://github.com/ziptie-soft/local-decider/commit/a960d98e49a16a1e401fe4a75aabcdd64c196f00))
+* **paseo-plugin:** add decide, explain and policies agent tools with limits ([fbb7428](https://github.com/ziptie-soft/local-decider/commit/fbb74281905f21e162ad43dee1a2aed2ed75c0d7))
+* **paseo-plugin:** allow own agent tools without a decision and skip Codex paseo elicitations ([3b1a500](https://github.com/ziptie-soft/local-decider/commit/3b1a5006f01610bd5193b8fe96f621d3a24caed7))
+* **paseo-plugin:** attach agent tools on open and retire the injected MCP server ([4b7934f](https://github.com/ziptie-soft/local-decider/commit/4b7934f7eac56b15f48e07f9b617a31e77978100))
+* **paseo-plugin:** document decision rows, the explain view and the mode mismatch warning ([b3e6b92](https://github.com/ziptie-soft/local-decider/commit/b3e6b9276838ea1b571aa5010b0a3ce6b2dce1ad))
+* **paseo-plugin:** draw a routing row on the new agent when routing decides ([2cb3558](https://github.com/ziptie-soft/local-decider/commit/2cb3558c3bf1d77d5b7c6faa15f330d0eee7cd65))
+* **paseo-plugin:** draw deciding and skipped rows for slow or refused permission decisions ([ae273ce](https://github.com/ziptie-soft/local-decider/commit/ae273ce7570debef6da204a85974ac115de267f1))
+* **paseo-plugin:** expand decision rows to explain verdict, rule, thresholds and precedent ([7726c4d](https://github.com/ziptie-soft/local-decider/commit/7726c4d9f71b4a5fbf349cb2d03356cfcc8489a8))
+* **paseo-plugin:** support Paseo daemons up to 1.0.0 ([a567797](https://github.com/ziptie-soft/local-decider/commit/a56779747afbe83bd688520fd8560de999311b7d))
+* **paseo-plugin:** warn when the plugin is in act but the gateway runs the policy in another mode ([8463647](https://github.com/ziptie-soft/local-decider/commit/8463647f65f17f0498b1b505e7dda7e493409d11))
+* **policies:** auto-allow permission at p(allow) &gt;= 0.85, abstain by default in routing-budget, retune thresholds ([9ab2d5a](https://github.com/ziptie-soft/local-decider/commit/9ab2d5a4dfb9770f9c777eedbc7f8962d2df9fb9))
+
+
+### Bug Fixes
+
+* **core:** default to 3 chars per token and cover truncation markers, clamping and code points with tests ([7e901b1](https://github.com/ziptie-soft/local-decider/commit/7e901b180e77cfe9b3fade5f3a6936acec7f1743))
+* **core:** reject duplicate threshold keys and mismatched policy ids, coerce scalar answers and type harness ids and actions ([9bda32d](https://github.com/ziptie-soft/local-decider/commit/9bda32d5acfe01cf8b7a068c4617a7e7f45cea8f))
+* **gateway:** accept MCP protocol 2026-07-28 requests ([bc68423](https://github.com/ziptie-soft/local-decider/commit/bc68423d409cb6b92677f272a8371535d1c83fd2))
+* **gateway:** gate usage on the report token, reject unknown decisions and outcome values, rate-limit unverified posts and keep unverified rows out of stats ([ada02e6](https://github.com/ziptie-soft/local-decider/commit/ada02e6a7e4d48ff7e94bb2623bebb3655fafd23))
+* **gateway:** scope the decision cache to engine and model, tag the cache key, make canonicalJson total and evict LRU ([e63d75a](https://github.com/ziptie-soft/local-decider/commit/e63d75a22eacf039fd8cbef254e239b9622dce6b))
+* **hooks:** cap hook inputs so padded payloads stay within the gateway limit, and make the command guard linear ([a580e06](https://github.com/ziptie-soft/local-decider/commit/a580e0610d5731d84e2c579eee6333293946a661))
+* **hooks:** guard oversized hook input, close shell-splitter bypasses and gate Paseo auto-allow deterministically ([4a7bc10](https://github.com/ziptie-soft/local-decider/commit/4a7bc1072bfd2b213da84407897e721d2504dd6e))
+* **paseo-plugin:** classify and log failed auto-allows, pass routing's remaining budget, mark a hung gateway down and skip failed turns ([5c4afc5](https://github.com/ziptie-soft/local-decider/commit/5c4afc5c74ae6bc8cb0b0d83a78f673006ffc107))
+* **paseo-plugin:** don't warn on an allow threshold at or below the policy's own default ([660fe81](https://github.com/ziptie-soft/local-decider/commit/660fe818d8e3b2806086b726202017fffbd52def))
+* **paseo-plugin:** drop the unused mayAutoAllow export and format the parity test ([5a5bb00](https://github.com/ziptie-soft/local-decider/commit/5a5bb00cdbe0df80e98b87a45209eedecafb0b5d))
+* **paseo-plugin:** keep delegated agents' models, never let routing raise a mode, guard the policy writer, rate-limit permissions and cap their decide at 10 s ([a487220](https://github.com/ziptie-soft/local-decider/commit/a4872207149533c69a41545a5f738e121e8a7a44))
+* **paseo-plugin:** record early user answers, never report own allows as user, allow once and only shell or edit tools ([59e4570](https://github.com/ziptie-soft/local-decider/commit/59e4570dedb7c943ab8384a5992bd808306fb1b7))
+* **paseo-plugin:** refuse shell and patch paths and symlinks into the config dir, treat too many running agents as unknown creator ([648006f](https://github.com/ziptie-soft/local-decider/commit/648006faa92224b8d68928b6ee45eee3de3d0119))
+* **paseo-plugin:** say shadow routing rows also show for unsure routes ([a41436c](https://github.com/ziptie-soft/local-decider/commit/a41436cf673f5394e0e15591e4e288a3f94b0370))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * devDependencies
+    * @ziptie-soft/local-decider-core bumped to 3.0.0
+
 ## [2.3.0](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v2.2.0...paseo-plugin-v2.3.0) (2026-11-15)
 
 
