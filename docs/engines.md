@@ -187,7 +187,8 @@ it as an engine failure or restart. The same holds for `systemone-remote` and
   picks the flavor from the hardware, also for an explicit config: `cuda` for an NVIDIA GPU,
   `rocm` for an AMD GPU, else `cpu`. It prints the flavor, why, and how to override;
   `--flavor` always wins. ROCm torch (`whl/rocm7.2`) reports the GPU as `cuda`, and installing a
-  GPU flavor switches a configured `cpu` device to `cuda` (`--flavor cpu` forces `cpu`). The
+  GPU flavor switches a configured `cpu` device to `cuda` on purpose, with a printed notice,
+  because asking for a GPU build means using the GPU (`--flavor cpu` forces `cpu`). The
   gateway detects ROCm from `/dev/kfd` and the first `gfx` agent in `rocminfo`; gfx1150
   (Radeon 880M/890M) needs no `HSA_OVERRIDE_GFX_VERSION`. FastFlowLM needs an AMD XDNA2 NPU
   and is not offered elsewhere.
