@@ -149,7 +149,8 @@ local-decider gateway start       # systemd user unit (Linux) or launchd agent (
 local-decider gateway status
 ```
 
-`engine install` takes `--flavor cpu|mlx|cuda|rocm`, `--model <id>` and `--no-download`. On Linux with
+`engine install` takes `--flavor cpu|mlx|cuda|rocm`, `--model <id>` and `--no-download`; without
+`--flavor` it picks `cuda`, `rocm`, `mlx` or `cpu` from the hardware. On Linux with
 an AMD Ryzen AI NPU, install [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM) yourself with
 your package manager or its installer (local-decider never downloads it), then pull a model and
 pick it in Paseo's settings:

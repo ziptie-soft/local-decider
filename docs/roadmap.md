@@ -868,6 +868,8 @@ other models. Verify cited lines before implementing; they come from a read-only
 - A `rocm` install flavour (`whl/rocm7.2`, torch 2.14.1) with host detection (`/dev/kfd` plus a
   `gfx` agent in `rocminfo`). On a Radeon 880M (gfx1150), Strands 2B answered a short decision in
   about 190 ms warm, against about 2.4 s on the CPU.
+- `engine install` picks the strands flavor from the hardware (NVIDIA → `cuda`, AMD → `rocm`)
+  even for an explicit config, and a GPU flavor switches a `cpu` device to `cuda` (2026-11-22).
 - `maxConcurrency` in the strands engine config passes `serve --max-concurrency`.
 - The `cuda` flavour pulls upstream's `cuda` extra (flash-linear-attention).
 - Attribution for Strands Decider in `NOTICE`, the README and `docs/engines.md`.
