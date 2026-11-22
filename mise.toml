@@ -132,17 +132,30 @@ description = "Compare two `eval-live.ts --out` result sets: mise run eval:compa
 dir = "packages/gateway"
 run = "node --conditions=source test/eval-compare.ts"
 
-[tasks."test:mod"]
-description = "Claude Code mod: build, validate the bundle and run its `claude plugin test`; skipped when claude is not on PATH"
+[tasks."validate:mod"]
+description = "Claude Code plugin: build the bundle and `claude plugin validate --strict`; skipped when claude is not on PATH, an error when CI=true (the e2e-install job pins claude via mise.e2e.toml)"
 run = '''
 #!/usr/bin/env bash
 set -euo pipefail
 if ! command -v claude >/dev/null 2>&1; then
-  echo "claude not on PATH: skipping the mod tests"
+  if [ "${CI:-}" = "true" ]; then
+    echo "claude not on PATH in CI: install it (MISE_ENV=e2e, mise.e2e.toml)" >&2
+    exit 1
+  fi
+  echo "claude not on PATH: skipping the plugin validation"
   exit 0
 fi
 pnpm --filter @ziptie-soft/local-decider-hooks build
 claude plugin validate --strict plugins/local-decider
+'''
+
+[tasks."test:mod"]
+description = "Claude Code mod: validate:mod, then its `claude plugin test`; skipped when claude is not on PATH, an error when CI=true"
+depends = ["validate:mod"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+command -v claude >/dev/null 2>&1 || exit 0
 cd plugins/local-decider
 claude plugin test
 '''
