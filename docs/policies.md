@@ -48,8 +48,11 @@ The defaults above were retuned against the fixtures. `minConfidence` c is p = (
 options, so for three options 0.35 is p 0.567, 0.30 is p 0.533, 0.45 is p 0.633 and 0.65 is p 0.767.
 
 - To get the old `permission` allow back, set
-  `policies.permission.thresholds: { verdict.allow: 0.95 }` in `config.yaml` (the new default is 0.85).
-- To get the old budget fallback back, set `default: route:cheap` in a `routing-budget` override.
+  `policies.permission.thresholds: { verdict.allow: 0.95 }` in `config.yaml` (the new default is
+  0.85).
+- To get the old budget fallback back, copy `policies/routing-budget.yaml` to
+  `~/.config/local-decider/policies/` and set `default: route:cheap` there. A file with the same
+  `id` replaces the shipped one whole.
 - `routing-budget` now defaults to `abstain`, so when the engine fails or is unsure the request
   keeps the model it asked for instead of being routed to the cheap tier.
 
