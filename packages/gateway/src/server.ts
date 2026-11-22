@@ -20,6 +20,7 @@ import { totalmem } from 'node:os';
 import { BenchmarkError, parseBenchmarkRequest } from './benchmark-job.ts';
 import type { GatewayConfig } from './config.ts';
 import { UnknownPolicyError, type Decider } from './decider.ts';
+import { decisionsResponse } from './decisions-api.ts';
 import { DownloadError } from './downloads.ts';
 import { EngineBusyError } from './engine-busy.ts';
 import {
@@ -555,10 +556,53 @@ function callHandler(id: string): Handler {
   };
 }
 
-/** Read-only routes: `GET /v1/stats` and `GET /v1/calls/:id`. */
+const decisionRoute = /^\/v1\/decisions(?:\/([\w-]{1,128}))?$/;
+
+/** Threshold values in effect that differ from the policy file, which is what explain re-applies. */
+function thresholdOverrides(decider: Decider, id: string): Record<string, number> {
+  return Object.fromEntries(
+    decider
+      .thresholdsOf(id)
+      .flatMap((t) => (t.value !== null && t.value !== t.default ? [[t.key, t.value]] : [])),
+  );
+}
+
+/**
+ * `GET /v1/decisions/:id`, `GET /v1/decisions?call=<id>`, optionally `view=agent`. It has its own
+ * control-token guard and does not need `engineControl`, so it is a read route, not a control one.
+ */
+function decisionsHandler(id: string | undefined): Handler {
+  return async (req, res, options) => {
+    if (!controlAllowed(req, options)) {
+      throw new HttpError(
+        401,
+        'control token required (x-local-decider-control, from the control-token file next to config.yaml)',
+      );
+    }
+    const { decider, log } = options;
+    const params = new URL(req.url ?? '/', 'http://localhost').searchParams;
+    const source = {
+      log,
+      policies: decider.policies,
+      overrides: (policy: string) => thresholdOverrides(decider, policy),
+    };
+    const [status, body] = decisionsResponse(source, {
+      id,
+      call: params.get('call'),
+      view: params.get('view'),
+    });
+    send(res, status, body);
+  };
+}
+
+/** Read-only routes: `GET /v1/stats`, `GET /v1/calls/:id` and `GET /v1/decisions`. */
 function readRoute(key: string, path: string): Handler | undefined {
   if (key === 'GET /v1/stats') {
     return statsHandler;
+  }
+  const decision = key.startsWith('GET ') ? decisionRoute.exec(path) : null;
+  if (decision !== null) {
+    return decisionsHandler(decision[1]);
   }
   const id = key.startsWith('GET ') ? callRoute.exec(path)?.[1] : undefined;
   return id === undefined ? undefined : callHandler(id);
