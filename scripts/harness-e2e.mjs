@@ -24,7 +24,7 @@
 // Env: LD_E2E_GATEWAY (default http://127.0.0.1:8765), LD_E2E_PLUGIN_DIR (Claude: plugin directory,
 // default plugins/local-decider), LD_E2E_USER_SETTINGS=1 (Claude: load your user settings and the
 // installed plugin instead), LD_E2E_KEEP=1 (keep the workspace), LD_E2E_TIMEOUT_S (per harness,
-// default 300).
+// default 300), LD_E2E_HOOK_TIMEOUT_MS (the hooks' decision timeout, default 4600).
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
@@ -54,6 +54,10 @@ import {
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const GATEWAY = process.env.LD_E2E_GATEWAY ?? 'http://127.0.0.1:8765';
 const TIMEOUT_MS = Number(process.env.LD_E2E_TIMEOUT_S ?? 300) * 1000;
+// The hooks' decision timeout (LOCAL_DECIDER_TIMEOUT_MS, default 1500 ms in packages/hooks/src/run.ts
+// `timeoutOf`). A CPU engine needs 3-4 s per decision, so the e2e allows more; the plugin's own hook
+// timeouts (plugins/local-decider/hooks/hooks.json) are 5 s, hence the 4600 ms default.
+const HOOK_DECISION_TIMEOUT_MS = process.env.LD_E2E_HOOK_TIMEOUT_MS ?? '4600';
 const GUARD_MARK = 'curl-pipe-shell';
 const USER_SETTINGS = process.env.LD_E2E_USER_SETTINGS === '1';
 const PLUGIN_DIR =
@@ -235,6 +239,7 @@ async function preflight(name) {
 async function runHarness(spec, cwd, sessionId) {
   const env = {
     ...process.env,
+    LOCAL_DECIDER_TIMEOUT_MS: HOOK_DECISION_TIMEOUT_MS,
     LD_E2E_APPROVER_LOG: join(cwd, APPROVER_LOG),
     ...spec.isolate?.(),
   };
