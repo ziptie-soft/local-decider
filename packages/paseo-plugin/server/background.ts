@@ -47,17 +47,21 @@ export class Background {
   }
 }
 
-/** Run a hook's decision detached, logging failures and refusals under `label`. */
+/**
+ * Run a hook's decision detached, logging failures and refusals under `label`. Returns whether
+ * the task started (false: stopped or at capacity, already logged).
+ */
 export function detach(
   background: Background,
   log: (message: string) => void,
   label: string,
   task: (signal: AbortSignal) => Promise<void>,
-): void {
+): boolean {
   const started = background.run(task, (error) =>
     log(`${label} skipped: ${error instanceof Error ? error.message : String(error)}`),
   );
   if (!started) {
     background.refused(log, label);
   }
+  return started;
 }

@@ -1,13 +1,13 @@
 /** `agent.turn.after` → `turn-outcome`, recorded as a decision row in the agent's timeline. */
 import type { PluginHookAgent, PluginTurnOutcome } from '@getpaseo/plugin/server';
 
-import { ROW_KIND, ROW_VERSION } from '../shared/constants.ts';
 import type { DecideResponse } from '../shared/decision.ts';
 import { rowVisible, toRowData } from '../shared/row.ts';
 import { Background, detach } from './background.ts';
 import type { HookDeps, PaseoLike } from './deps.ts';
 import { buildTurnInput } from './history.ts';
 import { BoundedSet, RateLimiter, ThrottledLog } from './limits.ts';
+import { appendRow } from './timeline.ts';
 
 const TURN_POLICY = 'turn-outcome';
 const HISTORY_LIMIT = 60;
@@ -126,13 +126,7 @@ async function handleTurn(
   if (!rowVisible(data, settings.rows.show)) {
     return;
   }
-  await agent.timeline.append({
-    type: 'plugin',
-    id: data.rowId,
-    kind: ROW_KIND,
-    version: ROW_VERSION,
-    data: { ...data },
-  });
+  await appendRow(agent, data);
 }
 
 function lastSeqOf(entries: readonly unknown[]): string {

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { Background } from '../server/background.ts';
+import { Background, detach } from '../server/background.ts';
 import { ThrottledLog } from '../server/limits.ts';
 import { effectiveTier, guardMode, PROVIDER_MODES } from '../server/mode-tiers.ts';
 import { createPermissionHandlers } from '../server/permission.ts';
@@ -292,5 +292,28 @@ describe('agent.turn.after global limit', () => {
     }
     assert.equal(gw.calls.length, 60);
     assert.ok(d.logs.some((l) => l.includes('turn-outcome skipped: rate limit')));
+  });
+});
+
+describe('detach', () => {
+  it('reports whether the task started', async () => {
+    const logs: string[] = [];
+    const bg = new Background(1);
+    let release = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const first = detach(bg, (m) => logs.push(m), 'a', async () => gate);
+    const second = detach(bg, (m) => logs.push(m), 'b', async () => {});
+    assert.equal(first, true);
+    assert.equal(second, false);
+    assert.ok(logs.some((l) => l.includes('b skipped: too many decisions in flight')));
+    release();
+    await bg.idle();
+    bg.stop();
+    assert.equal(
+      detach(bg, (m) => logs.push(m), 'c', async () => {}),
+      false,
+    );
   });
 });
