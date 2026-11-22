@@ -85,6 +85,8 @@ export interface DecideResponse {
   readonly precedent?: PrecedentTally;
   readonly precedentKey?: string;
   readonly error?: string;
+  /** Labels of state sections cut, dropped or already truncated; absent when nothing was. */
+  readonly truncated?: string[];
 }
 
 export interface PrecedentTally {

@@ -16,7 +16,7 @@ import type {
   AgentTimelineItem,
 } from '@getpaseo/protocol/agent-types';
 
-import { isEnforcedAllow, type DecideResponse } from '../shared/decision.ts';
+import { isEnforcedAllow, type DecideResponse, type Mode } from '../shared/decision.ts';
 import type { Gateway } from '../shared/gateway.ts';
 import { rowVisible, toRowData, type DecisionRow } from '../shared/row.ts';
 import { Background, detach } from './background.ts';
@@ -336,7 +336,7 @@ async function handleRequest(
   if (enforced && mayAllow(res, event, entry)) {
     await autoAllow(state, entry, event.request);
   }
-  const data = permissionRow(res, event, entry, enforced);
+  const data = permissionRow(res, event, entry, enforced, mode);
   if (rowVisible(data, settings.rows.show)) {
     await drawRow(state, entry, data);
   }
@@ -381,12 +381,14 @@ function permissionRow(
   event: PermissionEvent,
   entry: Pending,
   enforced: boolean,
+  pluginMode: Mode,
 ): DecisionRow {
   return {
     ...toRowData(res, {
       source: 'permission',
       key: event.request.id,
       enforced,
+      pluginMode,
       applied: entry.applied,
       note: `${event.request.name}${entry.applied ? ' auto-allowed' : ''}`,
     }),
