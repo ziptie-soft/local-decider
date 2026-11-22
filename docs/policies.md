@@ -24,10 +24,10 @@ flowchart LR
 | Policy | Asks | Rules (first match wins) | Default | Used by |
 |---|---|---|---|---|
 | `permission` | `verdict`: allow, ask, deny | allow at p ≥ 0.6 with precedent; allow at p ≥ 0.85; deny at confidence ≥ 0.8 | `ask` | Paseo `agent.permission.before`, hooks `PermissionRequest` |
-| `command-risk` | `risk`: safe, caution, dangerous | deny at confidence ≥ 0.7; ask at p(caution) ≥ 0.5; log safe at confidence ≥ 0.5 | `ask` | hooks `PreToolUse` |
-| `turn-outcome` | `outcome`: done, needs_input, stuck, failed | `log` done, `notify` the others, each at confidence ≥ 0.6 | `log` | Paseo `agent.turn.after`, hooks `Stop` and `SubagentResult` |
-| `routing` | `tier`: fast, standard, deep | route fast at 0.7, deep and standard at 0.5 (confidence) | `abstain` | Paseo `agent.create.before`, hooks `UserPromptSubmit` |
-| `routing-budget` | `tier`: cheap, standard, premium | route premium at 0.7, cheap and standard at 0.4 | `route:cheap` | variant of `routing` |
+| `command-risk` | `risk`: safe, caution, dangerous | deny at confidence ≥ 0.7; ask at p(caution) ≥ 0.5; log safe at confidence ≥ 0.64 | `ask` | hooks `PreToolUse` |
+| `turn-outcome` | `outcome`: done, needs_input, stuck, failed | `log` done, `notify` the others; done at confidence ≥ 0.6, needs_input, stuck and failed at ≥ 0.4 | `log` | Paseo `agent.turn.after`, hooks `Stop` and `SubagentResult` |
+| `routing` | `tier`: fast, standard, deep | route fast at 0.35, deep at 0.30, standard at 0.65 (confidence) | `abstain` | Paseo `agent.create.before`, hooks `UserPromptSubmit` |
+| `routing-budget` | `tier`: cheap, standard, premium | route premium at 0.35, cheap and standard at 0.45 | `abstain` | variant of `routing` |
 | `routing-task-kind` | `kind`: docs, ui, code, debug, plan | route docs, ui, debug, plan at 0.5, code at 0.4 | `abstain` | variant of `routing` |
 
 Adapters limit what each action can do. The permission hooks never deny from the model, and
@@ -35,11 +35,23 @@ Adapters limit what each action can do. The permission hooks never deny from the
 [architecture.md](architecture.md#one-decision).
 
 Only a confident `safe` passes `command-risk` silently. The 2B model rated `rm -rf build`,
-`chmod 600` and `rm notes.txt` safe at confidence 0.27-0.40, so a safe below 0.5 asks. In the
+`chmod 600` and `rm notes.txt` safe at confidence 0.27-0.40, so a safe below 0.64 asks. In the
 decision log (2026-11, 2,097 safe answers) safe confidence has p10 0.69, p25 0.79 and p50 0.89;
-3% fall below 0.5. Because the default is `ask`, a dangerous answer below 0.7 and a caution lead
-below p 0.5 also ask instead of logging. Move the floor with the `risk.safe` threshold (see
+3% fall below 0.5 (the floor was 0.5 until 2026-11-22). Because the default is `ask`, a
+dangerous answer below 0.7 and a caution lead below p 0.5 also ask instead of logging. Move the
+floor with the `risk.safe` threshold (see
 [Thresholds](#thresholds)).
+
+### Defaults changed in Q4 (2026-11-22)
+
+The defaults above were retuned against the fixtures. `minConfidence` c is p = (c(N-1)+1)/N for N
+options, so for three options 0.35 is p 0.567, 0.30 is p 0.533, 0.45 is p 0.633 and 0.65 is p 0.767.
+
+- To get the old `permission` allow back, set
+  `policies.permission.thresholds: { verdict.allow: 0.95 }` in `config.yaml` (the new default is 0.85).
+- To get the old budget fallback back, set `default: route:cheap` in a `routing-budget` override.
+- `routing-budget` now defaults to `abstain`, so when the engine fails or is unsure the request
+  keeps the model it asked for instead of being routed to the cheap tier.
 
 ## Modes
 
