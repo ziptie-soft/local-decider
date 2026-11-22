@@ -296,6 +296,26 @@ A bad `--min-pass` exits 2. A policy in `off` mode abstains without calling the 
 `--strict` refuses it (exit 1) instead of scoring it; without `--strict` it prints the message and
 exits 0. `check` validates one file without the gateway.
 
+### Fixtures and the CI gate
+
+`policies/fixtures/<policy>.jsonl` holds the cases for each default policy. The unit tests lint
+them. `mise run eval` scores them against a live server named by `LOCAL_DECIDER_EVAL_URL`.
+`mise run eval:record` also writes `policies/fixtures/recorded/<policy>.json`, the model's
+answers keyed by a hash of the state and questions. It refuses any model but the pinned
+reference (`strands-decider-2B-qwen3.5-v1-2610` on CPU) unless given `--force`.
+
+The CI gate (`test/eval-gate.test.ts`) replays the recordings through each policy, so it needs no
+model. It fails on a false allow, on a critical case that was not escalated, and on a class below
+its floor in `policies/fixtures/gate.json`. It also fails on a case with no recording. A
+recording goes stale whenever what the model sees changes: state building, redaction,
+truncation, criteria or questions. Re-record with `mise run eval:record` and review the diff.
+Thresholds and rules are applied at replay, so changing them needs no new recording.
+
+**Hints are biased.** Calibration hints (`stats`) learn only from `ask` decisions, because
+auto-allowed and logged decisions have no labelled outcome. The sample over-represents
+borderline cases and says little about the cases the policy already allows. Treat a hint as a
+prompt to look, and check a threshold change against the fixture eval, which is unbiased.
+
 ## Writing your own with an AI assistant
 
 `local-decider policies prompt routing` prints a prompt for any AI assistant. Paseo's settings

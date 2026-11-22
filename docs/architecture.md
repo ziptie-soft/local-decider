@@ -258,7 +258,10 @@ flowchart LR
   user's answer.
 - **Calibration hints.** For probability-based allow rules, `stats` may suggest a lower threshold
   when at least 100 escalated, labelled decisions meet it and the Wilson 95% upper bound on the
-  deny rate is at most 2%. It never changes the config.
+  deny rate is at most 2%. It never changes the config. The sample is biased: it holds only
+  escalated (`ask`) decisions, so it over-represents borderline cases and has no auto-allowed or
+  logged ones. Check a threshold change against the fixture eval
+  ([policies.md](policies.md#fixtures-and-the-ci-gate)).
 - **Calibration report.** `local-decider calibrate [--json]` fits a temperature per policy,
   engine and model from verified outcomes and stored probabilities. It reports Brier and ECE
   before and after, plus allow-threshold suggestions when data is sufficient. It writes no config.
