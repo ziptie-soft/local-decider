@@ -13,10 +13,12 @@ import { Fragment, useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
 
 import { HOOK_POLICIES, PLUGIN_MODES } from '../shared/constants.ts';
+import { modeMismatch } from '../shared/policies.ts';
 import { policyModeRpc } from '../shared/rpc.ts';
 import { deciderSettings } from '../shared/settings.ts';
 import { normaliseBaseUrl } from '../shared/url.ts';
 import { StatusSection } from './engine-state.tsx';
+import { useGatewayModes } from './policy-modes.ts';
 import { choices, type Save, type SectionProps } from './settings-common.ts';
 import { RowsSection, SidebarSection } from './settings-display.tsx';
 import { EngineSection } from './settings-engines.tsx';
@@ -66,8 +68,21 @@ function GatewaySection({ values, save }: SectionProps): ReactNode {
   );
 }
 
+/** A warning hint when the plugin is in act but the gateway is not; nothing otherwise. */
+function mismatchHint(
+  mode: 'off' | 'shadow' | 'act',
+  gatewayMode: 'off' | 'shadow' | 'act' | undefined,
+): { hint?: string } {
+  return modeMismatch(mode, gatewayMode) && gatewayMode !== undefined
+    ? {
+        hint: `Warning: the gateway runs this policy in ${gatewayMode}, so its decisions are not enforced. Choose Act again to set the gateway too.`,
+      }
+    : {};
+}
+
 function PolicySection({ values, save }: SectionProps): ReactNode {
   const setGatewayMode = useRpc(policyModeRpc);
+  const gatewayModes = useGatewayModes();
   return (
     <SettingsSection
       title="Policies"
@@ -78,6 +93,7 @@ function PolicySection({ values, save }: SectionProps): ReactNode {
           <Fragment key={policy}>
             <SettingsSelect
               label={policy}
+              {...mismatchHint(values.modes[policy], gatewayModes[policy])}
               value={values.modes[policy]}
               options={choices(PLUGIN_MODES, {
                 off: 'Off',

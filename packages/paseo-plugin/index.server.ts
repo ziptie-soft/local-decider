@@ -9,6 +9,7 @@ import {
   listEngines,
   readBenchmark,
   startBenchmark,
+  listPolicyModes,
   listPolicyThresholds,
   listPolicyVariants,
   policyPrompt,
@@ -49,6 +50,7 @@ import {
   permissionLabelRpc,
   lifecycleRpc,
   policyModeRpc,
+  policyModesRpc,
   policyThresholdsRpc,
   policyVariantRpc,
   policyVariantsRpc,
@@ -190,6 +192,7 @@ export default function contribute(server: PluginServerContext): () => void {
   server.handle(policyModeRpc, async (input) => setPolicyMode(deps, input));
   server.handle(policyVariantsRpc, async ({ policy }) => listPolicyVariants(deps, policy));
   server.handle(policyVariantRpc, async (input) => setPolicyVariant(deps, input));
+  server.handle(policyModesRpc, async () => listPolicyModes(deps));
   server.handle(policyThresholdsRpc, async ({ policy }) => listPolicyThresholds(deps, policy));
   server.handle(setPolicyThresholdsRpc, async (input) => setPolicyThresholds(deps, input));
   server.handle(reloadPoliciesRpc, async () => reloadPolicies(deps));

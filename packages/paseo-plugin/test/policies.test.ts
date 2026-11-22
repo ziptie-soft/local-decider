@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  listPolicyModes,
   listPolicyThresholds,
   listPolicyVariants,
   policyPrompt,
@@ -16,6 +17,9 @@ import { ALLOW_THRESHOLD } from '../shared/constants.ts';
 import {
   allowWarning,
   legacyPresetMoves,
+  mismatchLabel,
+  modeMismatch,
+  parsePolicyModes,
   parsePolicyThresholds,
   parsePolicyVariants,
   parseRoutingSettings,
@@ -150,6 +154,29 @@ describe('rule thresholds', () => {
     const input = { policy: 'permission', thresholds: { 'verdict.allow': null } };
     assert.deepEqual(await setPolicyThresholds(d, input), { ok: true, error: null });
     assert.deepEqual(gw.posts, [{ name: 'setPolicyThresholds', input }]);
+  });
+
+  it('maps the gateway run mode of each hook policy, and flags an act mismatch', async () => {
+    const listed = await listPolicyModes(
+      deps(
+        settings(),
+        fakeGateway(() => null),
+      ),
+    );
+    assert.deepEqual(listed, {
+      ok: true,
+      error: null,
+      modes: { permission: 'shadow', routing: 'act' },
+    });
+    const down = await listPolicyModes(deps(settings(), null));
+    assert.deepEqual([down.ok, down.modes], [false, {}]);
+    assert.equal(parsePolicyModes([]).ok, false);
+    assert.equal(modeMismatch('act', 'shadow'), true);
+    assert.equal(modeMismatch('act', 'off'), true);
+    assert.equal(modeMismatch('act', 'act'), false);
+    assert.equal(modeMismatch('act', undefined), false);
+    assert.equal(modeMismatch('shadow', 'off'), false);
+    assert.equal(mismatchLabel('shadow'), 'act · gateway shadow');
   });
 
   it('describes a rule and steps within its floor', () => {

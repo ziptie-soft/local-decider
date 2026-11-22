@@ -11,7 +11,9 @@ import {
 } from '../shared/constants.ts';
 import { engineTag } from '../shared/engines.ts';
 import { engineStateNote } from '../shared/lifecycle.ts';
+import { mismatchLabel, modeMismatch } from '../shared/policies.ts';
 import { type Status, useDeciderValues, useGatewayStatus, useServiceInfo } from './hooks.ts';
+import { useGatewayModes } from './policy-modes.ts';
 import { useServiceRun } from './service.tsx';
 import { Button, type Theme } from './ui.tsx';
 
@@ -51,27 +53,43 @@ const POLICY_LABELS: Record<(typeof HOOK_POLICIES)[number], string> = {
 
 const MODE_LABELS = { off: 'Off', shadow: 'Shadow', act: 'Act' } as const;
 
-function ModePill({ mode, theme }: { mode: keyof typeof MODE_LABELS; theme: Theme }): ReactNode {
+function ModePill({
+  mode,
+  gatewayMode,
+  theme,
+}: {
+  mode: keyof typeof MODE_LABELS;
+  gatewayMode: keyof typeof MODE_LABELS | undefined;
+  theme: Theme;
+}): ReactNode {
   const act = mode === 'act';
+  const mismatch = modeMismatch(mode, gatewayMode);
+  const label =
+    mismatch && gatewayMode !== undefined ? mismatchLabel(gatewayMode) : MODE_LABELS[mode];
   return (
     <View
+      accessibilityLabel={
+        mismatch
+          ? `Plugin mode act, but the gateway runs this policy in ${String(gatewayMode)}: decisions are not enforced`
+          : `Mode ${MODE_LABELS[mode]}`
+      }
       style={{
         paddingHorizontal: 8,
         paddingVertical: 1,
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: act ? theme.colors.statusWarning : theme.colors.border,
+        borderColor: mismatch || act ? theme.colors.statusWarning : theme.colors.border,
         opacity: mode === 'off' ? 0.6 : 1,
       }}
     >
       <Text
         style={{
-          color: act ? theme.colors.statusWarning : theme.colors.foregroundMuted,
+          color: mismatch || act ? theme.colors.statusWarning : theme.colors.foregroundMuted,
           fontSize: 11,
           lineHeight: 16,
         }}
       >
-        {MODE_LABELS[mode]}
+        {label}
       </Text>
     </View>
   );
@@ -175,6 +193,7 @@ export function QuickStatus(props: PluginPopoverProps): ReactNode {
   const styles = useStyles(theme);
   const { data, isFetching, refetch } = useGatewayStatus();
   const values = useDeciderValues();
+  const gatewayModes = useGatewayModes();
   const service = useServiceInfo();
   const hasService = service.data?.commands != null;
   const sub = subtitle(data, hasService);
@@ -205,7 +224,11 @@ export function QuickStatus(props: PluginPopoverProps): ReactNode {
             {values === null ? (
               <Text style={styles.caption}>…</Text>
             ) : (
-              <ModePill mode={values.modes[policy]} theme={theme} />
+              <ModePill
+                mode={values.modes[policy]}
+                gatewayMode={gatewayModes[policy]}
+                theme={theme}
+              />
             )}
           </View>
         ))}
