@@ -267,11 +267,35 @@ function useRowStyles(row: DecisionRow, theme: Theme): Record<'box' | 'title' | 
   }, [row.attention, row.applied, theme]);
 }
 
-export function DecisionRowView({
-  item,
-  theme,
-  agentId,
-}: PluginTimelineItemProps<DecisionRow>): ReactNode {
+/** A row without a decision (deciding…, skipped): muted, no chips, nothing to expand. */
+function PlaceholderRow({ row, theme }: { row: DecisionRow; theme: Theme }): ReactNode {
+  return (
+    <View
+      style={{
+        borderLeftWidth: 2,
+        borderLeftColor: theme.colors.border,
+        paddingLeft: 8,
+        paddingVertical: 2,
+      }}
+      accessibilityLabel={`Local decider: ${rowSummary(row)}`}
+    >
+      <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }} numberOfLines={1}>
+        {'◇ '}
+        {rowSummary(row)}
+      </Text>
+    </View>
+  );
+}
+
+export function DecisionRowView(props: PluginTimelineItemProps<DecisionRow>): ReactNode {
+  return props.item.data.state === 'decided' ? (
+    <DecidedRowView {...props} />
+  ) : (
+    <PlaceholderRow row={props.item.data} theme={props.theme} />
+  );
+}
+
+function DecidedRowView({ item, theme, agentId }: PluginTimelineItemProps<DecisionRow>): ReactNode {
   const values = useDeciderValues();
   const [labelled, setLabelled] = useState<LabelChoice | null>(null);
   const row = item.data;
