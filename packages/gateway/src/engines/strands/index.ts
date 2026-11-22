@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
@@ -9,6 +9,7 @@ import { hfCacheDir, hfCached } from './hf-cache.ts';
 import { resolveStrandsDevice } from './mlx.ts';
 import { MODELS, hfDownloadArgs, isTransformersModel } from './models.ts';
 import { StrandsDeciderEngine, strandsBinary } from './server.ts';
+import { strandsVenvPackages } from './venv.ts';
 
 export const DEFAULT_MODEL = 'StrandsAgents/strands-decider-2B-qwen3.5-v1-2610';
 
@@ -101,37 +102,12 @@ export const strandsEngine = defineEngine({
   create: (config, ctx) => new StrandsDeciderEngine(config, ctx.paths, ctx.tools, ctx.host),
 });
 
-function packageVersion(names: readonly string[], packages: readonly string[]): string | null {
-  for (const name of names) {
-    const lower = name.toLowerCase();
-    for (const pkg of packages) {
-      const prefix = `${pkg}-`;
-      if (lower.startsWith(prefix) && lower.endsWith('.dist-info')) {
-        return name.slice(prefix.length, -'.dist-info'.length);
-      }
-    }
-  }
-  return null;
-}
-
 function strandsRuntimeVersion(ctx: EngineContext): string | null {
-  const venv = join(ctx.paths.venvs, 'strands-decider');
-  try {
-    const pyDirs = readdirSync(join(venv, 'lib')).filter((name) => /^python3\.\d+$/.test(name));
-    for (const version of pyDirs) {
-      const site = join(venv, 'lib', version, 'site-packages');
-      const names = readdirSync(site);
-      const strands = packageVersion(names, ['strands_decider', 'strands-decider']);
-      if (strands === null) continue;
-      const torch = packageVersion(names, ['torch']);
-      return torch === null
-        ? `strands-decider ${strands}`
-        : `strands-decider ${strands}, torch ${torch}`;
-    }
-  } catch {
-    return null;
-  }
-  return null;
+  const packages = strandsVenvPackages(ctx.paths);
+  if (packages?.strands === null || packages === null) return null;
+  return packages.torch === null
+    ? `strands-decider ${packages.strands}`
+    : `strands-decider ${packages.strands}, torch ${packages.torch}`;
 }
 
 function hubCachePath(ctx: EngineContext): string {

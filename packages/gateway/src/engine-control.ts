@@ -80,6 +80,7 @@ import {
 import { rankEngines, type Ranking } from './engines/selector.ts';
 import { resolveStrandsDevice, type DeviceResolution } from './engines/strands/mlx.ts';
 import { strandsBinary } from './engines/strands/server.ts';
+import { strandsPinMismatch } from './engines/strands/venv.ts';
 import type { Engine } from './engines/types.ts';
 import { catalogModel, MEMORY_BUDGET, modelFits, modelMemoryGb } from './models.ts';
 import type { Paths } from './paths.ts';
@@ -1476,7 +1477,9 @@ export class EngineControl implements BenchmarkHost {
         installed: strandsInstalled,
         available: strandsInstalled,
         detail: strandsInstalled
-          ? this.#tools.strandsDecider
+          ? [this.#tools.strandsDecider, strandsPinMismatch(this.#paths)]
+              .filter((part) => part != null)
+              .join(' — ')
           : 'Not found on PATH or in the local-decider venv; run `local-decider engine install`.',
         validation: null,
         ...(strandsInstalled ? {} : { installUrl: STRANDS_INSTALL_URL }),

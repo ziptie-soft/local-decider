@@ -1820,6 +1820,19 @@ describe('EngineControl state', () => {
     assert.equal(created.length, engines, 'the running strands-decider engine is not restarted');
   });
 
+  it('says in the engine detail when the strands venv does not match the pin', async () => {
+    const paths = tempPaths();
+    const site = join(paths.venvs, 'strands-decider', 'lib', 'python3.12', 'site-packages');
+    mkdirSync(join(site, 'strands_decider-0.0.1.dist-info'), { recursive: true });
+    const { control } = setup({ paths, host: LINUX_HOST });
+    const status = await control.status();
+    const row = (status['engines'] as { id: string; installed: boolean; detail: string }[]).find(
+      (engine) => engine.id === 'strands-decider',
+    );
+    assert.equal(row?.installed, true);
+    assert.match(row?.detail ?? '', /strands-decider venv has 0\.0\.1, pinned \d.*engine install/);
+  });
+
   it('uses a llama-vulkan binary set only in engine config for availability, ranking and selection', async () => {
     const paths = tempPaths();
     const fake = join(paths.data, 'custom', 'my-llama');
