@@ -27,7 +27,7 @@ export type SkipReason = (typeof SKIP_REASONS)[number];
 export const decisionRowSchema = z.object({
   decisionId: z.string(),
   policy: z.string(),
-  source: z.enum(['turn', 'permission', 'manual']),
+  source: z.enum(['turn', 'permission', 'manual', 'routing']),
   /** Primary answer and its confidence, if the engine answered. */
   question: z.string(),
   answer: z.string(),
@@ -196,6 +196,9 @@ function leaning(row: DecisionRow): string {
 
 /** What happened: permission rows say whether we allowed or left it to the user. */
 function outcome(row: DecisionRow): string {
+  if (row.source === 'routing') {
+    return row.note ?? row.action;
+  }
   if (row.source !== 'permission') {
     return row.action;
   }

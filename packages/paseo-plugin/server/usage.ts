@@ -6,7 +6,7 @@
  */
 import type { PluginHookAgent } from '@getpaseo/plugin/server';
 
-import type { UsageReport } from '../shared/decision.ts';
+import type { DecideResponse, UsageReport } from '../shared/decision.ts';
 import { errorText, type AgentRefLike, type HookDeps, type PaseoLike } from './deps.ts';
 import { BoundedMap, BoundedSet } from './limits.ts';
 
@@ -14,11 +14,21 @@ import { BoundedMap, BoundedSet } from './limits.ts';
 const LINK_TTL_MS = 60_000;
 const REPORT_TIMEOUT_MS = 5000;
 
+/** What routing decided for a created agent, once `agent.create.after` links it. */
+export interface RoutingLink {
+  /** The routing decision (null: none), already bounded by routing's own timeouts. */
+  readonly decision: Promise<DecideResponse | null>;
+  /** Routing changed the new agent's config. */
+  readonly applied: boolean;
+  /** What routing did, in words; null in shadow or when it just routed as decided. */
+  readonly note: string | null;
+}
+
 interface PendingLink {
-  readonly decision: Promise<string | null>;
+  readonly decision: Promise<DecideResponse | null>;
   readonly at: number;
-  /** Set by routing once it changed the new agent's config. */
   applied: boolean;
+  note: string | null;
 }
 
 export class UsageLinks {
@@ -33,30 +43,50 @@ export class UsageLinks {
     this.#now = now;
   }
 
-  /** `agent.create.before`: the routing decision (its id, or null) for the agent being created. */
-  creating(cwd: string, title: string | null | undefined, decision: Promise<string | null>): void {
-    this.#creating.set(linkKey(cwd, title), { decision, at: this.#now(), applied: false });
+  /** `agent.create.before`: the routing decision (null: none) for the agent being created. */
+  creating(
+    cwd: string,
+    title: string | null | undefined,
+    decision: Promise<DecideResponse | null>,
+  ): void {
+    this.#creating.set(linkKey(cwd, title), {
+      decision,
+      at: this.#now(),
+      applied: false,
+      note: null,
+    });
   }
 
-  /** `agent.create.before`: routing changed this agent's config. */
-  applied(cwd: string, title: string | null | undefined): void {
+  /** `agent.create.before`: what routing did to this agent's config, in words. */
+  outcome(
+    cwd: string,
+    title: string | null | undefined,
+    result: { applied: boolean; note: string },
+  ): void {
     const pending = this.#creating.get(linkKey(cwd, title));
     if (pending !== undefined) {
-      pending.applied = true;
+      pending.applied = result.applied;
+      pending.note = result.note;
     }
   }
 
   /**
-   * `agent.create.after`: attach the pending decision to the new agent's id. True when routing
-   * changed that agent's config.
+   * `agent.create.after`: attach the pending decision to the new agent's id. Null without a fresh
+   * link.
    */
-  created(agent: Pick<PluginHookAgent, 'id' | 'cwd' | 'title'>): boolean {
+  created(agent: Pick<PluginHookAgent, 'id' | 'cwd' | 'title'>): RoutingLink | null {
     const pending = this.#creating.take(linkKey(agent.cwd, agent.title));
     if (pending === undefined || this.#now() - pending.at >= LINK_TTL_MS) {
-      return false;
+      return null;
     }
-    this.#agents.set(agent.id, pending.decision);
-    return pending.applied;
+    this.#agents.set(
+      agent.id,
+      pending.decision.then(
+        (r) => r?.decisionId ?? null,
+        () => null,
+      ),
+    );
+    return { decision: pending.decision, applied: pending.applied, note: pending.note };
   }
 
   /** `agent.turn.after`: report the finished turn's usage when the agent has a decision. */

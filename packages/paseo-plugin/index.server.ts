@@ -31,6 +31,7 @@ import { LabelRegistry, recordPermissionLabel } from './server/labels.ts';
 import { createOpenHandler } from './server/open.ts';
 import { createPermissionHandlers } from './server/permission.ts';
 import { preloadOnStart } from './server/preload.ts';
+import { drawRoutingRow } from './server/routing-row.ts';
 import { createRoutingHandler } from './server/routing.ts';
 import { createStatusHandler, manualDecide, recordFeedback, statsText } from './server/rpc.ts';
 import { defaultServiceEnv, runService, serviceInfo } from './server/service.ts';
@@ -146,11 +147,19 @@ export default function contribute(server: PluginServerContext): () => void {
     void usage.turnEnded(deps, event, ctx.paseo);
     return onTurn(event, ctx);
   });
-  server.addHook('agent.create.after', async ({ agent }) => {
+  server.addHook('agent.create.after', async ({ agent }, ctx) => {
+    const link = usage.created(agent);
+    if (link === null) {
+      return;
+    }
     // Measures how often delegation correlation missed: a routed agent that has a parent.
-    if (usage.created(agent) && agent.parentAgentId !== null) {
+    if (link.applied && agent.parentAgentId !== null) {
       log(`routing applied to delegated agent ${agent.id}`);
     }
+    // Detached and fail-open: the row waits on the decision, and a failed append only logs.
+    void drawRoutingRow(deps, ctx.paseo, agent.id, link).catch((error: unknown) => {
+      log(`routing row not drawn: ${String(error)}`);
+    });
   });
   server.addHook('agent.permission.before', async (event, ctx) => permission.before(event, ctx));
   server.addHook('agent.permission.after', async (event) => permission.after(event));
