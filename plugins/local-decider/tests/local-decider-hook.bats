@@ -106,3 +106,53 @@ setup() {
   [ "$status" -eq 0 ]
   [ -z "$output" ] || { printf 'expected empty stdout (node not run), got %s\n' "$output"; return 1; }
 }
+
+@test "the mise node shim runs from the plugin root" {
+  mkdir -p "$home/.local/share/mise/shims" "$tmp/workspace"
+  # shellcheck disable=SC2016
+  printf '#!/bin/sh\necho "pwd:$PWD"\n' >"$home/.local/share/mise/shims/node"
+  chmod +x "$home/.local/share/mise/shims/node"
+  cd "$tmp/workspace"
+  run env HOME="$home" PATH="$sysbin" /bin/sh "$tmp/plugin/hooks/local-decider-hook.sh" claude Stop
+  [ "$status" -eq 0 ]
+  local expected="pwd:$tmp/plugin"
+  [ "$output" = "$expected" ] || { printf 'expected %s, got %s\n' "$expected" "$output"; return 1; }
+}
+
+@test "a node on PATH keeps the caller's working directory" {
+  # shellcheck disable=SC2016
+  printf '#!/bin/sh\necho "pwd:$PWD"\n' >"$fakebin/node"
+  mkdir -p "$tmp/workspace"
+  cd "$tmp/workspace"
+  run env HOME="$home" PATH="$fakebin:$sysbin" /bin/sh "$tmp/plugin/hooks/local-decider-hook.sh" claude Stop
+  [ "$status" -eq 0 ]
+  local expected="pwd:$tmp/workspace"
+  [ "$output" = "$expected" ] || { printf 'expected %s, got %s\n' "$expected" "$output"; return 1; }
+}
+
+# The Codex hooks file locates the launcher through PLUGIN_ROOT (native) or CLAUDE_PLUGIN_ROOT
+# (compat alias). Run each command string through sh the way the harness does.
+codex_command() {
+  local hooks_file="$BATS_TEST_DIRNAME/../hooks/codex-hooks.json"
+  sed -n 's/.*"command": "\(.*\)",\{0,1\}$/\1/p' "$hooks_file" | sed 's/\\"/"/g' | grep ' Stop$'
+}
+
+@test "the Codex hook command expands with only PLUGIN_ROOT set" {
+  local cmd
+  cmd=$(codex_command)
+  ln -s /bin/sh "$sysbin/sh"
+  run env -u CLAUDE_PLUGIN_ROOT HOME="$home" PATH="$fakebin:$sysbin" PLUGIN_ROOT="$tmp/plugin" /bin/sh -c "$cmd"
+  [ "$status" -eq 0 ]
+  local expected="node:$tmp/plugin/dist/local-decider-hook.mjs codex Stop"
+  [ "$output" = "$expected" ] || { printf 'expected %s, got %s\n' "$expected" "$output"; return 1; }
+}
+
+@test "the Codex hook command expands with only CLAUDE_PLUGIN_ROOT set" {
+  local cmd
+  cmd=$(codex_command)
+  ln -s /bin/sh "$sysbin/sh"
+  run env -u PLUGIN_ROOT HOME="$home" PATH="$fakebin:$sysbin" CLAUDE_PLUGIN_ROOT="$tmp/plugin" /bin/sh -c "$cmd"
+  [ "$status" -eq 0 ]
+  local expected="node:$tmp/plugin/dist/local-decider-hook.mjs codex Stop"
+  [ "$output" = "$expected" ] || { printf 'expected %s, got %s\n' "$expected" "$output"; return 1; }
+}
