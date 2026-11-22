@@ -21,6 +21,7 @@ import {
   formatEngineList,
   planInstall,
 } from './cli-engine.ts';
+import { labelCommand } from './cli-label.ts';
 import { logsCommand } from './cli-logs.ts';
 import { explainCommand, reviewCommand } from './cli-review.ts';
 import {
@@ -95,6 +96,7 @@ Usage:
   local-decider explain <decision-id|call-id> [--json]  why a decision came out as it did (hash-only)
   local-decider review [--days N] [--policy ID] [--scope S] [--limit N] [--verified] [--json]
                                      decisions your labels or the classifier contradict
+  local-decider label <decision-id> unsafe [--yes]   record a verified unsafe label (local gateway only)
   local-decider logs backup <file> | export [--since YYYY-MM-DD] <dir>
   local-decider policies [check <file>]             list policies, or validate a policy file
   local-decider policies eval <policy> <file> [--strict] [--min-pass 0.8]  score JSONL fixtures
@@ -701,6 +703,14 @@ async function dispatch(command: string, ctx: Context): Promise<void> {
     calibrate: calibrateCommand,
     explain: async (c) => console.log(explainCommand(c)),
     review: async (c) => console.log(reviewCommand(c)),
+    label: async (c) =>
+      console.log(
+        await labelCommand({
+          ...c,
+          url: gatewayUrl(c.config),
+          isTty: process.stdin.isTTY && process.stderr.isTTY,
+        }),
+      ),
     logs: async (c) => logsCommand(c.paths, c.args),
     policies,
     bench: benchCmd,

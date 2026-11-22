@@ -20,7 +20,7 @@ export interface ReviewEnv {
 }
 
 /** `parseArgs` that reports a bad flag or a missing value as a usage error (exit 2). */
-function parseCommandArgs<const T extends ParseArgsOptionsConfig>(
+export function parseCommandArgs<const T extends ParseArgsOptionsConfig>(
   args: readonly string[],
   options: T,
 ): ReturnType<typeof parseArgs<{ args: string[]; options: T; allowPositionals: true }>> {
@@ -35,7 +35,7 @@ function parseCommandArgs<const T extends ParseArgsOptionsConfig>(
  * Read the store without migrating or writing it; a fresh install has no database file yet and
  * reads as an empty store (`undefined`).
  */
-function withReadOnlyStore<T>(paths: Paths, use: (log: LogStore | undefined) => T): T {
+export function withReadOnlyStore<T>(paths: Paths, use: (log: LogStore | undefined) => T): T {
   if (!existsSync(join(paths.data, 'decider.db'))) {
     return use(undefined);
   }
