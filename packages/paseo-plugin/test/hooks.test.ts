@@ -10,13 +10,12 @@ import { describe, it } from 'node:test';
 import { Background } from '../server/background.ts';
 import type { HookDeps } from '../server/deps.ts';
 import { LabelRegistry } from '../server/labels.ts';
-import { mcpServerConfig } from '../server/mcp.ts';
 import { createOpenHandler, hostEnv } from '../server/open.ts';
 import { allowResponse, createPermissionHandlers } from '../server/permission.ts';
 import { createRoutingHandler, type CreateRequest } from '../server/routing.ts';
 import { createStatusHandler, manualDecide } from '../server/rpc.ts';
 import { createTurnHandler, pluginEnforces } from '../server/turn.ts';
-import { POLICY_WRITER_TITLE } from '../shared/constants.ts';
+import { AGENT_TOOL_NAMES, POLICY_WRITER_LABEL, POLICY_WRITER_TITLE } from '../shared/constants.ts';
 import { ctx, deps, fakeGateway, fakePaseo, response, settings, withConfigDir } from './fakes.ts';
 
 type Paseo = ReturnType<typeof fakePaseo>;
@@ -1176,16 +1175,52 @@ const open = (purpose: 'interactive' | 'history'): { request: PluginSessionOpenR
 });
 
 describe('agent.open.before', () => {
-  it('injects the gateway MCP server only when enabled', async () => {
+  it('attaches the agent tools only when enabled', async () => {
     const gw = fakeGateway(() => null);
-    const on = createOpenHandler(deps(settings({ injectMcp: true }), gw));
+    const on = createOpenHandler(deps(settings({ agentTools: true }), gw));
     const out = await on(open('interactive'));
-    assert.deepEqual(out?.mcpServers, {
-      'local-decider': { type: 'http', url: 'http://127.0.0.1:8765/mcp' },
-    });
+    assert.deepEqual(
+      out?.tools.map((tool) => tool.name),
+      [...AGENT_TOOL_NAMES],
+    );
     assert.equal(await on(open('history')), undefined);
     const off = await createOpenHandler(deps(settings(), gw))(open('interactive'));
+    assert.deepEqual(off?.tools, []);
     assert.deepEqual(off?.mcpServers, {});
+  });
+
+  it('keeps the policy-writer agent free of tools but still sets the env', async () => {
+    const gw = fakeGateway(() => null);
+    const request = open('interactive').request;
+    const policyWriter = {
+      request: { ...request, labels: { [POLICY_WRITER_LABEL]: 'policy-writer' } },
+    };
+    const out = await createOpenHandler(deps(settings({ agentTools: true }), gw))(policyWriter);
+    assert.deepEqual(out?.tools, []);
+    assert.equal(out?.env['LOCAL_DECIDER_HOST_POLICIES'], 'turn-outcome,permission,routing');
+  });
+
+  it('does no gateway I/O when an agent opens', async () => {
+    const gw = fakeGateway(() => null);
+    await createOpenHandler(deps(settings({ agentTools: true }), gw))(open('interactive'));
+    assert.equal(gw.agentCalls.length, 0);
+    assert.equal(gw.calls.length, 0);
+  });
+
+  it('names tools to fit the SDK pattern and carries no URL or token', async () => {
+    const gw = fakeGateway(() => null);
+    const out = await createOpenHandler(deps(settings({ agentTools: true }), gw))(
+      open('interactive'),
+    );
+    for (const tool of out?.tools ?? []) {
+      assert.match(tool.name, /^[a-z][a-z0-9_]*$/);
+      assert.ok(tool.name.startsWith('local_decider_'));
+    }
+    const json = JSON.stringify(out, (_key, value: unknown) =>
+      typeof value === 'function' ? undefined : value,
+    );
+    assert.doesNotMatch(json, /127\.0\.0\.1|8765|token|bearer/i);
+    assert.deepEqual(out?.mcpServers, {});
   });
 
   it('tells the harness hooks which policies Paseo runs', async () => {
@@ -1201,32 +1236,6 @@ describe('agent.open.before', () => {
       env['LOCAL_DECIDER_HOST_POLICIES'],
       'command-risk,routing,turn-outcome,permission',
     );
-  });
-
-  it('never puts tokens in an agent MCP config', () => {
-    assert.deepEqual(mcpServerConfig('http://127.0.0.1:8765'), {
-      type: 'http',
-      url: 'http://127.0.0.1:8765/mcp',
-    });
-    assert.equal('headers' in mcpServerConfig('https://h'), false);
-  });
-
-  it('skips MCP injection when it is remote or needs a bearer token', async () => {
-    const local = fakeGateway(() => null);
-    const localDeps = deps(settings({ injectMcp: true }), local);
-    assert.deepEqual((await createOpenHandler(localDeps)(open('interactive')))?.mcpServers, {
-      'local-decider': { type: 'http', url: 'http://127.0.0.1:8765/mcp' },
-    });
-
-    const remote = { ...local, baseUrl: 'https://gw.example:8443' };
-    const remoteDeps = deps(settings({ injectMcp: true }), remote);
-    assert.deepEqual((await createOpenHandler(remoteDeps)(open('interactive')))?.mcpServers, {});
-    assert.match(remoteDeps.logs[0] ?? '', /https:\/\/gw\.example:8443 is not loopback/);
-
-    const bearerGateway = { ...local, bearer: true };
-    const bearerDeps = deps(settings({ injectMcp: true }), bearerGateway);
-    assert.deepEqual((await createOpenHandler(bearerDeps)(open('interactive')))?.mcpServers, {});
-    assert.match(bearerDeps.logs[0] ?? '', /needs a bearer token/);
   });
 });
 

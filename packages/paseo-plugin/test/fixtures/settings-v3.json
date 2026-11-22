@@ -1,0 +1,9 @@
+{
+  "gatewayUrl": "http://127.0.0.1:9000",
+  "modes": { "turn-outcome": "shadow", "permission": "act", "routing": "off" },
+  "presets": { "fast": { "model": "haiku", "modeId": "default" } },
+  "injectMcp": true,
+  "preloadOnStart": true,
+  "sidebar": { "position": "footer", "label": "full", "press": "popover" },
+  "rows": { "show": "off", "details": false, "feedback": true }
+}

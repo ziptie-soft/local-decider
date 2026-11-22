@@ -55,7 +55,11 @@ export const settingsSchema = z.object({
     .record(presetName, preset)
     .refine((p) => Object.keys(p).length <= 64, { message: 'at most 64 presets' })
     .default({}),
-  injectMcp: z.boolean().default(false),
+  /**
+   * Give Paseo agents `decide`, `explain` and `policies` as plugin tools, served through Paseo's
+   * own `paseo` MCP server. Off by default: three tool descriptions cost context in every agent.
+   */
+  agentTools: z.boolean().default(false),
   /** Ask the gateway to load its model when Paseo (and so this plugin) starts. */
   preloadOnStart: z.boolean().default(false),
   sidebar,
@@ -80,11 +84,24 @@ export function migrateSettings(values: unknown): unknown {
   return rest;
 }
 
-export const SETTINGS_VERSION = 3;
+/**
+ * v4 retired the injected gateway MCP server for the agent tools: `injectMcp: true` becomes
+ * `agentTools: true` (an explicit `agentTools` wins), and `injectMcp` is dropped.
+ */
+function migrateInjectMcp(values: unknown): unknown {
+  if (typeof values !== 'object' || values === null || Array.isArray(values)) {
+    return values;
+  }
+  const { injectMcp, ...rest } = values as Record<string, unknown>;
+  return injectMcp === true && !('agentTools' in rest) ? { ...rest, agentTools: true } : rest;
+}
 
-/** `defineSettings` migrate hook: anything stored before v3 loses the engine-choice fields. */
+export const SETTINGS_VERSION = 4;
+
+/** `defineSettings` migrate hook: v3 drops the engine-choice fields, v4 swaps `injectMcp`. */
 export function migrateStored(values: unknown, fromVersion: number): unknown {
-  return fromVersion < SETTINGS_VERSION ? migrateSettings(values) : values;
+  const v3 = fromVersion < 3 ? migrateSettings(values) : values;
+  return fromVersion < 4 ? migrateInjectMcp(v3) : v3;
 }
 
 export type DeciderSettings = z.output<typeof settingsSchema>;
