@@ -82,7 +82,7 @@ export interface CalibrationHint {
 }
 
 /** The answer an outcome labels: the first answer whose option space contains the outcome. */
-function labelledAnswer(record: ShadowRecord, outcome: string): Answer | undefined {
+export function labelledAnswer(record: ShadowRecord, outcome: string): Answer | undefined {
   return Object.values(record.answers).find((answer) => outcome in answer.probabilities);
 }
 

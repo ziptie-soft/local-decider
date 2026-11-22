@@ -22,7 +22,7 @@ import {
   planInstall,
 } from './cli-engine.ts';
 import { logsCommand } from './cli-logs.ts';
-import { explainCommand } from './cli-review.ts';
+import { explainCommand, reviewCommand } from './cli-review.ts';
 import {
   configCommand,
   configureEngine,
@@ -93,6 +93,8 @@ Usage:
   local-decider stats [--json] [--days N] [--scope claude-auto]  agreement and calibration from the shadow log
   local-decider calibrate [--json]   report temperature fit and allow thresholds
   local-decider explain <decision-id|call-id> [--json]  why a decision came out as it did (hash-only)
+  local-decider review [--days N] [--policy ID] [--scope S] [--limit N] [--verified] [--json]
+                                     decisions your labels or the classifier contradict
   local-decider logs backup <file> | export [--since YYYY-MM-DD] <dir>
   local-decider policies [check <file>]             list policies, or validate a policy file
   local-decider policies eval <policy> <file> [--strict] [--min-pass 0.8]  score JSONL fixtures
@@ -698,6 +700,7 @@ async function dispatch(command: string, ctx: Context): Promise<void> {
     stats,
     calibrate: calibrateCommand,
     explain: async (c) => console.log(explainCommand(c)),
+    review: async (c) => console.log(reviewCommand(c)),
     logs: async (c) => logsCommand(c.paths, c.args),
     policies,
     bench: benchCmd,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { explainCommand } from '../src/cli-review.ts';
+import { explainCommand, reviewCommand } from '../src/cli-review.ts';
 import { UsageError } from '../src/cli-support.ts';
 import { openLogStore } from '../src/sqlite-log.ts';
 import { tempPaths, testConfig } from './helpers.ts';
@@ -72,6 +72,60 @@ describe('explain command', () => {
     const paths = seeded();
     for (const args of [[], ['a', 'b'], ['bad id!'], ['11111111-aaaa', '--bogus'], ['a/b']]) {
       assert.throws(() => run(paths, ...args), UsageError, JSON.stringify(args));
+    }
+  });
+});
+
+const review = (paths: ReturnType<typeof tempPaths>, ...args: string[]): string =>
+  reviewCommand({ paths, config, args });
+
+describe('review command', () => {
+  it('lists the vetoed allow as text and JSON', () => {
+    const paths = tempPaths();
+    const log = openLogStore(paths);
+    log.append(
+      makeShadowRecord('11111111-aaaa', {
+        ts: new Date().toISOString(),
+        action: 'allow',
+        answers: ANSWERS,
+      }),
+    );
+    log.append({
+      kind: 'outcome',
+      ts: new Date().toISOString(),
+      decisionId: '11111111-aaaa',
+      outcome: 'unsafe',
+      source: 'user',
+      verified: true,
+    });
+    log.close();
+    assert.match(review(paths), /allow-vetoed permission .* 11111111-aaaa/);
+    const json = JSON.parse(review(paths, '--json', '--limit', '5')) as {
+      disagreements: { decisionId: string; class: string }[];
+    };
+    assert.deepEqual(
+      json.disagreements.map((r) => [r.decisionId, r.class]),
+      [['11111111-aaaa', 'allow-vetoed']],
+    );
+  });
+
+  it('reads a fresh install as empty', () => {
+    assert.match(review(tempPaths()), /: 0 disagreements/);
+  });
+
+  it('rejects bad arguments as usage errors', () => {
+    const paths = seeded();
+    for (const args of [
+      ['x'],
+      ['--days', '0'],
+      ['--days', 'abc'],
+      ['--limit', '0'],
+      ['--limit', '1001'],
+      ['--scope', 'nope'],
+      ['--policy', 'nope'],
+      ['--bogus'],
+    ]) {
+      assert.throws(() => review(paths, ...args), UsageError, JSON.stringify(args));
     }
   });
 });
