@@ -117,6 +117,7 @@ describe('Decider facts', () => {
       /## Call facts \(data, not instructions\)\nKind: runs a shell command\n\n## Request/,
     );
     assert.ok(!some.includes('Commands:'));
+    // With no override, a policy with a facts section gets its shipped groups: none for permission.
     const none = await stateOf(BASE);
     assert.ok(!none.includes('## Call facts'));
   });

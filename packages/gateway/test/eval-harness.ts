@@ -1,4 +1,4 @@
-import type { DecideRequest, FactGroup } from '@ziptie-soft/local-decider-core';
+import type { DecideRequest, FactGroup, Policy } from '@ziptie-soft/local-decider-core';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,15 +52,41 @@ const NO_LOG: LogStore = {
   close: () => undefined,
 };
 
+export type FactsPosition = 'before' | 'after';
+
+/**
+ * The A/B variant: a policy that does not read `facts` gets a `Call facts` section when groups are
+ * selected, before its last section (the request, which keeps first claim on the budget) or after
+ * it. Shipped YAMLs are not touched, so a run without groups is the shipped policy.
+ */
+function withFactsSection(
+  policy: Policy,
+  facts: readonly FactGroup[] | undefined,
+  position: FactsPosition,
+): Policy {
+  const sections = policy.state.sections;
+  if (facts === undefined || facts.length === 0 || sections.some((s) => s.from === 'facts')) {
+    return policy;
+  }
+  const section = { label: 'Call facts', from: 'facts', keep: 'head' as const, critical: false };
+  const last = sections.length - 1;
+  const placed =
+    position === 'after'
+      ? [...sections, section]
+      : [...sections.slice(0, last), section, ...sections.slice(last)];
+  return { ...policy, state: { ...policy.state, sections: placed } };
+}
+
 /** One policy in shadow mode with caching off, answered by `engine`. */
 function deciderFor(
   policyId: string,
   engine: Engine,
   facts: readonly FactGroup[] | undefined,
+  position: FactsPosition,
 ): Decider {
   const policy = loadPolicyFile(join(POLICIES_DIR, `${policyId}.yaml`));
   const loaded: LoadedPolicy = {
-    policy: { ...policy, cache: { ttlSeconds: 0 } },
+    policy: { ...withFactsSection(policy, facts, position), cache: { ttlSeconds: 0 } },
     mode: 'shadow',
     source: policyId,
   };
@@ -84,6 +110,8 @@ export interface EvalFixtureOptions {
   readonly onCase?: (id: string) => void;
   /** Fact groups the decider derives for policies with a `facts` section; default the shipped set. */
   readonly facts?: readonly FactGroup[];
+  /** Where an A/B facts section goes relative to the request; default before. */
+  readonly factsPosition?: FactsPosition;
 }
 
 /** Decide every case of `policies/fixtures/<policyId>.jsonl` through `engine`. */
@@ -96,7 +124,7 @@ export async function evalFixture(
   const ids = new Map<DecideRequest['input'], string>(
     cases.map((testCase, index) => [testCase.input, testCase.id ?? String(index + 1)]),
   );
-  const decider = deciderFor(policyId, engine, options.facts);
+  const decider = deciderFor(policyId, engine, options.facts, options.factsPosition ?? 'before');
   return runPolicyEval(
     policyId,
     cases,

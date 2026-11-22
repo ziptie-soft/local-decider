@@ -10,7 +10,7 @@ import { FACT_GROUPS, type FactGroup } from '@ziptie-soft/local-decider-core';
  *
  * `--out <dir>` writes `<policy>.json` (a recording) and `<policy>.results.json` (`EvalResult[]`)
  * there instead of to `policies/fixtures/recorded/`, for `eval-compare.ts`. `--facts <groups>` (a
- * comma-separated list) selects the fact groups the gateway derives (they reach the model only through a
+ * comma-separated list) selects (with `--facts-position before|after` the request) the fact groups the gateway derives (they reach the model only through a
  * policy `facts` section); it cannot be combined with `--record`, so only the shipped set is recorded.
  */
 import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
@@ -28,6 +28,7 @@ import {
   evalFixture,
   floorsFor,
   isReferenceModel,
+  type FactsPosition,
 } from './eval-harness.ts';
 
 interface Target {
@@ -93,7 +94,8 @@ function parseFacts(value: string | undefined): readonly FactGroup[] {
 interface RunOptions {
   readonly record: boolean;
   readonly outDir: string | undefined;
-  readonly facts: readonly FactGroup[];
+  readonly facts?: readonly FactGroup[];
+  readonly factsPosition: FactsPosition;
 }
 
 async function runPolicy(policyId: string, target: Target, options: RunOptions): Promise<boolean> {
@@ -106,7 +108,8 @@ async function runPolicy(policyId: string, target: Target, options: RunOptions):
   const recorder = new RecordingEngine(remote);
   console.log(`\n== ${policyId}`);
   const results = await evalFixture(policyId, recorder, {
-    facts: options.facts,
+    ...(options.facts === undefined ? {} : { facts: options.facts }),
+    factsPosition: options.factsPosition,
     report: (line) => console.log(line),
     onCase: (id) => {
       recorder.label = id;
@@ -149,12 +152,13 @@ function writeRecording(
 async function main(): Promise<number> {
   const { values } = parseArgs({
     options: {
-      policy: { type: 'string' },
-      record: { type: 'boolean' },
-      force: { type: 'boolean' },
-      model: { type: 'string' },
-      out: { type: 'string' },
-      facts: { type: 'string' },
+      'policy': { type: 'string' },
+      'record': { type: 'boolean' },
+      'force': { type: 'boolean' },
+      'model': { type: 'string' },
+      'out': { type: 'string' },
+      'facts': { type: 'string' },
+      'facts-position': { type: 'string' },
     },
   });
   const facts = parseFacts(values.facts);
@@ -167,7 +171,9 @@ async function main(): Promise<number> {
     // With --out, the recording goes to the directory rather than the repo.
     record: record && values.out === undefined,
     outDir: values.out,
-    facts,
+    // Without --facts the shipped groups apply.
+    ...(facts.length === 0 ? {} : { facts }),
+    factsPosition: values['facts-position'] === 'after' ? 'after' : 'before',
   };
   if (record && values.force !== true && !isReferenceModel(target.model)) {
     throw new Error(
