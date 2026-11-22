@@ -36,23 +36,50 @@ version = "rust-v0.167.0"
 backend = "github:openai/codex"
 specifiers = ["rust-v0.167.0"]
 
+[tools."github:openai/codex".options]
+asset_pattern = "codex-aarch64-unknown-linux-musl.tar.gz"
+
 [tools."github:openai/codex"."platforms.linux-arm64"]
-checksum = "sha256:0201e7067dc88ad132279ae48f60f242e001fdfd339d8b3c5e6128a348004df8"
+checksum = "sha256:843489acb4d4b1079745c36b03c5963b887b83155af208fd53584e33ee8eb281"
 checksum_source = "mise-versions"
-url = "https://github.com/openai/codex/releases/download/rust-v0.167.0/argument-comment-lint-aarch64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/openai/codex/releases/assets/715502689"
+url = "https://github.com/openai/codex/releases/download/rust-v0.167.0/codex-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/openai/codex/releases/assets/715502414"
+
+[[tools."github:openai/codex"]]
+version = "rust-v0.167.0"
+backend = "github:openai/codex"
+specifiers = ["rust-v0.167.0"]
+
+[tools."github:openai/codex".options]
+asset_pattern = "codex-x86_64-unknown-linux-musl.tar.gz"
 
 [tools."github:openai/codex"."platforms.linux-x64"]
-checksum = "sha256:a2fa7af3f8f32ee30fa7a3425a9f1da96dacd3ad2532290f03b421cda2e45422"
+checksum = "sha256:9d64836106d5b374e90ee4454c7ebcde7ca7106558bd7e41a34b9f26ebda251a"
 checksum_source = "mise-versions"
-url = "https://github.com/openai/codex/releases/download/rust-v0.167.0/argument-comment-lint-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/openai/codex/releases/assets/715502729"
+url = "https://github.com/openai/codex/releases/download/rust-v0.167.0/codex-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/openai/codex/releases/assets/715506769"
+
+[[tools."github:openai/codex"]]
+version = "rust-v0.167.0"
+backend = "github:openai/codex"
+specifiers = ["rust-v0.167.0"]
+
+[tools."github:openai/codex".options]
+asset_pattern = "codex-aarch64-apple-darwin.tar.gz"
 
 [tools."github:openai/codex"."platforms.macos-arm64"]
 checksum = "sha256:4b22a2a971be2791c3e31f912f3e77a88ebd64a65812a7289ccba65dd6425fe9"
 checksum_source = "mise-versions"
 url = "https://github.com/openai/codex/releases/download/rust-v0.167.0/codex-aarch64-apple-darwin.tar.gz"
 url_api = "https://api.github.com/repos/openai/codex/releases/assets/715500566"
+
+[[tools."github:openai/codex"]]
+version = "rust-v0.167.0"
+backend = "github:openai/codex"
+specifiers = ["rust-v0.167.0"]
+
+[tools."github:openai/codex".options]
+asset_pattern = "codex-x86_64-apple-darwin.tar.gz"
 
 [tools."github:openai/codex"."platforms.macos-x64"]
 checksum = "sha256:d8eb4a865a0b17319cde10347523e5bab0978d01725b39f4a639f40905e01221"
