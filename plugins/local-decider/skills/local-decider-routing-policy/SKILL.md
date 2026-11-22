@@ -5,6 +5,9 @@ description: Write a custom local-decider routing policy for the user (their own
 
 # Write a local-decider routing policy
 
+Start by checking the CLI exists: `command -v local-decider || echo missing`. If it is missing,
+tell the user to install it (see the Quick start in the local-decider README) and stop.
+
 1. Run `local-decider policies prompt routing`. It prints the full instructions, including where
    policies go, the JSON Schema to follow, the input keys available, and the user's current
    routing policies as examples.
