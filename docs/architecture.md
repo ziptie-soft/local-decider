@@ -87,7 +87,8 @@ Step by step:
    returns `abstain` without calling an engine.
 2. **Redact and shape.** Every input string is redacted (`core/redact.ts`). The state sections
    are rendered in policy order, objects as key-sorted JSON, and trimmed to `state.maxTokens`
-   (`core/truncate.ts`).
+   at 3 characters per token (`core/truncate.ts`). A cut section carries a `…[N chars
+   truncated]…` marker and dropped leading sections leave `[N sections omitted]`.
 3. **Engine.** Answers are cached for the policy's `cache.ttlSeconds` under a `cache:v1` key of
    the input hash, engine id and model, so a switched engine never reads the old one's answers;
    the least recently used entry is evicted at the size cap. Otherwise the

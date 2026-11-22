@@ -384,6 +384,11 @@ verified, thresholded answer.
 - **Direction:** emit `[N sections omitted]`, clamp the marker, default to 3 chars/token or a
   per-content estimator, cut on code points.
 - **Open questions:** verify the estimate against the real tokenizers of the shipped models.
+- **Status:** done (2026-11-22) — `buildState` leaves `[N sections omitted]` for dropped
+  sections, `cutText` stays within `maxChars` marker included and cuts without splitting a
+  surrogate pair (linear, tested on 3 MiB), and `CHARS_PER_TOKEN` is 3. The 3 chars/token
+  default is conservative pending a check against the shipped models' tokenizers. It shrinks
+  every policy's character budget by a quarter (`maxTokens: 3000` is 9000 chars, was 12000).
 
 ### Q7 Policy loader strictness
 
