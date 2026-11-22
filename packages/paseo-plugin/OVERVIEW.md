@@ -156,7 +156,8 @@ may have changed since the decision), the precedent it leaned on, the variant an
 mode. Tap again to hide it.
 
 - **Routing** adds a row to the new agent: the preset or model it moved to, or why it kept the
-  creator's model or mode. Shadow routing draws one only with *Show decisions: all*.
+  creator's model or mode. Shadow routing draws one only for unsure or failed routes, or with
+  *Show decisions: all*.
 - **Deciding…** appears on a permission request when the decision takes more than a second, and
   is replaced by the decided row.
 - **Skipped** appears on a permission request the decider did not take, with the reason: busy,
