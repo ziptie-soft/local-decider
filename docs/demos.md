@@ -78,3 +78,41 @@ classified it:
 ```
 
 Confidence was low, so no rule matched and the policy default (`log`) applied.
+
+## Plugin e2e (2026-11-22)
+
+Claude Code 2.1.319, Codex CLI 0.167.0, mise 2026.10.21. The install e2e needs no gateway, login or
+key; it runs in CI as `e2e-install`. Output of `mise run e2e:install` (temp paths shortened):
+
+```text
+claude: 2.1.319 (Claude Code)
+codex: codex-cli 0.167.0
+
+== claude
+  PASS  claude: routing reaches the gateway: 1 routing call(s), need 1
+  PASS  claude: SessionStart reports no inactive hooks: no notice
+  PASS  claude: bare PATH reaches the gateway: 1 routing call(s), need >= 1
+  PASS  claude: mise shim runs from the plugin root: shim started in /tmp/…/marketplace/plugins/local-decider
+
+== codex
+  PASS  codex: untrusted hooks do not run: 0 gateway call(s), need 0
+  PASS  codex: routing reaches the gateway: 1 routing call(s), need 1
+  PASS  codex: bare PATH reaches the gateway: 1 routing call(s), need >= 1
+  PASS  codex: mise shim runs from the plugin root: shim started in /tmp/…/.codex/plugins/cache/ld-e2e/local-decider/2.1.1
+
+harness-install-e2e: all checks passed
+```
+
+With the previous launcher the Claude "mise shim runs from the plugin root" check fails (the shim
+started in the agent's workspace), so the check does test the fix.
+
+Pending, not run (they need your harness logins and the running gateway, and write to `~/.claude`
+or `~/.codex`; run them yourself and paste the check lists and decision lines here):
+
+- `mise run e2e:claude`
+- `mise run e2e:claude-auto` (new: auto mode, one forced `touch` ask; expects 1 `PermissionRequest`
+  hook run and a `permission` decision in scope `claude-auto`, which needs `scopes.claude-auto`
+  set, `shadow` is enough for the record)
+- `mise run e2e:codex`, and with `OPENAI_API_KEY` set the isolated checkout install. A run of the
+  isolated path with a dummy key confirmed the install, `codex login --with-api-key` and a routing
+  call reaching the gateway; the model call then failed with 401 as expected.
