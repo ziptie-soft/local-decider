@@ -33,29 +33,24 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
-import { makeWorkspace, printResults, runCaptured, selectedHarnesses } from './e2e-lib.mjs';
+import {
+  makeMarketplace,
+  makeWorkspace,
+  PLUGIN_REF,
+  printResults,
+  run,
+  runCaptured,
+  selectedHarnesses,
+} from './e2e-lib.mjs';
 import { startStubGateway } from './e2e-stub-gateway.mjs';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const PLUGIN_DIR = join(ROOT, 'plugins/local-decider');
 const TIMEOUT_MS = Number(process.env.LD_E2E_TIMEOUT_S ?? 60) * 1000;
-const MARKETPLACE = 'ld-e2e';
-const PLUGIN_REF = `local-decider@${MARKETPLACE}`;
 
 function fail(message) {
   console.error(`harness-install-e2e: ${message}`);
   process.exit(2);
-}
-
-function run(bin, args, options) {
-  const res = spawnSync(bin, args, { encoding: 'utf8', ...options });
-  if (res.status !== 0) {
-    fail(`${bin} ${args.join(' ')} failed (${res.status}): ${(res.stderr || res.stdout).trim()}`);
-  }
-  return res.stdout;
 }
 
 function binDir(bin) {
@@ -64,44 +59,6 @@ function binDir(bin) {
     fail(`${bin} is not on PATH`);
   }
   return dirname(found.stdout.trim());
-}
-
-/** The npm package of the plugin, extracted into a marketplace with both marketplace files. */
-function makeMarketplace(dir) {
-  if (!existsSync(join(PLUGIN_DIR, 'dist/local-decider-hook.mjs'))) {
-    fail(
-      'plugins/local-decider has no dist; run `pnpm --filter @ziptie-soft/local-decider-hooks build`',
-    );
-  }
-  const packDir = join(dir, 'pack');
-  mkdirSync(packDir, { recursive: true });
-  const archive = run('npm', ['pack', '--silent', '--pack-destination', packDir], {
-    cwd: PLUGIN_DIR,
-    env: { ...process.env, npm_config_cache: join(dir, 'npm-cache') },
-  }).trim();
-  const market = join(dir, 'marketplace');
-  const pluginRoot = join(market, 'plugins/local-decider');
-  mkdirSync(pluginRoot, { recursive: true });
-  run('tar', ['-xzf', join(packDir, archive), '-C', pluginRoot, '--strip-components=1']);
-  const claude = { name: MARKETPLACE, owner: { name: 'e2e' } };
-  claude.plugins = [{ name: 'local-decider', source: './plugins/local-decider' }];
-  const codex = { name: MARKETPLACE };
-  codex.plugins = [
-    {
-      name: 'local-decider',
-      source: { source: 'local', path: './plugins/local-decider' },
-      policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
-      category: 'Productivity',
-    },
-  ];
-  for (const [file, body] of [
-    ['.claude-plugin/marketplace.json', claude],
-    ['.agents/plugins/marketplace.json', codex],
-  ]) {
-    mkdirSync(dirname(join(market, file)), { recursive: true });
-    writeFileSync(join(market, file), JSON.stringify(body, null, 2));
-  }
-  return market;
 }
 
 /** A clean environment: your shell's variables (LOCAL_DECIDER_*, CLAUDE_*, keys) do not leak in. */
