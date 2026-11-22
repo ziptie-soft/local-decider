@@ -60,6 +60,11 @@ export const settingsSchema = z.object({
    * own `paseo` MCP server. Off by default: three tool descriptions cost context in every agent.
    */
   agentTools: z.boolean().default(false),
+  /**
+   * Once a day, fetch the gateway's review of the last 24 h (`GET /v1/review`) and show it in the
+   * status popover and Details page. Read-only: it runs no agent and no model. Off means no timer.
+   */
+  dailyReview: z.boolean().default(false),
   /** Ask the gateway to load its model when Paseo (and so this plugin) starts. */
   preloadOnStart: z.boolean().default(false),
   sidebar,

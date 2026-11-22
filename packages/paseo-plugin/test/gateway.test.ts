@@ -311,10 +311,24 @@ describe('createGateway (fail open)', () => {
       gw?.benchmark(),
       gw?.benchmarkStart({}),
       gw?.benchmarkCancel(),
+      gw?.review(1, 5),
     ]);
     const requests = seen.slice(first);
-    assert.equal(requests.length, 26);
+    assert.equal(requests.length, 27);
     assert.ok(requests.every((request) => request.control === 'control-secret'));
+  });
+
+  it('reads the review with whole-number bounds, and gets null when it cannot', async () => {
+    const gw = createGateway({ baseUrl: url, controlToken: 'control-secret' });
+    const first = seen.length;
+    await gw?.review(1.9, 5.2);
+    assert.equal(seen[first]?.path, '/v1/review?days=1&limit=5');
+    assert.equal(seen[first]?.control, 'control-secret');
+    const down = createGateway({
+      baseUrl: 'http://127.0.0.1:1',
+      controlToken: 'control-secret',
+    });
+    assert.equal(await down?.review(1, 5), null);
   });
 
   it('sends no local tokens to an https gateway, even when its origin is pinned', async () => {

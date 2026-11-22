@@ -11,12 +11,13 @@ import {
 } from '../shared/benchmark.ts';
 import { enginesPollInterval, type EngineCatalog } from '../shared/engines.ts';
 import { nextPollDelay } from '../shared/poll.ts';
-import { benchmarkRpc, enginesRpc, serviceInfoRpc, statusRpc } from '../shared/rpc.ts';
+import { benchmarkRpc, enginesRpc, reviewRpc, serviceInfoRpc, statusRpc } from '../shared/rpc.ts';
 import { deciderSettings, type DeciderSettings } from '../shared/settings.ts';
 import { useQueryKey } from './host-scope.ts';
 
 export type Status = z.output<typeof statusRpc.output>;
 export type ServiceInfo = z.output<typeof serviceInfoRpc.output>;
+export type ReviewState = z.output<typeof reviewRpc.output>;
 
 const DEFAULTS: DeciderSettings = deciderSettings.schema.parse({});
 
@@ -82,6 +83,24 @@ export function useBenchmark(
     wasRunning.current = running;
   }, [running, queryClient, enginesKey]);
   return query;
+}
+
+/**
+ * The daemon's daily review. Asked only while the setting is on and a screen is mounted; it
+ * re-asks every 15 s until the first check has finished, which is a call to the daemon's own
+ * memory, never to the gateway.
+ */
+export function useDailyReview(enabled: boolean): UseQueryResult<ReviewState> {
+  const review = useRpc(reviewRpc);
+  return useQuery({
+    queryKey: useQueryKey('review'),
+    enabled,
+    queryFn: async () => review({}),
+    retry: false,
+    staleTime: 60_000,
+    refetchInterval: (query) =>
+      query.state.data?.enabled === true && query.state.data.checkedAt === null ? 15_000 : false,
+  });
 }
 
 /** Whether the gateway runs as a user service here, and the command behind each button. */

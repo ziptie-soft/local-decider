@@ -32,6 +32,7 @@ import { LabelRegistry, recordPermissionLabel } from './server/labels.ts';
 import { createOpenHandler } from './server/open.ts';
 import { createPermissionHandlers } from './server/permission.ts';
 import { preloadOnStart } from './server/preload.ts';
+import { DailyReview } from './server/review.ts';
 import { drawRoutingRow } from './server/routing-row.ts';
 import { createRoutingHandler } from './server/routing.ts';
 import { createStatusHandler, manualDecide, recordFeedback, statsText } from './server/rpc.ts';
@@ -55,6 +56,7 @@ import {
   policyVariantRpc,
   policyVariantsRpc,
   policyPromptRpc,
+  reviewRpc,
   routingPresetRpc,
   routingSettingsRpc,
   reloadPoliciesRpc,
@@ -82,6 +84,8 @@ const DOWN_TTL_MS = 60_000;
 function createDeps(server: PluginServerContext): {
   deps: HookDeps;
   markHealth: (up: boolean) => void;
+  /** Call `listener` with the settings once they are read, and after every save. */
+  onSettings: (listener: (settings: DeciderSettings) => void) => void;
   cleanup: () => void;
 } {
   const handle = server.registerSettings(deciderSettings);
@@ -89,6 +93,8 @@ function createDeps(server: PluginServerContext): {
   const defaults: DeciderSettings = deciderSettings.schema.parse({});
   let current = defaults;
   let lastDownAt: number | null = null;
+  let ready = false;
+  const listeners: ((settings: DeciderSettings) => void)[] = [];
 
   const apply = (state: PluginSettingsState<typeof deciderSettings.schema>): void => {
     if (state.status === 'ready') {
@@ -97,10 +103,16 @@ function createDeps(server: PluginServerContext): {
       current = defaults;
       log(`settings invalid, using defaults: ${state.error}`);
     }
+    for (const listener of listeners) {
+      listener(current);
+    }
   };
   // Hooks await the first read; later saves arrive through subscribe.
   const loaded = handle.read().then(apply, (error: unknown) => {
     log(`settings read failed, using defaults: ${String(error)}`);
+  });
+  void loaded.then(() => {
+    ready = true;
   });
   const unsubscribe = handle.subscribe(apply);
 
@@ -124,6 +136,12 @@ function createDeps(server: PluginServerContext): {
     markHealth: (up) => {
       lastDownAt = up ? null : Date.now();
     },
+    onSettings: (listener) => {
+      listeners.push(listener);
+      if (ready) {
+        listener(current);
+      }
+    },
     cleanup: () => {
       void unsubscribe();
     },
@@ -131,9 +149,13 @@ function createDeps(server: PluginServerContext): {
 }
 
 export default function contribute(server: PluginServerContext): () => void {
-  const { deps, markHealth, cleanup } = createDeps(server);
+  const { deps, markHealth, onSettings, cleanup } = createDeps(server);
 
   const background = new Background();
+  const review = new DailyReview(deps);
+  onSettings((settings) => {
+    review.setEnabled(settings.dailyReview);
+  });
   const preload = new AbortController();
   void preloadOnStart(deps, preload.signal).catch((error: unknown) => {
     log(`preload skipped: ${String(error)}`);
@@ -171,6 +193,7 @@ export default function contribute(server: PluginServerContext): () => void {
   const status = createStatusHandler(deps, undefined, markHealth);
   server.handle(statusRpc, async () => status());
   server.handle(statsRpc, async () => statsText(deps));
+  server.handle(reviewRpc, async () => review.view());
   server.handle(decideRpc, async (input, { paseo }) => manualDecide(deps, paseo, input));
   server.handle(feedbackRpc, async (input, { paseo }) => recordFeedback(deps, paseo, input));
   server.handle(permissionLabelRpc, async (input, { paseo }) =>
@@ -208,6 +231,7 @@ export default function contribute(server: PluginServerContext): () => void {
 
   return () => {
     preload.abort();
+    review.stop();
     background.stop();
     cleanup();
   };

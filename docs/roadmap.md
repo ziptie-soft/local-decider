@@ -1051,6 +1051,16 @@ other models. Verify cited lines before implementing; they come from a read-only
 - **What:** a daily schedule runs `local-decider review --days 1` and posts disagreements and
   calibration drift; a heartbeat replays queued shadow decisions only when idle (F9). Read-only.
   Unblocked: `review` (F6) shipped with `--json`.
+- **Status:** partly done. The daily review ships as the `dailyReview` plugin setting (off by
+  default): the plugin server runs an in-process, unref'd timer (first check after 30 s, then every
+  24 h, hourly retry while the gateway is down) that reads the new `GET /v1/review?days=N&limit=N`
+  (control token, loopback, hash-only, at most 30 days; reuses `computeReview`) and shows the
+  headline in the status popover and the newest five rows on the Details page. No agent, no model,
+  no schedule or heartbeat. Paseo 0.15.3 has no server-side notification API and `timeline.append`
+  needs an agent, so the popover and Details page are the surface; a persistent notification
+  waits on an upstream API.
+- **Not done:** idle shadow replay (needs F9) and calibration drift (`calibrate` is a CLI only and
+  not exposed over HTTP).
 
 ### X9 Per-agent tool channel instead of MCP injection
 

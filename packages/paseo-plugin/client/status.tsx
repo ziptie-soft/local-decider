@@ -17,6 +17,7 @@ import { EngineControls } from './engine-state.tsx';
 import { type Status, useDeciderValues, useGatewayStatus } from './hooks.ts';
 import { withHostScope } from './host-scope.ts';
 import { headline, healthColor, QuickStatus } from './quick-status.tsx';
+import { ReviewSection } from './review.tsx';
 import { ServiceSection } from './service.tsx';
 import { SettingsScreen } from './settings-screen.tsx';
 import { StatsSection } from './stats.tsx';
@@ -180,6 +181,7 @@ export function StatusScreen(props: PluginScreenProps): ReactNode {
       <SettingsSection title="Engine">
         <EngineControls theme={theme} gatewayUrl={values?.gatewayUrl ?? DEFAULT_GATEWAY_URL} />
       </SettingsSection>
+      <ReviewSection theme={theme} />
       <ServiceSection theme={theme} requested={serviceRequest(params)} />
       <StatsSection theme={theme} />
     </Page>

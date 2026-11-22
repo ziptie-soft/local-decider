@@ -58,6 +58,12 @@ function GatewaySection({ values, save }: SectionProps): ReactNode {
           onValueChange={(agentTools: boolean) => save({ ...values, agentTools })}
         />
         <SettingsSwitch
+          label="Daily review"
+          hint="Once a day (and 30 s after you turn it on) the plugin fetches the gateway's review of the last 24 h and shows the disagreements in the status popover and Details page. Read-only: no agent, no model, hashes and ids only. Off means no timer."
+          value={values.dailyReview}
+          onValueChange={(dailyReview: boolean) => save({ ...values, dailyReview })}
+        />
+        <SettingsSwitch
           label="Load the model when Paseo starts"
           hint="Off: the gateway loads the model on the first decision (~5 s on FastFlowLM, longer on CPU). On: it is loaded at Paseo start and still unloads after the idle time."
           value={values.preloadOnStart}
