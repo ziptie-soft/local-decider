@@ -11,8 +11,12 @@ import { asRecord } from './core/subject.ts';
 
 export type Creator = 'delegated' | 'user' | 'unknown';
 
-/** The running agents considered as possible parents, most recently updated first. */
-const MAX_PARENTS = 4;
+/**
+ * The running agents considered as possible parents, most recently updated first. A parent blocked
+ * in its `create_agent` call is not the most recently updated, so with more running agents than
+ * this the answer is `unknown`, never `user`.
+ */
+const MAX_PARENTS = 8;
 const TAIL_ITEMS = 6;
 
 /** The slice of `PaseoApi.agents` the correlation needs. */
@@ -55,13 +59,19 @@ function isCreateCallFor(item: AgentTimelineItem, title: string): boolean {
   return typeof given === 'string' && given.trim() === title;
 }
 
-async function parentIds(agents: NonNullable<DelegationPaseo['agents']>): Promise<string[]> {
+/** The ids to inspect, and whether more agents were running than that. */
+async function parentIds(
+  agents: NonNullable<DelegationPaseo['agents']>,
+): Promise<{ ids: string[]; overflow: boolean }> {
   const listed = await agents.list({
     filter: { statuses: ['running'] },
     sort: [{ key: 'updated_at', direction: 'desc' }],
-    page: { limit: MAX_PARENTS },
+    page: { limit: MAX_PARENTS + 1 },
   });
-  return listed.entries.slice(0, MAX_PARENTS).map((e) => e.agent.id);
+  return {
+    ids: listed.entries.slice(0, MAX_PARENTS).map((e) => e.agent.id),
+    overflow: listed.entries.length > MAX_PARENTS,
+  };
 }
 
 async function hasCreateCall(
@@ -77,9 +87,12 @@ async function correlate(
   agents: NonNullable<DelegationPaseo['agents']>,
   title: string,
 ): Promise<Creator> {
-  const ids = await parentIds(agents);
+  const { ids, overflow } = await parentIds(agents);
   const found = await Promise.all(ids.map(async (id) => hasCreateCall(agents, id, title)));
-  return found.includes(true) ? 'delegated' : 'user';
+  if (found.includes(true)) {
+    return 'delegated';
+  }
+  return overflow ? 'unknown' : 'user';
 }
 
 /** Never rejects; `unknown` when the signal aborts first. */

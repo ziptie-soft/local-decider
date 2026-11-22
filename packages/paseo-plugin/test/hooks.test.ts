@@ -743,6 +743,19 @@ const parentWith = (items: AgentTimelineItem[], order: string[] = []): typeof us
   },
 });
 
+const running = (count: number): typeof userPaseo => ({
+  ...userPaseo,
+  agents: {
+    list: async () =>
+      ({
+        entries: Array.from({ length: count }, (_, i) => ({
+          agent: { id: `a${String(i)}` },
+        })),
+      }) as typeof noItems,
+    ref: userPaseo.agents.ref,
+  },
+});
+
 const route = async (
   paseo: unknown,
   title = 'Rename',
@@ -1048,6 +1061,13 @@ describe('agent.create.before', () => {
         paseo: hung as unknown as typeof userPaseo,
       });
       assert.equal(await pending, undefined);
+    });
+
+    it('skips the route when more agents run than it can inspect and none matches', async () => {
+      const full = await route(running(9));
+      assert.equal(full.out, undefined);
+      assert.ok(full.d.logs.some((l) => l.includes("kept the creator's model (unknown)")));
+      assert.equal((await route(running(8))).out?.config.model, 'haiku');
     });
 
     it('starts the lookup concurrently with decide', async () => {

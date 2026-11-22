@@ -15,16 +15,15 @@ import type {
   AgentPermissionResponse,
   AgentTimelineItem,
 } from '@getpaseo/protocol/agent-types';
-import { resolve } from 'node:path';
 
 import { isEnforcedAllow, type DecideResponse } from '../shared/decision.ts';
 import type { Gateway } from '../shared/gateway.ts';
 import { rowVisible, toRowData, type DecisionRow } from '../shared/row.ts';
 import { Background, detach } from './background.ts';
+import { touchesConfig } from './config-guard.ts';
 import { deterministicBlock } from './core/block.ts';
-import { locatePath } from './core/paths.ts';
 import { asRecord } from './core/subject.ts';
-import { configDir, errorText, type HookDeps } from './deps.ts';
+import { errorText, type HookDeps } from './deps.ts';
 import {
   buildPermissionInput,
   firstOfType,
@@ -300,22 +299,8 @@ function pathsSafe(event: PermissionEvent): boolean {
   const fields = asRecord(input);
   const path = fields?.['filePath'];
   const checked = typeof path === 'string' ? { ...fields, file_path: path } : input;
-  return (
-    deterministicBlock(checkedTool(request), checked, cwd) === null && !touchesConfig(cwd, fields)
-  );
-}
-
-/**
- * True when the working directory, or a path the call names, is inside the gateway's config
- * directory: the decider never auto-allows edits to its own policy (the request stays with the user).
- */
-function touchesConfig(cwd: string, fields: Record<string, unknown> | undefined): boolean {
-  const dir = resolve(configDir(process.env));
-  const inside = (path: string): boolean => locatePath(dir, resolve(cwd, path)).where !== 'outside';
-  const named = ['file_path', 'filePath', 'path', 'notebook_path']
-    .map((key) => fields?.[key])
-    .filter((value): value is string => typeof value === 'string' && value !== '');
-  return inside(cwd) || named.some(inside);
+  const tool = checkedTool(request);
+  return deterministicBlock(tool, checked, cwd) === null && !touchesConfig(cwd, tool, input);
 }
 
 async function handleRequest(
