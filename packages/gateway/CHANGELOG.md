@@ -1,5 +1,78 @@
 # Changelog
 
+## [3.0.0](https://github.com/ziptie-soft/local-decider/compare/local-decider-v2.2.0...local-decider-v3.0.0) (2026-11-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **gateway:** the MCP decide tool returns {decisionId, policy, action, enforced, primary, failedOpen, truncated} instead of the full decision (probabilities, rule, engine, model, precedent key).
+* **policies:** auto-allow permission at p(allow) >= 0.85, abstain by default in routing-budget, retune thresholds
+* **core:** reject duplicate threshold keys and mismatched policy ids, coerce scalar answers and type harness ids and actions
+* **gateway:** batch SQLite appends off the request path, chunk pruning, skip unreadable rows and back up before migrations
+* **gateway:** gate usage on the report token, reject unknown decisions and outcome values, rate-limit unverified posts and keep unverified rows out of stats
+* **core:** neutralise headings in state bodies, rename keep middle to ends and downgrade allow to ask when a critical section is cut
+* **gateway:** keep hook-enforced policies out of MCP decide, trim the policies tool and keep MCP and CLI probes out of stats
+* **gateway:** engine children get an allowlisted environment, reserved serve flags are rejected and children die with the gateway
+
+### Features
+
+* **core:** neutralise headings in state bodies, rename keep middle to ends and downgrade allow to ask when a critical section is cut ([0f71cf8](https://github.com/ziptie-soft/local-decider/commit/0f71cf8638ddcae82bfcc18a28fce856f1414579))
+* **gateway:** add GET /v1/review behind the control token ([99bc77d](https://github.com/ziptie-soft/local-decider/commit/99bc77d701dcfbe306a01f236743b641c9066add))
+* **gateway:** add local-decider explain ([b8a1e97](https://github.com/ziptie-soft/local-decider/commit/b8a1e972a93669e35b4e2de27c82400654e8a25c))
+* **gateway:** add local-decider label for verified unsafe labels ([6651fa6](https://github.com/ziptie-soft/local-decider/commit/6651fa61877ced7dc2d0fd6c5a949643e1eac65f))
+* **gateway:** add local-decider review ([52c008f](https://github.com/ziptie-soft/local-decider/commit/52c008f23b749cfe48af1c07654a45766b4ff740))
+* **gateway:** add per-policy eval fixtures, a strict eval mode and replay/record eval tooling ([bd88960](https://github.com/ziptie-soft/local-decider/commit/bd889602ef5295034fc79d4f2f3bec4b7e72a10c))
+* **gateway:** add the strands-decider E2B v2 checkpoint, keep v2 off MLX and treat engine 503 as busy ([5356b42](https://github.com/ziptie-soft/local-decider/commit/5356b4206427b3cc9fb8b514644858bf24b8047c))
+* **gateway:** agent view for decide and policies, refuse and shadow-cap mcp callers ([901a06e](https://github.com/ziptie-soft/local-decider/commit/901a06e14b2117e02caf2b1fb49ec98765ce0173))
+* **gateway:** derive call facts from the redacted input behind a reserved facts key, shipped empty ([64f3978](https://github.com/ziptie-soft/local-decider/commit/64f39785f942dc709157df2a8c95369fdc77ad8d))
+* **gateway:** expose health counters and error latency, return a generic 502 body and redact engine log lines ([9fb7aea](https://github.com/ziptie-soft/local-decider/commit/9fb7aea3c86e5f567ad859c47b89291211644a3d))
+* **gateway:** keep hook-enforced policies out of MCP decide, trim the policies tool and keep MCP and CLI probes out of stats ([947cff9](https://github.com/ziptie-soft/local-decider/commit/947cff994a1c7d7d19afc26487e7ab586038f09e))
+* **gateway:** pin strands-decider Hugging Face weights to commit revisions and serve the pinned snapshot ([b77dfbe](https://github.com/ziptie-soft/local-decider/commit/b77dfbeaaf2950ebb94e68dd31a5fb908cac7efb))
+* **gateway:** record the matched rule, precedent tally, redaction counts and tool per decision ([0c7da36](https://github.com/ziptie-soft/local-decider/commit/0c7da36db6e7a3e467042fb367b5bfd74eacf1c6))
+* **gateway:** report a Strands venv that does not match the pinned version ([fd34045](https://github.com/ziptie-soft/local-decider/commit/fd3404578a97a1ce49ab18eb82da4df1a98769c3))
+* **gateway:** scale queue slots with engine concurrency and refuse requests whose budgetMs the queue cannot meet ([8a4139c](https://github.com/ziptie-soft/local-decider/commit/8a4139cfe58a539bb852aa6a268ff584b87deae5))
+* **gateway:** serve decision explanations behind the control token ([987a80c](https://github.com/ziptie-soft/local-decider/commit/987a80c7a234434cb5997859c6231178fd272d28))
+* **gateway:** ship the kind fact for command-risk, drop the other groups after the Q3 A/B ([f8ac05d](https://github.com/ziptie-soft/local-decider/commit/f8ac05d9a41f162689d1f49c6541e4b891a08832))
+* **gateway:** strands-decider 0.4.0 with a ROCm install flavour, maxConcurrency and upstream attribution ([6a938e4](https://github.com/ziptie-soft/local-decider/commit/6a938e48e19c71b287f5ccc9a7ffff9a88a731da))
+* **policies:** auto-allow permission at p(allow) &gt;= 0.85, abstain by default in routing-budget, retune thresholds ([9ab2d5a](https://github.com/ziptie-soft/local-decider/commit/9ab2d5a4dfb9770f9c777eedbc7f8962d2df9fb9))
+
+
+### Bug Fixes
+
+* **core:** reject duplicate threshold keys and mismatched policy ids, coerce scalar answers and type harness ids and actions ([9bda32d](https://github.com/ziptie-soft/local-decider/commit/9bda32d5acfe01cf8b7a068c4617a7e7f45cea8f))
+* **gateway:** abort before the body read, drain in-flight work before unload or switch, and coalesce identical requests ([0b2cc28](https://github.com/ziptie-soft/local-decider/commit/0b2cc28851e4fec5cad88853472cfecfe6e1e1cd))
+* **gateway:** accept MCP protocol 2026-07-28 requests ([bc68423](https://github.com/ziptie-soft/local-decider/commit/bc68423d409cb6b92677f272a8371535d1c83fd2))
+* **gateway:** admit pass-through routes through the engine queue at low priority and report their engine failures ([bb9ef4b](https://github.com/ziptie-soft/local-decider/commit/bb9ef4bf730bf2aa70df5ecdea332299e23eefd9))
+* **gateway:** correct MCP decide annotations and confidence wording and list policy input keys ([cf965a2](https://github.com/ziptie-soft/local-decider/commit/cf965a2917e91bfa869d19c310a80185a7a7bef4))
+* **gateway:** count vetoes in calibration, exclude precedent rules from the floor and let verified outcomes win in stats ([8230818](https://github.com/ziptie-soft/local-decider/commit/8230818fbc67915bdbd205a7a17a6be0cd909f1b))
+* **gateway:** do not count caller aborts of decisions as engine failures ([d9c747e](https://github.com/ziptie-soft/local-decider/commit/d9c747e850ebd7a9a94736f9b38973059cc045a6))
+* **gateway:** engine children get an allowlisted environment, reserved serve flags are rejected and children die with the gateway ([a7c8802](https://github.com/ziptie-soft/local-decider/commit/a7c88025afa138471e4213120e7533f3c6f7fa02))
+* **gateway:** floor calibration probabilities at the wire rounding ([44f48da](https://github.com/ziptie-soft/local-decider/commit/44f48da7c1fdbfc7d16642274c954fa1d8114920))
+* **gateway:** gate usage on the report token, reject unknown decisions and outcome values, rate-limit unverified posts and keep unverified rows out of stats ([ada02e6](https://github.com/ziptie-soft/local-decider/commit/ada02e6a7e4d48ff7e94bb2623bebb3655fafd23))
+* **gateway:** kill failed engine children, serialise restarts, probe hung engines and retry remote errors ([300f0db](https://github.com/ziptie-soft/local-decider/commit/300f0db75a7e934a4c0d2f1dc17fa0ee2cfffdad))
+* **gateway:** parse strands pins with extras or spaces and accept local versions ([ee19b45](https://github.com/ziptie-soft/local-decider/commit/ee19b45c05fb0753aa4329814b20f7baa57b99b5))
+* **gateway:** pick the strands-decider install flavor from the hardware when the config is explicit ([1afba5d](https://github.com/ziptie-soft/local-decider/commit/1afba5d5eb1b30fe251eb832007b552b14473312))
+* **gateway:** reconcile the configured device when engine install picks a flavor ([b2a93a0](https://github.com/ziptie-soft/local-decider/commit/b2a93a0f76b812b6767d6cf48ec6ae57c7694b66))
+* **gateway:** report stale service ExecStart, name flm and policy fetch errors, exit 2 on bad --input ([bedeb27](https://github.com/ziptie-soft/local-decider/commit/bedeb271a5c8baaf539ca7bef3be9e4a9aaca323))
+* **gateway:** report whether a label was verified, and strip control characters from explain errors ([8408228](https://github.com/ziptie-soft/local-decider/commit/840822841cd9efff5d246088ef98998a2b9c2077))
+* **gateway:** scope the decision cache to engine and model, tag the cache key, make canonicalJson total and evict LRU ([e63d75a](https://github.com/ziptie-soft/local-decider/commit/e63d75a22eacf039fd8cbef254e239b9622dce6b))
+* **gateway:** set server timeouts, bound shutdown, detect recycled lock pids, contain listener throws and regenerate an empty report token ([d83699b](https://github.com/ziptie-soft/local-decider/commit/d83699bd4416000b96912c07ce9259314be23ea5))
+* **gateway:** stamp the Strands runtime without requiring torch ([5e57709](https://github.com/ziptie-soft/local-decider/commit/5e577098710dceeb7fcd8233bee11ba89d8af4ab))
+* **gateway:** switch a cpu strands device to the GPU when a cuda or rocm flavor is installed ([880be54](https://github.com/ziptie-soft/local-decider/commit/880be5404bd1a0bd0c9c179d914dc1acd791abb3))
+* **gateway:** warn when the installed torch cannot serve the configured strands device ([e4327b1](https://github.com/ziptie-soft/local-decider/commit/e4327b1d0589f2535516f503b969d10e08e260ca))
+
+
+### Performance Improvements
+
+* **gateway:** batch SQLite appends off the request path, chunk pruning, skip unreadable rows and back up before migrations ([75e2e69](https://github.com/ziptie-soft/local-decider/commit/75e2e696b29aeec1f5aa3ef9490d10592be22134))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @ziptie-soft/local-decider-core bumped to 3.0.0
+
 ## [2.2.0](https://github.com/ziptie-soft/local-decider/compare/local-decider-v2.1.3...local-decider-v2.2.0) (2026-11-15)
 
 

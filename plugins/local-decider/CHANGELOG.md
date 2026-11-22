@@ -1,5 +1,25 @@
 # Changelog
 
+## [3.0.0](https://github.com/ziptie-soft/local-decider/compare/agent-plugin-v2.1.1...agent-plugin-v3.0.0) (2026-11-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **hooks:** auto-allow PermissionRequest only for allowlisted shell and edit tools
+
+### Features
+
+* **hooks:** flag stuck or waiting subagents to the parent agent ([3d3ef5c](https://github.com/ziptie-soft/local-decider/commit/3d3ef5c608d0b4779b0178f1e7514db25ebf9ef4))
+* **plugin:** add doctor and onboarding skills, command -v step and timeout note ([a57e552](https://github.com/ziptie-soft/local-decider/commit/a57e552af8268c02bf9a31255471db9425082f38))
+* **plugin:** add explain and mark-unsafe skills ([aa03136](https://github.com/ziptie-soft/local-decider/commit/aa0313648230e202d771bba6c6d88dbff144ac97))
+
+
+### Bug Fixes
+
+* **gateway:** report whether a label was verified, and strip control characters from explain errors ([8408228](https://github.com/ziptie-soft/local-decider/commit/840822841cd9efff5d246088ef98998a2b9c2077))
+* **hooks:** auto-allow PermissionRequest only for allowlisted shell and edit tools ([903997f](https://github.com/ziptie-soft/local-decider/commit/903997faeace80ee3acb45ac42897681bf70bb12))
+* **plugin:** run the mise node shim from the plugin root and prefer Codex's PLUGIN_ROOT ([ce2ac78](https://github.com/ziptie-soft/local-decider/commit/ce2ac785d8c3a1d2e050e9ede80195b18510a1d6))
+
 ## [2.1.1](https://github.com/ziptie-soft/local-decider/compare/agent-plugin-v2.1.0...agent-plugin-v2.1.1) (2026-11-15)
 
 
