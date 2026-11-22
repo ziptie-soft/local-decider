@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
 import { recordFeedback } from '../server/rpc.ts';
@@ -20,7 +21,7 @@ describe('settings migration', () => {
       { model: QWEN, device: 'cuda', keepModel: true, injectMcp: true },
     ]) {
       const migrated = settingsSchema.parse(migrateSettings(old));
-      assert.equal(migrated.injectMcp, true);
+      assert.equal(migrated.agentTools, false);
       assert.equal(migrated.sidebar.position, 'footer');
       assert.equal(migrated.rows.show, 'all');
       for (const key of ['engine', 'model', 'device', 'keepModel']) {
@@ -39,12 +40,29 @@ describe('settings migration', () => {
     assert.deepEqual(migrateSettings([1]), {});
   });
 
-  it('is version 3 and migrates anything older', () => {
-    assert.equal(SETTINGS_VERSION, 3);
+  it('is version 4 and migrates anything older', () => {
+    assert.equal(SETTINGS_VERSION, 4);
     assert.deepEqual(migrateStored({ model: QWEN, keepModel: true, injectMcp: true }, 2), {
-      injectMcp: true,
+      agentTools: true,
     });
-    assert.deepEqual(migrateStored({ injectMcp: true }, 3), { injectMcp: true });
+    assert.deepEqual(migrateStored({ injectMcp: true }, 3), { agentTools: true });
+    assert.deepEqual(migrateStored({ injectMcp: false }, 3), {});
+    assert.deepEqual(migrateStored({ injectMcp: true, agentTools: false }, 3), {
+      agentTools: false,
+    });
+    assert.deepEqual(migrateStored({ agentTools: true }, 4), { agentTools: true });
+  });
+
+  it('migrates a stored v3 settings file', () => {
+    const raw: unknown = JSON.parse(
+      readFileSync(new URL('./fixtures/settings-v3.json', import.meta.url), 'utf8'),
+    );
+    const migrated = settingsSchema.parse(migrateStored(raw, 3));
+    assert.equal(migrated.agentTools, true);
+    assert.equal('injectMcp' in migrated, false);
+    assert.equal(migrated.gatewayUrl, 'http://127.0.0.1:9000');
+    assert.equal(migrated.modes.permission, 'act');
+    assert.equal(migrated.rows.show, 'off');
   });
 });
 

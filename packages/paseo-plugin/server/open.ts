@@ -1,13 +1,13 @@
 /**
  * `agent.open.before`: tell the harness hooks inside the agent which policies this plugin runs,
- * and optionally inject the gateway's MCP server. Launch-only. Never awaits a write to the agent
- * being opened (that would deadlock).
+ * and optionally attach the agent tools (`agentTools` setting). Launch-only. Never awaits a write
+ * to the agent being opened (that would deadlock).
  */
-import type { PluginSessionOpenRequest } from '@getpaseo/plugin/server';
+import type { AgentToolDefinition, PluginSessionOpenRequest } from '@getpaseo/plugin/server';
 
-import { HOOK_POLICIES, HOST_POLICIES_ENV, MCP_SERVER_NAME } from '../shared/constants.ts';
-import { errorText, type HookDeps } from './deps.ts';
-import { gatewayMcpServer } from './mcp.ts';
+import { HOOK_POLICIES, HOST_POLICIES_ENV, POLICY_WRITER_LABEL } from '../shared/constants.ts';
+import { agentTools } from './agent-tools.ts';
+import type { HookDeps } from './deps.ts';
 
 /**
  * `env` with this plugin's policies added to `LOCAL_DECIDER_HOST_POLICIES`. All of them, whatever
@@ -19,19 +19,19 @@ export function hostEnv(env: Readonly<Record<string, string>>): Record<string, s
   return { ...env, [HOST_POLICIES_ENV]: [...policies].join(',') };
 }
 
-async function mcpServers(
+/**
+ * Attach the agent tools when the setting is on and the agent is interactive. The plugin's own
+ * policy-writer agent never gets them, so it cannot decide on its own work. Reads local settings
+ * only: opening an agent never waits on the gateway.
+ */
+async function attachedTools(
   deps: HookDeps,
   request: PluginSessionOpenRequest,
-): Promise<PluginSessionOpenRequest['mcpServers']> {
-  try {
-    const server = await gatewayMcpServer(deps);
-    return server === null
-      ? request.mcpServers
-      : { ...request.mcpServers, [MCP_SERVER_NAME]: server };
-  } catch (error) {
-    deps.log(`mcp injection skipped: ${errorText(error)}`);
-    return request.mcpServers;
-  }
+  tools: readonly AgentToolDefinition[],
+): Promise<AgentToolDefinition[]> {
+  const settings = await deps.settings();
+  const writer = request.labels[POLICY_WRITER_LABEL] === 'policy-writer';
+  return settings.agentTools && !writer ? [...request.tools, ...tools] : request.tools;
 }
 
 export function createOpenHandler(
@@ -39,6 +39,8 @@ export function createOpenHandler(
 ): (payload: {
   request: PluginSessionOpenRequest;
 }) => Promise<PluginSessionOpenRequest | undefined> {
+  // Built once per plugin start; the limiters inside are keyed by agent id.
+  const tools = agentTools(deps);
   return async ({ request }) => {
     if (request.purpose === 'history') {
       return undefined;
@@ -46,7 +48,7 @@ export function createOpenHandler(
     return {
       ...request,
       env: hostEnv(request.env),
-      mcpServers: await mcpServers(deps, request),
+      tools: await attachedTools(deps, request, tools),
     };
   };
 }

@@ -52,10 +52,10 @@ function GatewaySection({ values, save }: SectionProps): ReactNode {
           }}
         />
         <SettingsSwitch
-          label="Add the decide MCP tool to agents"
-          hint="Injects <gateway>/mcp into every agent session. Providers without MCP support then fail to open; leave off unless you need it. Loopback gateways without a bearer token only."
-          value={values.injectMcp}
-          onValueChange={(injectMcp: boolean) => save({ ...values, injectMcp })}
+          label="Agent tools (decide, explain)"
+          hint="Gives agents opened from now on three tools through Paseo's own paseo MCP server: local_decider_decide, local_decider_explain and local_decider_policies. Answers are advisory and never enforced; the gateway address and tokens stay in the plugin. Costs a few tool descriptions of context per agent; Codex agents can't use them yet."
+          value={values.agentTools}
+          onValueChange={(agentTools: boolean) => save({ ...values, agentTools })}
         />
         <SettingsSwitch
           label="Load the model when Paseo starts"

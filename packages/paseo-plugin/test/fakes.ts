@@ -27,7 +27,7 @@ export function settings(overrides: Partial<DeciderSettings> = {}): DeciderSetti
       standard: { model: '', modeId: '' },
       deep: { model: '', modeId: '' },
     },
-    injectMcp: false,
+    agentTools: false,
     preloadOnStart: false,
     sidebar: { position: 'footer', label: 'full', press: 'popover' },
     rows: { show: 'all', details: true, feedback: true },
