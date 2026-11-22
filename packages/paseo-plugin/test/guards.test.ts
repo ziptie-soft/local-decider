@@ -2,6 +2,9 @@ import type { PluginHookAgent } from '@getpaseo/plugin/server';
 import type { AgentPermissionRequest, AgentTimelineItem } from '@getpaseo/protocol/agent-types';
 import { AGENT_PROVIDER_DEFINITIONS } from '@getpaseo/protocol/provider-manifest';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { Background } from '../server/background.ts';
@@ -215,6 +218,64 @@ describe('permission config-dir refusal', () => {
       );
       assert.equal(await run('/p', request('r4')), 1);
     });
+  });
+});
+
+const edit = (file: string): AgentPermissionRequest => request('e', { file_path: file }, 'Edit');
+const patch = (target: string): AgentPermissionRequest =>
+  request(
+    'p',
+    { command: `*** Begin Patch\n*** Update File: ${target}\n@@\n-a\n+b\n` },
+    'apply_patch',
+  );
+
+describe('permission config-dir refusal, beyond the obvious', () => {
+  it('refuses shell words, patch targets, `..` and relative paths that reach it', async () => {
+    await withConfigDir('/cfg/local-decider', async () => {
+      assert.equal(
+        await run('/cfg', request('s1', { command: 'cat /cfg/local-decider/config.yaml' })),
+        0,
+      );
+      assert.equal(
+        await run('/cfg', request('s2', { command: 'echo x > local-decider/config.yaml' })),
+        0,
+      );
+      assert.equal(
+        await run('/cfg', request('s3', { command: 'sed -i s/a/b/ --in=local-decider/x' })),
+        0,
+      );
+      assert.equal(await run('/cfg', patch('local-decider/config.yaml')), 0);
+      assert.equal(await run('/cfg/other', edit('../local-decider/config.yaml')), 0);
+      assert.equal(await run('/cfg', edit('local-decider/policies/x.yaml')), 0);
+      assert.equal(await run('/cfg', edit('/cfg/other/../local-decider/x')), 0);
+    });
+  });
+
+  it('does not confuse a sibling that shares the prefix', async () => {
+    await withConfigDir('/cfg/local-decider', async () => {
+      assert.equal(await run('/cfg', edit('/cfg/local-decider2/x')), 1);
+      assert.equal(await run('/cfg', request('s4', { command: 'cat local-decider-notes/x' })), 1);
+      assert.equal(await run('/cfg', patch('local-decider2/config.yaml')), 1);
+    });
+  });
+
+  it('refuses a path that reaches it through a symlink', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ld-cfg-'));
+    try {
+      const cfg = join(root, 'cfg');
+      const project = join(root, 'project');
+      mkdirSync(cfg);
+      mkdirSync(project);
+      symlinkSync(cfg, join(project, 'link'));
+      await withConfigDir(cfg, async () => {
+        assert.equal(await run(project, edit(join(project, 'link', 'policies', 'x.yaml'))), 0);
+        assert.equal(await run(project, request('s5', { command: 'cat link/config.yaml' })), 0);
+        assert.equal(await run(join(project, 'link'), request('s6')), 0);
+        assert.equal(await run(project, edit(join(project, 'notes.md'))), 1);
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
