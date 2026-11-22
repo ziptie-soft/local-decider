@@ -95,9 +95,10 @@ verified, thresholded answer.
 - **Problem:** `createGateway` sends both `LOCAL_DECIDER_TOKEN` and the local `report-token` to
   any `gatewayUrl` that passes `tokenAllowed` (https or loopback)
   (`packages/paseo-plugin/shared/gateway.ts:190-191`). `gatewayUrl` is a non-secret,
-  host-scoped setting. No `redirect: 'error'` on fetch. With `injectMcp` the daemon bearer is
+  host-scoped setting. No `redirect: 'error'` on fetch. With `injectMcp` the daemon bearer was
   copied into each agent's MCP headers (`server/mcp.ts:13-15`, `open.ts:22-28`), readable by an
-  untrusted-prompt agent.
+  untrusted-prompt agent. Answered by X9: the injection is gone, so no URL or token reaches agent
+  config.
 - **Direction:** report token loopback-only; bearer only to an origin pinned by env
   (`LOCAL_DECIDER_TOKEN_ORIGIN`) or loopback; `redirect: 'error'` everywhere a token is sent
   (also `core/client.ts:124`); mint a scoped MCP token or send none on loopback. Add tests that
@@ -968,7 +969,8 @@ other models. Verify cited lines before implementing; they come from a read-only
 
 - **Priority:** P2. **Size:** S.
 - **Status:** done — policy `mcp: false` gates `permission`/`command-risk`; `policies` trimmed;
-  MCP/CLI rows skipped by stats, calibration, precedent.
+  MCP/CLI rows skipped by stats, calibration, precedent. Now also: `decide` returns the agent
+  view only and `mcp` callers are capped at shadow (X9).
 - **Problem:** `mcp.ts` runs any policy, including `permission` and `command-risk`, and the
   `policies` tool returns thresholds, so an agent can probe which phrasing yields an allow before
   the real tool call. MCP and CLI decisions enter agreement, savings and calibration.
@@ -1053,10 +1055,31 @@ other models. Verify cited lines before implementing; they come from a read-only
 ### X9 Per-agent tool channel instead of MCP injection
 
 - **Harness:** Paseo. **Priority:** P2. **Size:** M.
-- **What:** expose `decide` and `explain` through the plugin session's tools with a preapproved
-  tool policy, so no gateway URL or token lands in agent MCP config (answers S5's open question).
-  Serve shadow-only answers to agents (N8). Unblocked: `GET /v1/decisions/:id?view=agent` (F6)
-  is the agent-safe projection.
+- **Status:** done (live check pending). The plugin attaches `local_decider_decide`,
+  `local_decider_explain` and `local_decider_policies` in `agent.open.before` when the new
+  `agentTools` setting is on (settings v4; `injectMcp` migrates to it). Paseo serves them through
+  its agent-scoped `paseo` MCP server and they run in the plugin, so no gateway URL or token lands
+  in agent config (answers S5). The gateway gained `?view=agent` on decide and policies, caps
+  harness `mcp` at shadow and returns the agent view from its MCP `decide` (breaking). Limits:
+  decide 10 per agent and 60 global per minute, at most 2 in flight; reads 30 and 120. The
+  permission hook allows exactly `mcp__paseo__local_decider_<tool>` without a decision when the
+  setting is on, and skips Codex `paseo` elicitations.
+- **Pending live check:** open a Claude agent with `agentTools` on and call each tool once
+  (skipped in the implementation run; unit tests cover the tool, hook and migration paths).
+- **Codex gap:** daemon 0.16.2 rejects MCP protocol `2026-07-28`, which current Codex sends, so no
+  Paseo tool (ours included) reaches Codex agents. The gateway's own `/mcp` uses the same SDK
+  version and likely fails the same way; verify separately.
+- **Upstream requests (Paseo):**
+  1. *Preapproval for plugin agent tools.* "`toolPolicy.preapproved` cannot name tools that
+     plugins attach in `agent.open.before`: validation runs after the internal `paseo` server is
+     stripped, so `{kind:'mcp', server:'paseo', tool}` fails agent creation, and on Codex it would
+     restrict `enabled_tools` for the whole server. Please let `defineAgentTool` declare
+     `annotations: {readOnlyHint}` and `preapproved: true`, so the daemon adds
+     `mcp__paseo__<tool>` to Claude's `allowedTools` and a per-tool `approval_mode: 'approve'` for
+     Codex, for that agent only."
+  2. *MCP protocol 2026-07-28.* "Codex agents get no Paseo tools on daemon 0.16.2: `/mcp/agents`
+     rejects `mcp-protocol-version: 2026-07-28` (`Unsupported protocol version`). Please bump
+     `@modelcontextprotocol/sdk` or negotiate down."
 
 ### U1 Strands v2 checkpoints
 
