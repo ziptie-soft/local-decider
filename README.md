@@ -323,11 +323,23 @@ highlighted in the chat row. In Claude Code and Codex it is logged only.
 local-decider policies eval permission policies/fixtures/permission.jsonl
 local-decider stats --days 30               # agreement, Brier, calibration, savings
 local-decider calibrate                     # report-only fit and allow-threshold suggestions
+local-decider review --days 7               # decisions your labels or the classifier contradict
+local-decider explain <decision-id>         # why one decision came out as it did (hash-only)
+local-decider label <decision-id> unsafe    # record a verified unsafe label (local gateway only)
 local-decider policies mode permission act   # when the high-confidence buckets are accurate
 ```
 
 `calibrate` uses verified outcomes from the retained decision log, reports fits per policy,
 engine and model, and never writes configuration. Add `--json` for machine-readable output.
+
+`explain` takes a decision id (it is in the hook's reason text) or a tool call id, and prints the
+rule that fired, its margin to the threshold, the precedent tally, redaction counts, the outcome
+in force and token usage. `review` lists allows that were vetoed, allows the classifier denied,
+and answers your labels contradict, worst first (`--days`, `--policy`, `--scope`, `--limit`,
+`--verified`, `--json`). Both read the store read-only, so they work with the gateway down, and
+neither prints state text. After an upgrade, restart the gateway once so it migrates the store.
+`label <id> unsafe [--yes]` posts the verdict to the local gateway with the report token; it
+asks on a terminal, needs `--yes` elsewhere, and never prints the token. A decline needs no label.
 
 `policies eval` prints the expected action, the returned action and the selected answer's
 probability for each `{"input": {...}, "expect": "allow"}` line. It reports differences; it does

@@ -264,6 +264,13 @@ Groups with fewer than 50 samples report insufficient data. Suggestions use raw 
 need at least 30 selected decisions with a 95% Wilson lower precision bound of 0.98. See
 [fine-tuning.md](fine-tuning.md#3-stage-a-calibration-only) for details.
 
+`local-decider review [--days N] [--policy ID] [--scope S] [--limit N] [--verified] [--json]` lists
+the decisions that your verified labels or the classifier contradict, once each under its most
+severe class: `allow-vetoed`, `classifier-denied`, `answer-mismatch` (tagged `over-cautious` when
+the model held back and you allowed), then `unverified-mismatch` (hidden by `--verified`). Use
+`local-decider explain <id>` to see why one came out as it did, and `local-decider label <id>
+unsafe` to record that an allowed request was unsafe. All three are hash-only.
+
 ## Variants
 
 A policy with `variantOf: <id>` is an alternative for `<id>`. Adapters keep asking for `<id>`;
