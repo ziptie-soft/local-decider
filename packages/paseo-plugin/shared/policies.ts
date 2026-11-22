@@ -154,12 +154,20 @@ export function parseThresholdInput(
   return { value: clampThreshold(t, value), error: null };
 }
 
-/** How risky an auto-allow threshold of `value` is; null for other rules and safe values. */
+/** Below this an auto-allow value is flagged: the recommended 0.90, or a lower shipped default. */
+function softLimit(t: ThresholdSetting): number {
+  return t.default === null ? ALLOW_THRESHOLD.soft : Math.min(ALLOW_THRESHOLD.soft, t.default);
+}
+
+/**
+ * How risky an auto-allow threshold of `value` is; null for other rules and safe values. The
+ * shipped default is never flagged, so a policy that ships below 0.90 shows no warning at defaults.
+ */
 export function allowWarning(
   t: ThresholdSetting,
   value: number | null = t.value,
 ): { strong: boolean; text: string } | null {
-  if (t.action !== 'allow' || value === null || value >= ALLOW_THRESHOLD.soft) {
+  if (t.action !== 'allow' || value === null || value >= softLimit(t)) {
     return null;
   }
   return value < ALLOW_THRESHOLD.strong
@@ -176,7 +184,7 @@ export function warningZones(t: ThresholdSetting): { from: number; to: number; s
   const softFrom = Math.max(floor, ALLOW_THRESHOLD.strong);
   return [
     { from: floor, to: ALLOW_THRESHOLD.strong, strong: true },
-    { from: softFrom, to: ALLOW_THRESHOLD.soft, strong: false },
+    { from: softFrom, to: softLimit(t), strong: false },
   ].filter((zone) => zone.to > zone.from);
 }
 

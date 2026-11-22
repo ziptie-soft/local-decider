@@ -207,6 +207,10 @@ describe('rule thresholds', () => {
     assert.equal(allowWarning({ ...allow, value: 0.75 })?.strong, true);
     assert.match(allowWarning({ ...allow, value: 0.75 })?.text ?? '', /unsure/);
     assert.equal(allowWarning({ ...allow, action: 'deny', value: 0.3 }), null);
+    const lowDefault = { ...allow, default: 0.85, value: 0.85 };
+    assert.equal(allowWarning(lowDefault), null, 'the shipped default is not flagged');
+    assert.equal(allowWarning({ ...lowDefault, value: 0.82 })?.strong, false);
+    assert.equal(allowWarning({ ...lowDefault, value: 0.9 }), null);
   });
 
   it('shares the gateway floor', () => {
