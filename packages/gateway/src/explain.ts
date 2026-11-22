@@ -273,8 +273,10 @@ function usageView(usage: readonly UsageRecord[]): ExplainUsage | undefined {
   };
 }
 
+/** First line, cut, with control characters (terminal escapes) dropped: errors are not trusted. */
 function firstLine(error: string): string {
-  const [line = ''] = error.split('\n');
+  const [first = ''] = error.split('\n');
+  const line = first.replaceAll(/\p{Cc}/gu, '');
   return line.length > ERROR_CHARS ? `${line.slice(0, ERROR_CHARS - 1)}…` : line;
 }
 

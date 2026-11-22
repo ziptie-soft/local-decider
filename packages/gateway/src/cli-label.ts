@@ -71,8 +71,21 @@ async function post(env: LabelEnv, id: string, token: string): Promise<void> {
     redirect: 'error',
     signal: AbortSignal.timeout(LABEL_TIMEOUT_MS),
   });
+  if (res.status === 404) {
+    throw new Error(
+      'unknown decision to the gateway: it may run against another data directory, or the row was pruned',
+    );
+  }
   if (res.status !== 200) {
     throw new Error(`gateway refused the label (HTTP ${String(res.status)})`);
+  }
+  // A gateway that does not know the report token still answers 200 but demotes the row to
+  // unverified, which has no effect on precedent: never report that as a verified label.
+  const body: unknown = await res.json().catch(() => undefined);
+  if (typeof body === 'object' && body !== null && 'verified' in body && body.verified !== true) {
+    throw new Error(
+      'the gateway recorded the label as unverified (it does not know this report token): restart the gateway, then retry',
+    );
   }
 }
 

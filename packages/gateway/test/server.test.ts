@@ -495,16 +495,13 @@ describe('gateway HTTP', () => {
         input: { lastMessage: 'ok' },
       }),
     );
-    assert.equal(
-      (
-        await post('/v1/outcomes', {
-          decisionId: decision['decisionId'],
-          outcome: 'done',
-          source: 'supervised',
-        })
-      ).status,
-      200,
-    );
+    const demoted = await post('/v1/outcomes', {
+      decisionId: decision['decisionId'],
+      outcome: 'done',
+      source: 'supervised',
+    });
+    assert.equal(demoted.status, 200);
+    assert.deepEqual(await demoted.json(), { ok: true, verified: false });
     const outcome = readLog(logPaths, gw).findLast(
       (record) => record.kind === 'outcome' && record.decisionId === decision['decisionId'],
     );
@@ -517,16 +514,13 @@ describe('gateway HTTP', () => {
     const reportHeader = {
       'x-local-decider-report': readFileSync(join(configDir, 'report-token'), 'utf8'),
     };
-    assert.equal(
-      (
-        await post(
-          '/v1/outcomes',
-          { decisionId: decision['decisionId'], outcome: 'done', source: 'user' },
-          reportHeader,
-        )
-      ).status,
-      200,
+    const verifiedReply = await post(
+      '/v1/outcomes',
+      { decisionId: decision['decisionId'], outcome: 'done', source: 'user' },
+      reportHeader,
     );
+    assert.equal(verifiedReply.status, 200);
+    assert.deepEqual(await verifiedReply.json(), { ok: true, verified: true });
     const stats = await readStats();
     assert.equal(stats.find((s) => s.policy === 'turn-outcome')?.labelled, 1);
     const reportToken = readFileSync(join(configDir, 'report-token'), 'utf8');

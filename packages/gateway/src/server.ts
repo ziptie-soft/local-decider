@@ -748,7 +748,7 @@ const outcomeHandler: Handler = async (req, res, options) => {
     : { ...parsed, source: 'unverified', claimedSource: parsed.source, verified: false };
   options.log.append(outcome);
   options.decider.noteOutcome(outcome);
-  send(res, 200, { ok: true });
+  send(res, 200, { ok: true, verified });
 };
 
 function validReportToken(req: IncomingMessage, token: string | undefined): boolean {

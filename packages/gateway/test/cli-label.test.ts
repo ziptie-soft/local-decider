@@ -25,6 +25,7 @@ let seen: Seen[] = [];
 let leaked = 0;
 let status = 200;
 let redirect = false;
+let reply = '{"ok":true}';
 
 function listen(s: Server): Promise<string> {
   return new Promise((resolve) => {
@@ -49,7 +50,7 @@ before(async () => {
         res.writeHead(302, { location: `${targetUrl}/v1/outcomes` }).end();
         return;
       }
-      res.writeHead(status, { 'content-type': 'application/json' }).end('{"ok":true}');
+      res.writeHead(status, { 'content-type': 'application/json' }).end(reply);
     });
   });
   url = await listen(server);
@@ -69,6 +70,7 @@ function seeded(extra: Record<string, unknown> = {}): ReturnType<typeof tempPath
   seen = [];
   status = 200;
   redirect = false;
+  reply = '{"ok":true,"verified":true}';
   return paths;
 }
 
@@ -172,6 +174,20 @@ describe('label command', () => {
     log.append(makeShadowRecord('44444444-dddd', { action: 'allow' }));
     log.close();
     await assert.rejects(run(bare, ['44444444-dddd', 'unsafe', '--yes']), /report token missing/);
+  });
+
+  it('does not call a label verified when the gateway demoted it, and maps 404 to unknown', async () => {
+    const paths = seeded();
+    reply = '{"ok":true,"verified":false}';
+    await assert.rejects(
+      run(paths, ['11111111-aaaa', 'unsafe', '--yes']),
+      /recorded the label as unverified/,
+    );
+    status = 404;
+    await assert.rejects(
+      run(paths, ['11111111-aaaa', 'unsafe', '--yes']),
+      /unknown decision to the gateway/,
+    );
   });
 
   it('does not follow redirects, so the token never reaches another host', async () => {
