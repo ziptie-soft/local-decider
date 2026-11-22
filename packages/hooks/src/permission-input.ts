@@ -1,16 +1,13 @@
-import { trimTrailingSlashes } from '@ziptie-soft/local-decider-core';
-
 /**
- * The `permission` policy's input, built the same way for the hook runner (transcript file) and the
- * Claude Code mod (`$.session.messages()`). No `node:` imports.
+ * The `permission` policy's input for the hook runner (transcript file) and the Claude Code mod
+ * (`$.session.messages()`): the conversation turns are rendered here, the keys are assembled by the
+ * shared core builder. No `node:` imports.
  */
+import { buildPermissionInput, projectLabel } from '@ziptie-soft/local-decider-core';
+
 import { firstUserText, historyText, lastUserText, taskText, type Turn } from './turns.ts';
 
-/** `name (cwd)`: how the policies refer to the project. */
-export function projectLabel(cwd: string): string {
-  const name = trimTrailingSlashes(cwd).split('/').at(-1) ?? '';
-  return `${name === '' ? cwd : name} (${cwd})`;
-}
+export { projectLabel };
 
 export interface PermissionParts {
   readonly cwd?: string | undefined;
@@ -24,13 +21,12 @@ export interface PermissionParts {
 
 /** Keys the policy's `state.sections` read; empty values are left out. */
 export function permissionInput(parts: PermissionParts): Record<string, unknown> {
-  const input: Record<string, unknown> = {
-    project: parts.cwd === undefined ? undefined : projectLabel(parts.cwd),
-    history: historyText(parts.tail),
-    task: taskText(firstUserText(parts.head), lastUserText(parts.tail)),
+  return buildPermissionInput({
+    cwd: parts.cwd,
     tool: parts.tool,
     request: parts.request,
     subject: parts.subject,
-  };
-  return Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined && v !== ''));
+    history: historyText(parts.tail),
+    task: taskText(firstUserText(parts.head), lastUserText(parts.tail)),
+  });
 }

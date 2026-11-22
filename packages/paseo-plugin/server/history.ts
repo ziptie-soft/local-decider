@@ -9,6 +9,7 @@ import type {
   ToolCallDetail,
 } from '@getpaseo/protocol/agent-types';
 
+import { buildPermissionInput as buildCorePermissionInput } from './core/permission-input.ts';
 import { asRecord, canonicalSubject } from './core/subject.ts';
 
 export const LIMITS = {
@@ -214,24 +215,6 @@ export function buildTurnInput(
   };
 }
 
-/** The request body as JSON, uncut: the decide wrapper caps it with `capInput`. */
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-export interface PermissionInput {
-  readonly project: string;
-  readonly history: string;
-  readonly task: string;
-  readonly tool: string;
-  readonly request: string;
-  readonly subject?: string;
-}
-
 function detailInput(request: AgentPermissionRequest): unknown {
   const detail = request.detail;
   if (detail?.type === 'shell') return { command: detail.command };
@@ -259,23 +242,16 @@ export function buildPermissionInput(
   history: string,
   task: string,
   request: AgentPermissionRequest,
-): PermissionInput {
-  const tool = [request.name, request.kind, request.title].filter(Boolean).join(' · ');
-  const subject = canonicalSubject(request.name, subjectInput(request), cwd);
-  const body = {
-    ...(request.title === undefined ? {} : { title: request.title }),
-    ...(request.description === undefined ? {} : { description: request.description }),
-    ...(request.input === undefined ? {} : { input: request.input }),
-    ...(request.detail === undefined ? {} : { detail: request.detail }),
-  };
-  return {
-    project: head(cwd, 500),
+): Record<string, unknown> {
+  const input = request.input ?? detailInput(request);
+  return buildCorePermissionInput({
+    cwd,
+    tool: request.name,
+    request: input,
+    subject: canonicalSubject(request.name, subjectInput(request), cwd),
     history: tail(history, LIMITS.history / 2),
     task: head(task, LIMITS.task),
-    tool: head(tool, 500),
-    request: safeJson(body),
-    ...(subject === undefined ? {} : { subject }),
-  };
+  });
 }
 
 export interface RoutingInput {

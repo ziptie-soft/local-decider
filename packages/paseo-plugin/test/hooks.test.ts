@@ -204,7 +204,7 @@ describe('agent.permission.before', () => {
     const sent = gw.calls[0]?.input;
     assert.ok(JSON.stringify(sent).length < 256 * 1024);
     const request = String((sent as Record<string, unknown>)['request']);
-    assert.ok(request.startsWith('{"input":{"command":"START'));
+    assert.ok(request.startsWith('{"command":"START'));
     assert.match(request, /chars truncated/);
     assert.equal('subject' in (sent as object), false, 'an over-cap subject is dropped');
   });
