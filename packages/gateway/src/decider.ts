@@ -15,7 +15,9 @@ import {
   policySections,
   policyThresholds,
   redactDeep,
+  redactionLabelCounts,
   redactSecrets,
+  rulesHash,
   withThresholds,
   sortKeysDeep,
   type Answers,
@@ -648,6 +650,7 @@ export class Decider {
     this.#record(request, response, {
       hash,
       stateTokens: Math.ceil(state.length / CHARS_PER_TOKEN),
+      explain: explainFields(request.input, input, policy),
       ...(result.queueMs === undefined ? {} : { queueMs: result.queueMs }),
       ...(result.engineMs === undefined ? {} : { engineMs: result.engineMs }),
     });
@@ -1032,7 +1035,13 @@ export class Decider {
   #record(
     request: DecideRequest,
     response: DecideResponse,
-    state: { hash: string; stateTokens: number; queueMs?: number; engineMs?: number },
+    state: {
+      hash: string;
+      stateTokens: number;
+      explain: ExplainFields;
+      queueMs?: number;
+      engineMs?: number;
+    },
   ): void {
     const record: ShadowRecord = {
       kind: 'decision',
@@ -1047,6 +1056,9 @@ export class Decider {
       inputHash: state.hash,
       ...(response.precedentKey === undefined ? {} : { precedentKey: response.precedentKey }),
       ...(response.precedent === undefined ? {} : { precedent: response.precedent }),
+      rule: response.rule,
+      cached: response.cached,
+      ...state.explain,
       stateTokens: state.stateTokens,
       ...modelFields(request, response.action),
       answers: response.answers,
@@ -1063,6 +1075,28 @@ export class Decider {
     this.#log.append(record);
     this.#precedent.noteDecision(record);
   }
+}
+
+type ExplainFields = Pick<ShadowRecord, 'redactions' | 'rulesHash' | 'tool'>;
+
+const TOOL_NAME = /^[\w.:-]{1,64}$/;
+
+/**
+ * What explain shows beyond the answers: redaction label counts, the hash of the rules in force
+ * and the tool name. None of them holds request text (the tool name must be a plain identifier).
+ */
+function explainFields(
+  raw: Readonly<Record<string, unknown>>,
+  redacted: Readonly<Record<string, unknown>>,
+  policy: Policy,
+): ExplainFields {
+  const counts = redactionLabelCounts(raw, redacted);
+  const tool = redacted['tool'];
+  return {
+    ...(Object.keys(counts).length === 0 ? {} : { redactions: counts }),
+    rulesHash: rulesHash(policy),
+    ...(typeof tool === 'string' && TOOL_NAME.test(tool) ? { tool } : {}),
+  };
 }
 
 /** Queue wait and engine time of a call that ran; empty when the job never started. */

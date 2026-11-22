@@ -61,8 +61,8 @@ describe('SqliteLog', () => {
     const file = join(dir, 'legacy.db');
     const old = new (sqlite().DatabaseSync)(file, { allowExtension: false });
     old.exec(
-      `CREATE TABLE decision(action TEXT, precedent_key TEXT, ts INTEGER);
-       INSERT INTO decision VALUES ('ask', 'old-format-key', 1);
+      `CREATE TABLE decision(action TEXT, precedent_key TEXT, ts INTEGER, call_id TEXT);
+       INSERT INTO decision(action, precedent_key, ts) VALUES ('ask', 'old-format-key', 1);
        CREATE TABLE outcome(source TEXT, verified INTEGER);
        CREATE TABLE usage(decision_id TEXT, ts INTEGER);
        INSERT INTO usage VALUES ('legacy', 1);
@@ -95,7 +95,7 @@ describe('SqliteLog', () => {
           .all()
           .map((row) => row['name']);
         assert.ok(outcomeColumns.includes('claimed_source'));
-        assert.equal(pragma(file, 'user_version'), 5);
+        assert.equal(pragma(file, 'user_version'), 6);
       } finally {
         db.close();
       }
@@ -593,9 +593,9 @@ describe('SqliteLog', () => {
     new (sqlite().DatabaseSync)(file, { allowExtension: false }).close();
     assert.equal(pragma(file, 'user_version'), 0);
     SqliteLog.open(file).close();
-    assert.equal(pragma(file, 'user_version'), 5);
+    assert.equal(pragma(file, 'user_version'), 6);
     SqliteLog.open(file).close();
-    assert.equal(pragma(file, 'user_version'), 5);
+    assert.equal(pragma(file, 'user_version'), 6);
     const database = new (sqlite().DatabaseSync)(file, { allowExtension: false, readOnly: true });
     try {
       const names = database
@@ -639,5 +639,173 @@ describe('SqliteLog', () => {
         .get()?.['journal_mode'],
       'wal',
     );
+  });
+
+  describe('F6 migration (v5 → v6)', () => {
+    const V5_SCHEMA = `
+      CREATE TABLE decision(
+        id TEXT PRIMARY KEY, ts INTEGER NOT NULL, policy TEXT NOT NULL, variant TEXT,
+        mode TEXT NOT NULL, scope TEXT, harness TEXT NOT NULL, session_id TEXT, call_id TEXT,
+        permission_mode TEXT, subagent INTEGER, input_hash TEXT NOT NULL,
+        precedent_key TEXT, template_key TEXT, state_tokens INTEGER,
+        action TEXT NOT NULL, enforced INTEGER NOT NULL, engine TEXT, model TEXT,
+        latency_ms INTEGER, queue_ms INTEGER, engine_ms INTEGER, error TEXT, power TEXT,
+        requested_model TEXT, routed_model TEXT, answers TEXT NOT NULL, truncated TEXT) STRICT;
+      CREATE INDEX decision_ts ON decision(ts);
+      CREATE INDEX decision_policy_ts ON decision(policy, ts);
+      CREATE TABLE outcome(
+        seq INTEGER PRIMARY KEY, decision_id TEXT NOT NULL, ts INTEGER NOT NULL,
+        outcome TEXT NOT NULL, source TEXT NOT NULL, verified INTEGER NOT NULL,
+        claimed_source TEXT) STRICT;
+      CREATE INDEX outcome_ts ON outcome(ts);
+      CREATE INDEX outcome_decision ON outcome(decision_id, seq);
+      CREATE TABLE usage(
+        seq INTEGER PRIMARY KEY, decision_id TEXT NOT NULL, ts INTEGER NOT NULL, turn_id TEXT,
+        model TEXT, input_tokens INTEGER NOT NULL, cached_input_tokens INTEGER NOT NULL,
+        output_tokens INTEGER NOT NULL, cost_usd REAL, verified INTEGER NOT NULL DEFAULT 1) STRICT;
+      CREATE INDEX usage_ts ON usage(ts);
+      CREATE INDEX usage_decision ON usage(decision_id);
+      INSERT INTO decision(id, ts, policy, mode, harness, call_id, input_hash, action, enforced,
+        engine, model, latency_ms, answers)
+        VALUES ('old-1', 1763424000000, 'permission', 'shadow', 'claude-code', 'toolu_old',
+        'hash', 'ask', 0, 'fake', 'fake', 5, '{}');
+      PRAGMA user_version = 5;`;
+
+    function fixture(): string {
+      const file = join(tempDir(), 'decider.db');
+      const old = new (sqlite().DatabaseSync)(file, { allowExtension: false });
+      old.exec(V5_SCHEMA);
+      old.close();
+      return file;
+    }
+
+    it('adds the columns and call index, keeps old rows and is a no-op the second time', () => {
+      const file = fixture();
+      const log = SqliteLog.open(file);
+      try {
+        const old = log.findDecision('old-1');
+        assert.equal(old?.action, 'ask');
+        for (const key of ['rule', 'cached', 'precedent', 'redactions', 'rulesHash', 'tool']) {
+          assert.equal(old !== undefined && key in old, false, `${key} stays absent`);
+        }
+        assert.deepEqual(
+          log.findByCall('toolu_old').map((record) => record.decisionId),
+          ['old-1'],
+        );
+      } finally {
+        log.close();
+      }
+      assert.equal(pragma(file, 'user_version'), 6);
+      const again = SqliteLog.open(file);
+      again.close();
+      assert.equal(pragma(file, 'user_version'), 6);
+      const database = new (sqlite().DatabaseSync)(file, { allowExtension: false, readOnly: true });
+      try {
+        const columns = database
+          .prepare('PRAGMA table_info(decision)')
+          .all()
+          .map((row) => row['name']);
+        for (const name of [
+          'rule',
+          'cached',
+          'precedent_allows',
+          'precedent_denies',
+          'redactions',
+          'rules_hash',
+          'tool',
+        ]) {
+          assert.equal(columns.filter((column) => column === name).length, 1, name);
+        }
+        const names = database
+          .prepare("SELECT name FROM sqlite_schema WHERE type = 'index'")
+          .all()
+          .map((row) => row['name']);
+        assert.ok(names.includes('decision_call'));
+      } finally {
+        database.close();
+      }
+      assert.ok(
+        readdirSync(join(file, '..')).some((name) => name.includes('.pre-v5-')),
+        'a pre-migration backup was written',
+      );
+    });
+
+    it('makes a read-only open ask for the gateway to migrate first', () => {
+      const file = fixture();
+      assert.throws(
+        () => SqliteLog.open(file, { readOnly: true }),
+        /start the gateway once to migrate/,
+      );
+    });
+
+    it('round-trips the new fields and decodes NULL as absent', () => {
+      const log = tempLog();
+      try {
+        const full = makeShadowRecord('full', {
+          rule: 2,
+          cached: true,
+          precedent: { allows: 3, denies: 1 },
+          redactions: { 'bearer': 1, 'secret-field': 2 },
+          rulesHash: '0123456789abcdef',
+          tool: 'Bash',
+          callId: 'call-1',
+        });
+        const sparse = makeShadowRecord('sparse', { rule: -1, cached: false, callId: 'call-1' });
+        log.append(full);
+        log.append(sparse);
+        log.flush();
+        assert.deepEqual(log.findDecision('full'), full);
+        assert.deepEqual(
+          log.read().filter((r) => r.kind === 'decision'),
+          [full, sparse],
+        );
+        assert.equal(log.findDecision('sparse')?.precedent, undefined);
+        assert.equal(log.findDecision('sparse')?.rule, -1);
+        assert.equal(log.findDecision('sparse')?.cached, false);
+      } finally {
+        log.close();
+      }
+    });
+
+    it('reads outcomes in seq order, usage, and decisions by call with a limit', () => {
+      const log = tempLog();
+      try {
+        for (const id of ['a', 'b', 'c']) {
+          log.append(
+            makeShadowRecord(id, {
+              callId: 'shared',
+              ts: `2026-11-10T00:00:0${id === 'a' ? 1 : id === 'b' ? 2 : 3}.000Z`,
+            }),
+          );
+        }
+        log.append(outcome('a', { outcome: 'deny', ts: '2026-11-10T01:00:00.000Z' }));
+        log.append(outcome('a', { outcome: 'allow', ts: '2026-11-10T00:30:00.000Z' }));
+        log.append(outcome('b'));
+        const usage: LogRecord = {
+          kind: 'usage',
+          ts: '2026-11-10T02:00:00.000Z',
+          decisionId: 'a',
+          inputTokens: 1,
+          cachedInputTokens: 0,
+          outputTokens: 2,
+          verified: false,
+        };
+        log.append(usage);
+        assert.deepEqual(
+          log.findOutcomes('a').map((record) => record.outcome),
+          ['deny', 'allow'],
+        );
+        assert.deepEqual(log.findUsage('a'), [usage]);
+        assert.deepEqual(log.findUsage('b'), []);
+        assert.deepEqual(
+          log.findByCall('shared', 2).map((record) => record.decisionId),
+          ['a', 'b'],
+        );
+        assert.equal(log.findByCall('shared').length, 3);
+        assert.deepEqual(log.findByCall('none'), []);
+      } finally {
+        log.close();
+      }
+    });
   });
 });

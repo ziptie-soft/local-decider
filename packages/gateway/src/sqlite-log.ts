@@ -171,6 +171,27 @@ export class SqliteLog implements LogStore {
     return row === undefined ? undefined : decisionRecord(row);
   }
 
+  findOutcomes(decisionId: string): OutcomeRecord[] {
+    this.flush();
+    return this.#statement('SELECT * FROM outcome WHERE decision_id = ? ORDER BY seq')
+      .all(decisionId)
+      .map(outcomeRecord);
+  }
+
+  findUsage(decisionId: string): UsageRecord[] {
+    this.flush();
+    return this.#statement('SELECT * FROM usage WHERE decision_id = ? ORDER BY ts, seq')
+      .all(decisionId)
+      .map(usageRecord);
+  }
+
+  findByCall(callId: string, limit = 8): ShadowRecord[] {
+    this.flush();
+    return this.#statement('SELECT * FROM decision WHERE call_id = ? ORDER BY ts, id LIMIT ?')
+      .all(callId, limit)
+      .flatMap((row) => keepReadable(row, new Set()));
+  }
+
   read(): LogRecord[] {
     this.flush();
     return this.#readRows(undefined);
@@ -469,8 +490,9 @@ const DECISION_SQL = `INSERT INTO decision (
         id, ts, policy, variant, mode, scope, harness, session_id, call_id,
         permission_mode, subagent, input_hash, precedent_key, template_key,
         state_tokens, action, enforced, engine, model, latency_ms, queue_ms,
-        engine_ms, error, power, requested_model, routed_model, answers, truncated
-      ) VALUES (${Array.from({ length: 28 }, () => '?').join(', ')})`;
+        engine_ms, error, power, requested_model, routed_model, answers, truncated,
+        rule, cached, precedent_allows, precedent_denies, redactions, rules_hash, tool
+      ) VALUES (${Array.from({ length: 35 }, () => '?').join(', ')})`;
 
 function decisionParams(record: ShadowRecord): SqlValue[] {
   const extras = record as ShadowRecord & { readonly templateKey?: string };
@@ -503,6 +525,20 @@ function decisionParams(record: ShadowRecord): SqlValue[] {
     nullable(record.routedModel),
     JSON.stringify(record.answers),
     record.truncated === undefined ? null : JSON.stringify(record.truncated),
+    ...explainParams(record),
+  ];
+}
+
+/** The F6 columns: rule, cache flag, precedent tally, redaction counts, rules hash and tool. */
+function explainParams(record: ShadowRecord): SqlValue[] {
+  return [
+    nullable(record.rule),
+    nullableBoolean(record.cached),
+    nullable(record.precedent?.allows),
+    nullable(record.precedent?.denies),
+    record.redactions === undefined ? null : JSON.stringify(record.redactions),
+    nullable(record.rulesHash),
+    nullable(record.tool),
   ];
 }
 
@@ -785,6 +821,17 @@ CREATE INDEX usage_decision ON usage(decision_id);
   'ALTER TABLE decision ADD COLUMN truncated TEXT;',
   // Rows written before report-token gating of usage cannot be told apart: keep them verified.
   'ALTER TABLE usage ADD COLUMN verified INTEGER NOT NULL DEFAULT 1;',
+  // F6: what `explain` shows. Rows written before it keep NULLs ("not recorded").
+  `
+ALTER TABLE decision ADD COLUMN rule INTEGER;
+ALTER TABLE decision ADD COLUMN cached INTEGER;
+ALTER TABLE decision ADD COLUMN precedent_allows INTEGER;
+ALTER TABLE decision ADD COLUMN precedent_denies INTEGER;
+ALTER TABLE decision ADD COLUMN redactions TEXT;
+ALTER TABLE decision ADD COLUMN rules_hash TEXT;
+ALTER TABLE decision ADD COLUMN tool TEXT;
+CREATE INDEX decision_call ON decision(call_id) WHERE call_id IS NOT NULL;
+`,
 ];
 
 function loadDatabase(): DatabaseConstructor {
@@ -1044,6 +1091,7 @@ function decisionMetrics(row: Row): DecisionExtras {
   const engineMs = optionalNumber(row['engine_ms']);
   const truncated = truncatedLabels(row['truncated']);
   return {
+    ...explainColumns(row),
     ...(truncated === undefined ? {} : { truncated }),
     ...(precedentKey === undefined ? {} : { precedentKey }),
     ...(stateTokens === undefined ? {} : { stateTokens }),
@@ -1054,6 +1102,38 @@ function decisionMetrics(row: Row): DecisionExtras {
     ...(queueMs === undefined ? {} : { queueMs }),
     ...(engineMs === undefined ? {} : { engineMs }),
   };
+}
+
+function explainColumns(row: Row): DecisionExtras {
+  const rule = optionalNumber(row['rule']);
+  const cached = optionalNumber(row['cached']);
+  const allows = optionalNumber(row['precedent_allows']);
+  const denies = optionalNumber(row['precedent_denies']);
+  const redactions = redactionCounts(row['redactions']);
+  const rulesHash = optionalText(row['rules_hash']);
+  const tool = optionalText(row['tool']);
+  return {
+    ...(rule === undefined ? {} : { rule }),
+    ...(cached === undefined ? {} : { cached: cached === 1 }),
+    ...(allows === undefined || denies === undefined ? {} : { precedent: { allows, denies } }),
+    ...(redactions === undefined ? {} : { redactions }),
+    ...(rulesHash === undefined ? {} : { rulesHash }),
+    ...(tool === undefined ? {} : { tool }),
+  };
+}
+
+function redactionCounts(value: SqlValue | undefined): Record<string, number> | undefined {
+  if (typeof value !== 'string') return undefined;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
+    const entries = Object.entries(parsed);
+    return entries.every(([, count]) => typeof count === 'number')
+      ? (parsed as Record<string, number>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function truncatedLabels(value: SqlValue | undefined): string[] | undefined {

@@ -34,7 +34,7 @@ export {
   type RouteTarget,
 } from './decision.ts';
 export { guardCommand, MAX_COMMAND_CHARS, OVERSIZE_COMMAND, type GuardHit } from './guard.ts';
-export { inputHash } from './hash.ts';
+export { inputHash, rulesHash } from './hash.ts';
 export { CALL_ID } from './ids.ts';
 export { patchTargets } from './patch.ts';
 export {
@@ -68,6 +68,7 @@ export {
   type RuleMatch,
 } from './policy.ts';
 export { redactDeep, redactSecrets, type RedactionResult } from './redact.ts';
+export { redactionLabelCounts } from './redact-counts.ts';
 export {
   choiceConfidence,
   normaliseAnswers,
