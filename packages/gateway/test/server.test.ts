@@ -686,6 +686,18 @@ describe('gateway HTTP', () => {
     const text = (call['result'] as { content: { text: string }[] }).content[0]?.text ?? '';
     assert.equal((JSON.parse(text) as { action: string }).action, 'log');
   });
+
+  it('accepts an MCP protocol version newer than the SDK knows on later requests', async () => {
+    const headers = {
+      'accept': 'application/json, text/event-stream',
+      'mcp-protocol-version': '2026-07-28',
+    };
+    const res = await post('/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list' }, headers);
+    assert.equal(res.status, 200);
+    const list = await json(res);
+    const tools = (list['result'] as { tools: { name: string }[] }).tools.map((t) => t.name);
+    assert.deepEqual(tools.toSorted(), ['decide', 'policies']);
+  });
 });
 
 describe('gateway browser guard', () => {

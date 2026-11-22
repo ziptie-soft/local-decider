@@ -85,6 +85,8 @@ Caveats:
   provider has `paseoTools.enabled: false`, or when a tool is in `disabledTools`.
 - Codex agents cannot use them yet: daemons 0.16.2 and 0.17.3 reject the MCP protocol version
   `2026-07-28` that current Codex speaks. The plugin skips Codex approvals for the `paseo` server.
+  The gateway's own `/mcp` accepts that version (it clamps it to the newest one its SDK knows),
+  so the gateway MCP server works for Codex; only these Paseo-served tools are affected.
 - The old `injectMcp` setting is migrated to this one.
 
 ## Daily review
