@@ -135,3 +135,21 @@ export function readControlToken(paths: Paths): string | undefined {
     return undefined;
   }
 }
+
+/**
+ * The report token once the gateway has created it, for a local label. Refuses a token file
+ * others can read; undefined when missing or malformed. The token itself is never put in a message.
+ */
+export function readReportToken(paths: Paths): string | undefined {
+  const file = join(paths.config, REPORT_FILE);
+  try {
+    checkPrivate(file);
+    const token = readFileSync(file, 'utf8').trim();
+    return isLocalToken(token) ? token : undefined;
+  } catch (error) {
+    if (hasCode(error, 'ENOENT')) {
+      return undefined;
+    }
+    throw error;
+  }
+}
