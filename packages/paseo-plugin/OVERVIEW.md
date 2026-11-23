@@ -91,10 +91,8 @@ checks still run, since Paseo has no equivalent.
   the gateway's log. The details line and feedback buttons can be turned off separately.
 - **Sidebar:** the status item at the top or bottom of the sidebar, or hidden; what its label
   shows; and whether pressing it opens a quick status popover or the status screen.
-- **Advanced:** the gateway URL; a switch that adds the gateway's `decide` MCP tool to every
-  agent session, only for a loopback gateway without a bearer token (providers without MCP support
-  then fail to open); and a switch that loads the
-  model when Paseo starts.
+- **Advanced:** the gateway URL; an **Agent tools** switch (off by default); and a switch that
+  loads the model when Paseo starts.
 - **Decision thresholds** (collapsed): a slider and number field for each rule of each policy,
   such as "auto-allow when verdict is allow" at p(allow) ≥ 0.85, in steps of 0.01, with Reset.
   Below 0.90 it warns that more requests are auto-allowed without asking. An auto-allow rule
@@ -108,6 +106,24 @@ checks still run, since Paseo has no equivalent.
 Policy modes, thresholds, routing, engine, model, lifecycle and path changes are stored by the
 gateway in its `config.yaml`, so they apply to every client of that gateway, including the
 Claude Code and Codex hooks.
+
+## Agent tools
+
+With **Agent tools** on, every interactive agent opened afterwards gets three native Paseo tools,
+served by Paseo's own `paseo` MCP server. They work with the configured gateway, local or remote:
+
+- `local_decider_policies` lists the policies an agent may call, the input keys each reads and
+  its questions.
+- `local_decider_decide` asks a policy a fixed-choice question. The answer is advisory and never
+  enforced.
+- `local_decider_explain` explains one decision by its id (loopback gateway with a control token
+  only).
+
+The tools run in the plugin process, so the gateway URL and its tokens never reach agent config;
+requests use the same origin-bound credentials as the rest of the plugin. Calls are rate limited
+per agent and overall, and the plugin's own policy-writer agent never gets them. The 2.x setting
+that injected the gateway's `decide` MCP server into agent sessions is gone: if it was on, it
+migrates to **Agent tools**.
 
 ## Benchmarks
 
@@ -203,6 +219,8 @@ The plugin sends agent content to the gateway at the configured URL:
   statistics can show routing savings. Reports stop for agents created before a daemon or plugin
   restart, so savings undercount.
 - **`/decide`:** the text you type after the command.
+- **Agent tools** (when on): for `local_decider_decide`, the input the agent passes (capped in
+  size), its agent ID and its workspace path; for `local_decider_explain`, the decision id.
 - **Feedback:** your answers to "Right answer?" chips and your accept or decline on prompts.
 
 The gateway redacts secrets it recognises, then passes the input to its engine and writes it to
