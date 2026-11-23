@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.1.0](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v3.0.1...paseo-plugin-v3.1.0) (2026-11-23)
+
+
+### Features
+
+* **gateway:** remove downloaded models from the Paseo engine settings ([1fce992](https://github.com/ziptie-soft/local-decider/commit/1fce9927dc29042cd4f75d67482f953d8fe38f04))
+
+
+### Bug Fixes
+
+* **gateway:** tag ROCm torch as ROCm and simplify engine labels and descriptions ([2959d17](https://github.com/ziptie-soft/local-decider/commit/2959d17b21a2a9f2910d7ac77731a5f347558d88))
+
 ## [3.0.1](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v3.0.0...paseo-plugin-v3.0.1) (2026-11-23)
 
 
