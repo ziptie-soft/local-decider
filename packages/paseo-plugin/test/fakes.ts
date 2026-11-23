@@ -187,6 +187,7 @@ export function fakeGateway(
       return { ok: true, body: { state: 'cancelling' } };
     },
     downloadModel: record('downloadModel'),
+    removeModel: record('removeModel'),
     validateEngine: record('validateEngine'),
     saveEngineConnection: record('saveEngineConnection'),
     discoverServers: record('discoverServers'),

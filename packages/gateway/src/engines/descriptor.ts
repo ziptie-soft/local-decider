@@ -114,6 +114,8 @@ export interface EngineDescriptor<
     model: ModelDescriptor<C['type']>,
     ctx: EngineContext,
   ): readonly DownloadStep[];
+  /** Deletes a downloaded model's files; absent means this engine has no remove action. */
+  removeModel?(this: void, model: ModelDescriptor<C['type']>, ctx: EngineContext): Promise<void>;
   readonly validation?: EngineValidation;
   create(config: C, ctx: EngineContext): Engine;
 }
@@ -148,6 +150,11 @@ export function defineEngine<
     model: ModelDescriptor<z.output<S>['type']>,
     ctx: EngineContext,
   ): readonly DownloadStep[];
+  removeModel?(
+    this: void,
+    model: ModelDescriptor<z.output<S>['type']>,
+    ctx: EngineContext,
+  ): Promise<void>;
   readonly validation?: EngineValidation;
   create(config: z.output<S>, ctx: EngineContext): Engine;
 }): EngineDescriptor<z.output<S>, S, Selectable> {

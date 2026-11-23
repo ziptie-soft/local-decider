@@ -83,6 +83,11 @@ export interface Gateway {
     target: { engine: string; model: string },
     options?: CallOptions,
   ): Promise<PostResult>;
+  /** `POST /v1/models/remove`: delete a downloaded model's files; 409 while it is in use. */
+  removeModel(
+    target: { engine: string; model: string },
+    options?: CallOptions,
+  ): Promise<PostResult>;
   /** `POST /v1/engines/validate`: re-run an engine's self check (FastFlowLM's `flm validate`). */
   validateEngine(engine: string, options?: CallOptions): Promise<PostResult>;
   /** `POST /v1/config/engine`: save an OpenAI-like engine's URL, model and token variable name. */
@@ -527,6 +532,7 @@ export function createGateway(options: GatewayOptions = {}): Gateway | null {
     benchmarkCancel: async (call) =>
       post('/v1/benchmark/cancel', {}, { timeoutMs: BENCHMARK_POST_MS, ...call }),
     downloadModel: async (target, call) => post('/v1/models/download', { ...target }, call),
+    removeModel: async (target, call) => post('/v1/models/remove', { ...target }, call),
     validateEngine: async (engine, call) => post('/v1/engines/validate', { engine }, call),
     saveEngineConnection: async (body, call) => post('/v1/config/engine', { ...body }, call),
     discoverServers: async (body, call) => post('/v1/engines/discover', { ...body }, call),

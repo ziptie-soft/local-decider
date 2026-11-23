@@ -126,6 +126,13 @@ export const downloadModelRpc = defineRpc({
   output: z.object({ ok: z.boolean(), error: failure, download: downloadSchema.nullable() }),
 });
 
+/** Delete a downloaded model's files (`POST /v1/models/remove`). */
+export const removeModelRpc = defineRpc({
+  name: 'remove-model',
+  input: z.object({ engine: id, model: id }),
+  output: z.object({ ok: z.boolean(), error: failure }),
+});
+
 /** Re-run an engine's self check (`POST /v1/engines/validate`), e.g. FastFlowLM's `flm validate`. */
 export const validateEngineRpc = defineRpc({
   name: 'validate-engine',

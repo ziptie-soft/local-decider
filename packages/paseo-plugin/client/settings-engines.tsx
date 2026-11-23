@@ -1,6 +1,6 @@
 /**
- * Settings: pick an engine, then a model for it. Rows download models, switch the gateway to one
- * (the gateway persists it) and show an engine's validation result when it has one.
+ * Settings: pick an engine, then a model for it. Rows download and remove models, switch the
+ * gateway to one (the gateway persists it) and show an engine's validation result when it has one.
  */
 import { useRpc } from '@getpaseo/plugin/client';
 import {
@@ -16,6 +16,7 @@ import { View } from 'react-native';
 import type { BenchmarkView } from '../shared/benchmark.ts';
 import type { DiscoveredServer, Seed } from '../shared/connection.ts';
 import {
+  canRemoveModel,
   deviceOptions,
   engineHint,
   engineOptions,
@@ -39,6 +40,7 @@ import {
 } from '../shared/recommendation.ts';
 import {
   downloadModelRpc,
+  removeModelRpc,
   selectEngineRpc,
   selectionModeRpc,
   validateEngineRpc,
@@ -48,7 +50,16 @@ import { type Outcome, outcomeOf, useAction, useBenchmark, useEngines } from './
 import { InstallRow } from './install.tsx';
 import { BenchmarkCard } from './settings-benchmark.tsx';
 import { RecommendedCard } from './settings-recommended.tsx';
-import { Badge, Disclosure, InlineMessage, Mono, Progress, type Theme, Value } from './ui.tsx';
+import {
+  Badge,
+  Button,
+  Disclosure,
+  InlineMessage,
+  Mono,
+  Progress,
+  type Theme,
+  Value,
+} from './ui.tsx';
 
 type Action = ReturnType<typeof useAction>;
 
@@ -59,6 +70,41 @@ interface RowProps {
   readonly engine: EngineInfo;
   readonly device: string;
   readonly action: Action;
+}
+
+/** Deletes the model's files after a second press; the catalogue refreshes afterwards. */
+function RemoveButton({
+  theme,
+  model,
+  action,
+}: {
+  theme: Theme;
+  model: EngineModel;
+  action: Action;
+}): ReactNode {
+  const remove = useRpc(removeModelRpc);
+  const [confirm, setConfirm] = useState(false);
+  const press = (): void => {
+    if (!confirm) {
+      setConfirm(true);
+      return;
+    }
+    setConfirm(false);
+    void action.run(`remove:${model.id}`, async () =>
+      outcomeOf(await remove({ engine: model.engine, model: model.id }), `Removed ${model.label}.`),
+    );
+  };
+  return (
+    <Button
+      theme={theme}
+      variant="secondary"
+      icon="Trash2"
+      label={confirm ? 'Confirm remove' : 'Remove'}
+      hint={`Deletes the downloaded files of ${model.label}.`}
+      disabled={action.busy !== null}
+      onPress={press}
+    />
+  );
 }
 
 function ModelRow({ theme, model, catalog, engine, device, action }: RowProps): ReactNode {
@@ -101,11 +147,27 @@ function ModelRow({ theme, model, catalog, engine, device, action }: RowProps): 
     }
   };
   const mine = action.busy?.endsWith(`:${model.id}`) === true;
+  const actionLabel = mine ? 'Working…' : view.actionLabel;
+  if (canRemoveModel(model, state)) {
+    return (
+      <SettingsRow label={view.label} hint={view.hint}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <RemoveButton theme={theme} model={model} action={action} />
+          <Button
+            theme={theme}
+            label={actionLabel}
+            disabled={view.action === null || action.busy !== null}
+            onPress={press}
+          />
+        </View>
+      </SettingsRow>
+    );
+  }
   return (
     <SettingsAction
       label={view.label}
       hint={view.hint}
-      actionLabel={mine ? 'Working…' : view.actionLabel}
+      actionLabel={actionLabel}
       disabled={view.action === null || action.busy !== null}
       onPress={press}
     />

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { EngineContext, HostInfo } from '../descriptor.ts';
 import { defineEngine } from '../descriptor.ts';
 import { GGUF, LLAMA_MODEL_IDS, LLAMA_MODELS } from './models.ts';
+import { removeLlamaModel } from './remove.ts';
 import { LlamaVulkanEngine } from './server.ts';
 import { llamaModelsPresent } from './status.ts';
 import { llamaServerVersion } from './version.ts';
@@ -110,5 +111,6 @@ export const llamaVulkanEngine = defineEngine({
     if (!supports(ctx.host).ok) throw new Error('llama-vulkan is only available on Linux x86_64');
     return [downloadCommand(model.id)];
   },
+  removeModel: removeLlamaModel,
   create: (config, ctx) => new LlamaVulkanEngine(config, ctx.paths, ctx.tools),
 });
