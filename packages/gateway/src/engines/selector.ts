@@ -98,34 +98,34 @@ interface Rung {
 }
 
 const LADDER: readonly Rung[] = [
-  { engine: 'fastflowlm', device: null, backend: 'NPU', needs: (c) => c.npu, label: 'AMD NPU' },
+  { engine: 'fastflowlm', device: null, backend: 'NPU', needs: (c) => c.npu, label: 'NPU' },
   {
     engine: 'strands-decider',
     device: 'cuda',
     backend: 'CUDA',
     needs: (c) => gpuTorch(c).result,
-    label: 'NVIDIA GPU',
+    label: 'GPU (CUDA)',
   },
   {
     engine: 'llama-vulkan',
     device: null,
     backend: 'Vulkan',
     needs: (c) => c.vulkan,
-    label: 'Vulkan GPU',
+    label: 'GPU (Vulkan)',
   },
   {
     engine: 'strands-decider',
     device: 'mlx',
     backend: 'MLX',
     needs: appleVariant('mlx'),
-    label: 'MLX/Metal',
+    label: 'GPU (MLX)',
   },
   {
     engine: 'strands-decider',
     device: 'mps',
     backend: 'MPS',
     needs: appleVariant('mps'),
-    label: 'PyTorch MPS',
+    label: 'GPU (MPS)',
   },
   { engine: 'strands-decider', device: 'cpu', backend: 'CPU', label: 'CPU' },
 ];
@@ -158,7 +158,7 @@ function forHost(rung: Rung, caps: HostCapabilities | undefined): Rung {
     return rung;
   }
   const { backend } = gpuTorch(caps);
-  return backend === 'ROCm' ? { ...rung, backend, label: 'AMD GPU (ROCm)' } : rung;
+  return backend === 'ROCm' ? { ...rung, backend, label: 'GPU (ROCm)' } : rung;
 }
 
 function appleVariant(want: 'mlx' | 'mps'): (c: HostCapabilities) => CapabilityResult {

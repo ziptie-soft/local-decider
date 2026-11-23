@@ -147,17 +147,23 @@ export function parseFallback(value: unknown): Fallback | null {
       };
 }
 
+/**
+ * CPU, GPU or NPU; a GPU also names its runtime, since one machine can run two (ROCm torch and
+ * llama.cpp on Vulkan share an AMD GPU).
+ */
 const BACKEND_NAMES: Record<string, string> = {
-  NPU: 'AMD NPU',
-  CUDA: 'NVIDIA GPU (CUDA)',
-  ROCm: 'AMD GPU (ROCm)',
+  NPU: 'NPU',
+  CUDA: 'GPU (CUDA)',
+  ROCm: 'GPU (ROCm)',
   Vulkan: 'GPU (Vulkan)',
-  MLX: 'Apple GPU (MLX)',
-  MPS: 'Apple GPU (PyTorch MPS)',
+  MLX: 'GPU (MLX)',
+  MPS: 'GPU (MPS)',
+  /** A `cuda` device with no backend from the gateway: ROCm torch names AMD GPUs `cuda` too. */
+  GPU: 'GPU',
   CPU: 'CPU',
 };
 
-/** `Apple GPU (MLX)` for `MLX`; an unknown backend is shown as the gateway sent it. */
+/** `GPU (MLX)` for `MLX`; an unknown backend is shown as the gateway sent it. */
 export function backendName(backend: string): string {
   return BACKEND_NAMES[backend] ?? backend;
 }
@@ -165,7 +171,8 @@ export function backendName(backend: string): string {
 const DEVICE_BACKENDS: Record<string, string> = {
   mlx: 'MLX',
   mps: 'MPS',
-  cuda: 'CUDA',
+  // NVIDIA or AMD: the device alone cannot tell, only the gateway's backend can.
+  cuda: 'GPU',
   cpu: 'CPU',
 };
 
@@ -221,13 +228,13 @@ function runningBackend(active: ActiveInfo): string | null {
   );
 }
 
-/** `Strands Decider · Apple GPU (MLX)`; an engine on no known backend shows its label alone. */
+/** `Strands Decider · GPU (MLX)`; an engine on no known backend shows its label alone. */
 function fullName(engine: string, backend: string | null, names: Names): string {
   const label = names.engines.get(engine) ?? engine;
   return backend === null ? label : `${label} · ${backendName(backend)}`;
 }
 
-/** `Apple GPU (MLX)`; the engine's label when it has no backend of its own. */
+/** `GPU (MLX)`; the engine's label when it has no backend of its own. */
 function shortName(engine: string, backend: string | null, names: Names): string {
   return backend === null ? (names.engines.get(engine) ?? engine) : backendName(backend);
 }
@@ -309,7 +316,7 @@ export function minutes(seconds: number): string {
   return `${String(Math.ceil(seconds / 60))} min`;
 }
 
-/** `Apple GPU (MLX) failed; retrying in 2 min.` while automatic mode runs a backup engine. */
+/** `GPU (MLX) failed; retrying in 2 min.` while automatic mode runs a backup engine. */
 export function fallbackLine(
   active: ActiveInfo | null,
   names: Names,

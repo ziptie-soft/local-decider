@@ -16,7 +16,7 @@ export interface EngineHealth {
   readonly requestedDevice?: string;
   /** Concrete device after resolving `auto`; absent while unknown. */
   readonly resolvedDevice?: string;
-  /** Backend tag: `MLX`, `MPS`, `CUDA` or `CPU`; absent while unknown. */
+  /** Backend tag: `MLX`, `MPS`, `CUDA`, `ROCm` or `CPU`; absent while unknown. */
   readonly backend?: string;
 }
 

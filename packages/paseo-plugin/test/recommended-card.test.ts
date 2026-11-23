@@ -454,8 +454,8 @@ describe('runtimeName', () => {
     const c = catalog({});
     const at = (device: string): string =>
       runtimeName(c, { engine: 'strands-decider', device, backend: null });
-    assert.equal(at('mlx'), 'Apple GPU (MLX)');
-    assert.equal(at('mps'), 'Apple GPU (PyTorch MPS)');
+    assert.equal(at('mlx'), 'GPU (MLX)');
+    assert.equal(at('mps'), 'GPU (MPS)');
     assert.equal(at('cpu'), 'CPU');
   });
 });

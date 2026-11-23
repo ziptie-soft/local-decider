@@ -168,7 +168,8 @@ describe('engines with and without connection settings', () => {
     const c = catalog([{ ...base, id: 'lmstudio', detail: 'set engines.lmstudio.url' }]);
     const e = c.engines[0]!;
     assert.equal(e.connectable, false);
-    assert.match(engineHint(e), /Not installed/);
+    assert.equal(engineHint(e), 'd. Not installed.');
+    assert.equal(engineHint(e, 'GPU (ROCm)'), 'd. Runs on GPU (ROCm) · not installed');
     assert.equal(engineOptions(c.engines)[0]?.label, 'LM Studio (not installed)');
   });
 

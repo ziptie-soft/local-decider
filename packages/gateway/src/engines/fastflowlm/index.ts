@@ -30,7 +30,7 @@ export type FlmEngineConfig = z.infer<typeof flmSchema>;
 export const fastflowlmEngine = defineEngine({
   id: 'fastflowlm',
   label: 'FastFlowLM (AMD NPU)',
-  description: 'FastFlowLM decision engine for AMD XDNA NPU systems',
+  description: 'Decision models on the AMD Ryzen AI (XDNA) NPU through FastFlowLM; Linux only',
   configSchema: flmSchema,
   selectable: true,
   supports: (host) =>

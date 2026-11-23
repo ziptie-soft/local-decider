@@ -594,7 +594,7 @@ describe('engine selection helpers', () => {
     assert.deepEqual(deviceOptions(['auto', 'cpu', 'cuda', 'tpu']), [
       { label: 'Gateway default', value: 'auto' },
       { label: 'CPU', value: 'cpu' },
-      { label: 'CUDA', value: 'cuda' },
+      { label: 'GPU (CUDA or ROCm)', value: 'cuda' },
       { label: 'tpu', value: 'tpu' },
     ]);
     assert.equal(deviceOptions(['cpu'])[0]?.value, 'auto');

@@ -94,7 +94,8 @@ function downloadCommand(modelId: string): { command: string; args: string[] } {
 export const llamaVulkanEngine = defineEngine({
   id: 'llama-vulkan',
   label: 'llama.cpp (Vulkan GPU)',
-  description: 'llama.cpp llama-server (Vulkan backend) serving d3 decision models on the GPU',
+  description:
+    'GGUF decision models in llama.cpp llama-server on any Vulkan GPU (AMD, Intel or NVIDIA)',
   configSchema: llamaVulkanSchema,
   selectable: true,
   supports,

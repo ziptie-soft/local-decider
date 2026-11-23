@@ -258,6 +258,24 @@ describe('strands descriptor', () => {
       assert.equal(resolveStrandsDevice('mps', darwin, undefined).backend, 'MPS');
     });
 
+    it('tags cuda as ROCm when the venv has a ROCm torch wheel', () => {
+      const root = join(tempPaths().venvs, 'rocm');
+      const site = join(root, 'lib', 'python3.13', 'site-packages');
+      mkdirSync(join(site, 'torch-2.14.1+rocm7.2.dist-info'), { recursive: true });
+      mkdirSync(join(root, 'bin'), { recursive: true });
+      const binary = join(root, 'bin', 'strands-decider');
+      assert.equal(resolveStrandsDevice('cuda', linux, binary).backend, 'ROCm');
+      assert.equal(resolveStrandsDevice('cpu', linux, binary).backend, 'CPU');
+      const cu = join(tempPaths().venvs, 'cu');
+      mkdirSync(join(cu, 'lib', 'python3.13', 'site-packages', 'torch-2.14.1+cu126.dist-info'), {
+        recursive: true,
+      });
+      assert.equal(
+        resolveStrandsDevice('cuda', linux, join(cu, 'bin', 'strands-decider')).backend,
+        'CUDA',
+      );
+    });
+
     it('checks the venv of a custom executable, not the managed one', () => {
       const paths = tempPaths();
       mlxVenv(join(paths.venvs, 'strands-decider')); // managed venv has mlx

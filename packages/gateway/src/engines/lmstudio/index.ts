@@ -9,7 +9,7 @@ import { lmStudioSchema, OpenAICompatibleEngine } from '../openai/index.ts';
 export const lmStudioEngine = defineEngine({
   id: 'lmstudio',
   label: 'LM Studio',
-  description: "Score decision options from LM Studio's local server logprob distribution",
+  description: "Scores options from the logprobs of LM Studio's local server; not calibrated",
   configSchema: lmStudioSchema,
   selectable: true,
   supports: (host) =>

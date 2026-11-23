@@ -26,7 +26,7 @@ export type RemoteEngineConfig = z.infer<typeof remoteSchema>;
 export const remoteEngine = defineEngine({
   id: 'systemone-remote',
   label: 'SystemOne Remote',
-  description: 'Attach to another /v1/systemone server',
+  description: "Forwards decisions to another local-decider gateway's /v1/systemone endpoint",
   configSchema: remoteSchema,
   selectable: false,
   pinned: () => true,
