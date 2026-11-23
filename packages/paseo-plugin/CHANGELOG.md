@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v3.0.0...paseo-plugin-v3.0.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* **paseo-plugin:** describe agent tools and their data in the overview ([29075c5](https://github.com/ziptie-soft/local-decider/commit/29075c5617111fef7a04bdd2cfffe5f9bba9f6e4))
+
 ## [3.0.0](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v2.3.0...paseo-plugin-v3.0.0) (2026-11-22)
 
 
