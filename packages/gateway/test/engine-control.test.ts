@@ -1949,7 +1949,10 @@ describe('EngineControl state', () => {
     assert.ok(linuxFlm);
     assert.equal(linuxFlm.supported, true);
     assert.equal(linuxFlm.label, 'FastFlowLM (AMD NPU)');
-    assert.equal(linuxFlm.description, 'FastFlowLM decision engine for AMD XDNA NPU systems');
+    assert.equal(
+      linuxFlm.description,
+      'Decision models on the AMD Ryzen AI (XDNA) NPU through FastFlowLM; Linux only',
+    );
     assert.equal(linuxFlm.tag, 'NPU');
     assert.equal(linuxFlm.calibrated, true);
     assert.deepEqual(linuxFlm.capabilities, { validate: true });
@@ -1957,7 +1960,10 @@ describe('EngineControl state', () => {
     const linuxStrands = linuxEngines.find(({ id }) => id === 'strands-decider');
     assert.ok(linuxStrands);
     assert.equal(linuxStrands.label, 'Strands Decider');
-    assert.equal(linuxStrands.description, 'strands-decider decision engine');
+    assert.equal(
+      linuxStrands.description,
+      'Strands Decider checkpoints on PyTorch: NVIDIA (CUDA) or AMD (ROCm) GPU, Apple MLX or MPS, or CPU',
+    );
     assert.equal(linuxStrands.tag, 'PyTorch');
     assert.equal(linuxStrands.calibrated, true);
     assert.deepEqual(linuxStrands.capabilities, { validate: false });
@@ -1973,7 +1979,7 @@ describe('EngineControl state', () => {
     assert.ok(openAI);
     assert.equal(
       openAI.description,
-      'Score decision options from an OpenAI-compatible server logprob distribution',
+      'Scores options from the logprobs of an OpenAI-compatible server you run; not calibrated',
     );
     assert.equal(openAI.tag, 'LLM');
     assert.equal(openAI.calibrated, false);

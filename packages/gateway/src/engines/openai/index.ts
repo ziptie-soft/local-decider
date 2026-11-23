@@ -178,7 +178,8 @@ function lowCoverageDetail(coverage: number): string {
 export const openaiCompatibleEngine = defineEngine({
   id: 'openai-compatible',
   label: 'OpenAI-compatible',
-  description: 'Score decision options from an OpenAI-compatible server logprob distribution',
+  description:
+    'Scores options from the logprobs of an OpenAI-compatible server you run; not calibrated',
   configSchema: openaiCompatibleSchema,
   selectable: true,
   supports: () => ({ ok: true }),

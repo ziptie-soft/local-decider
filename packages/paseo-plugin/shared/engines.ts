@@ -507,9 +507,10 @@ export function modelRowView(
 const DEVICE_LABELS: Record<string, string> = {
   auto: 'Gateway default',
   cpu: 'CPU',
-  mlx: 'MLX (Apple)',
-  mps: 'MPS (Apple)',
-  cuda: 'CUDA',
+  mlx: 'GPU (MLX)',
+  mps: 'GPU (MPS)',
+  // ROCm torch names AMD GPUs `cuda` too.
+  cuda: 'GPU (CUDA or ROCm)',
 };
 
 function deviceLabel(device: string): string {
@@ -564,11 +565,16 @@ function unavailableWord(e: EngineInfo): string {
   return e.connectable ? 'not configured' : 'not installed';
 }
 
-/** Hint under the engine select: where it runs and whether it is usable, in one short line. */
+/** Hint under the engine select: what the engine is, then where it runs and whether it is usable. */
 export function engineHint(engine: EngineInfo | null, where: string | null = null): string {
   if (engine === null) {
     return 'The gateway lists no engines.';
   }
+  const status = engineStatus(engine, where);
+  return engine.description === '' ? status : `${engine.description}. ${status}`;
+}
+
+function engineStatus(engine: EngineInfo, where: string | null): string {
   if (!engine.supported) {
     return engine.unsupportedReason ?? 'Not supported here.';
   }

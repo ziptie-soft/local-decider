@@ -13,17 +13,26 @@ function pythonVersions(venv: string): string[] {
   }
 }
 
-/** Checks the managed venv without starting Python. */
-function venvHasMlx(venv: string): boolean {
+/** Whether any `site-packages` of the venv has an entry matching `test`; never starts Python. */
+function venvHas(venv: string, test: (name: string) => boolean): boolean {
   return pythonVersions(venv).some((version) => {
     try {
       return readdirSync(join(venv, 'lib', version, 'site-packages'), {
         withFileTypes: true,
-      }).some((entry) => entry.name === 'mlx_lm' && entry.isDirectory());
+      }).some((entry) => entry.isDirectory() && test(entry.name));
     } catch {
       return false;
     }
   });
+}
+
+function venvHasMlx(venv: string): boolean {
+  return venvHas(venv, (name) => name === 'mlx_lm');
+}
+
+/** A ROCm torch wheel, e.g. `torch-2.14.1+rocm7.2.dist-info`: it serves AMD GPUs as `cuda`. */
+function venvHasRocmTorch(venv: string): boolean {
+  return venvHas(venv, (name) => /^torch-[^+]*\+rocm[^/]*\.dist-info$/i.test(name));
 }
 
 /** `auto` prefers MLX only for Apple Silicon venvs that contain mlx_lm. */
@@ -55,11 +64,18 @@ const BACKENDS: Readonly<Record<Exclude<Device, 'auto'>, string>> = {
   cpu: 'CPU',
 };
 
+/** ROCm torch names the AMD GPU `cuda`; the torch wheel's local label tells the two apart. */
+function backendOf(device: Exclude<Device, 'auto'>, venv: string | undefined): string {
+  return device === 'cuda' && venv !== undefined && venvHasRocmTorch(venv)
+    ? 'ROCm'
+    : BACKENDS[device];
+}
+
 export interface DeviceResolution {
   readonly requested: Device;
   /** Undefined when `auto` has no cheap evidence; the child then picks and reports its own. */
   readonly resolved: Exclude<Device, 'auto'> | undefined;
-  /** `MLX`, `MPS`, `CUDA` or `CPU`; undefined while the backend is unknown. */
+  /** `MLX`, `MPS`, `CUDA`, `ROCm` or `CPU`; undefined while the backend is unknown. */
   readonly backend: string | undefined;
 }
 
@@ -84,16 +100,12 @@ export function resolveStrandsDevice(
   binary: string | undefined,
   transformers = false,
 ): DeviceResolution {
-  const resolved = resolveDevice(
-    device,
-    host,
-    binary === undefined ? undefined : venvOfExecutable(binary),
-    transformers,
-  );
+  const venv = binary === undefined ? undefined : venvOfExecutable(binary);
+  const resolved = resolveDevice(device, host, venv, transformers);
   const concrete = resolved === undefined || resolved === 'auto' ? undefined : resolved;
   return {
     requested: device,
     resolved: concrete,
-    backend: concrete === undefined ? undefined : BACKENDS[concrete],
+    backend: concrete === undefined ? undefined : backendOf(concrete, venv),
   };
 }

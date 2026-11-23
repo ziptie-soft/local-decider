@@ -145,7 +145,7 @@ describe('recommendation parsing', () => {
 describe('current engine', () => {
   it('names the running engine and shows a short model and a state badge', () => {
     assert.deepEqual(runningView(active(), NAMES), {
-      value: 'Strands Decider · Apple GPU (MLX)',
+      value: 'Strands Decider · GPU (MLX)',
       hint: 'strands-decider 2B · ~66 ms',
       state: { text: 'Ready', tone: 'success' },
     });
@@ -175,7 +175,7 @@ describe('current engine', () => {
         active({ engine: 'fastflowlm', backend: null, device: null, resolvedDevice: null }),
         NAMES,
       )?.value,
-      'FastFlowLM · AMD NPU',
+      'FastFlowLM · NPU',
     );
   });
 
@@ -189,7 +189,7 @@ describe('current engine', () => {
   it('words the hint for Automatic, with and without a running engine', () => {
     assert.equal(
       autoHint(active({ selectionMode: 'auto' }), NAMES),
-      'Now using Strands Decider · Apple GPU (MLX). Falls back to the next engine if it fails.',
+      'Now using Strands Decider · GPU (MLX). Falls back to the next engine if it fails.',
     );
     assert.equal(autoHint(null, NAMES), 'Falls back to the next engine if it fails.');
     assert.match(USE_AUTO_HINT, /fastest engine this computer supports/);
@@ -205,14 +205,11 @@ describe('current engine', () => {
       device = 'mlx',
     ): string | null =>
       fallbackLine(active({ fallback: { reason: 'x', engine, device, retryAt } }), NAMES, now);
-    assert.equal(at('2026-01-01T00:01:30.000Z'), 'Apple GPU (MLX) failed; retrying in 2 min.');
-    assert.equal(
-      at('2026-01-01T00:00:20.000Z'),
-      'Apple GPU (MLX) failed; retrying in under a minute.',
-    );
-    assert.equal(at(null), 'Apple GPU (MLX) failed; it will be retried.');
+    assert.equal(at('2026-01-01T00:01:30.000Z'), 'GPU (MLX) failed; retrying in 2 min.');
+    assert.equal(at('2026-01-01T00:00:20.000Z'), 'GPU (MLX) failed; retrying in under a minute.');
+    assert.equal(at(null), 'GPU (MLX) failed; it will be retried.');
     assert.equal(at(null, null), 'The preferred engine failed; it will be retried.');
-    assert.equal(at(null, 'fastflowlm', ''), 'AMD NPU failed; it will be retried.');
+    assert.equal(at(null, 'fastflowlm', ''), 'NPU failed; it will be retried.');
   });
 });
 
@@ -253,8 +250,8 @@ describe('engines on this computer', () => {
     assert.deepEqual(
       view?.rows.map((r) => [r.label, r.detail]),
       [
-        ['Apple GPU (MLX)', 'Ready · fastest'],
-        ['Apple GPU (PyTorch MPS)', 'Ready'],
+        ['GPU (MLX)', 'Ready · fastest'],
+        ['GPU (MPS)', 'Ready'],
         ['CPU', 'Ready · slowest, works everywhere'],
         ['LM Studio', "Manual only · its confidence isn't calibrated for automatic use"],
       ],
@@ -299,10 +296,10 @@ describe('engines on this computer', () => {
   it('shows a lone CPU as working everywhere and names where each engine runs', () => {
     const only = enginesView(rec({ candidates: [cand({ device: 'cpu', backend: 'CPU' })] }), NAMES);
     assert.equal(only?.rows[0]?.detail, 'Ready · works everywhere');
-    assert.equal(engineWhere('strands-decider', active(), rec()), 'Apple GPU (MLX)');
-    assert.equal(engineWhere('strands-decider', null, rec()), 'Apple GPU (MLX)');
+    assert.equal(engineWhere('strands-decider', active(), rec()), 'GPU (MLX)');
+    assert.equal(engineWhere('strands-decider', null, rec()), 'GPU (MLX)');
     assert.equal(engineWhere('lmstudio', null, rec()), null);
-    assert.equal(backendName('MPS'), 'Apple GPU (PyTorch MPS)');
+    assert.equal(backendName('MPS'), 'GPU (MPS)');
     assert.equal(backendName('FUTURE'), 'FUTURE');
   });
 });

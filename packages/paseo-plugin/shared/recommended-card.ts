@@ -4,7 +4,7 @@
  */
 import type { ActiveEngine, EngineCatalog } from './engines.ts';
 import type { MachineOption, MachineRecommendation } from './machine.ts';
-import { backendOf, minutes, type SelectionMode } from './recommendation.ts';
+import { backendName, backendOf, minutes, type SelectionMode } from './recommendation.ts';
 
 export type CardKind =
   | 'unsupported'
@@ -109,16 +109,6 @@ function targetOf(o: MachineOption): ActionTarget {
 
 // ── names ────────────────────────────────────────────────────────────────────────────────────
 
-const RUNTIME_WORDS: Record<string, string> = {
-  NPU: 'NPU',
-  Vulkan: 'GPU (Vulkan)',
-  CUDA: 'GPU (CUDA)',
-  ROCm: 'GPU (ROCm)',
-  MLX: 'Apple GPU (MLX)',
-  MPS: 'Apple GPU (PyTorch MPS)',
-  CPU: 'CPU',
-};
-
 export interface Where {
   readonly engine: string;
   readonly device: string | null;
@@ -129,7 +119,7 @@ export interface Where {
 export function runtimeName(catalog: EngineCatalog, w: Where): string {
   const backend = w.backend ?? backendOf(w.engine, w.device);
   if (backend !== null) {
-    return RUNTIME_WORDS[backend] ?? backend;
+    return backendName(backend);
   }
   return catalog.engines.find((e) => e.id === w.engine)?.label ?? w.engine;
 }

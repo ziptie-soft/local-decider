@@ -76,7 +76,8 @@ function strandsDownloadSteps(
 export const strandsEngine = defineEngine({
   id: 'strands-decider',
   label: 'Strands Decider',
-  description: 'strands-decider decision engine',
+  description:
+    'Strands Decider checkpoints on PyTorch: NVIDIA (CUDA) or AMD (ROCm) GPU, Apple MLX or MPS, or CPU',
   configSchema: strandsSchema,
   selectable: true,
   supports: () => ({ ok: true }),
