@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { defineEngine } from '../descriptor.ts';
 import { flmModelStamp } from './model-stamp.ts';
 import { MODELS } from './models.ts';
+import { removeFlmModel } from './remove.ts';
 import { FastFlowLMEngine } from './server.ts';
 import { cachedFlmVersion, flmModelsPresent, validateFlm } from './status.ts';
 
@@ -52,6 +53,7 @@ export const fastflowlmEngine = defineEngine({
     }
     return [{ command: flm, args: ['pull', model.id] }];
   },
+  removeModel: removeFlmModel,
   validation: {
     label: 'flm validate',
     hint: 'Checks the NPU and driver; takes a few seconds.',

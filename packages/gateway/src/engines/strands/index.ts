@@ -8,6 +8,7 @@ import { checkExtraArgs } from './extra-args.ts';
 import { hfCacheDir, hfCached } from './hf-cache.ts';
 import { resolveStrandsDevice } from './mlx.ts';
 import { MODELS, hfDownloadArgs, isTransformersModel } from './models.ts';
+import { removeStrandsModel } from './remove.ts';
 import { StrandsDeciderEngine, strandsBinary } from './server.ts';
 import { strandsVenvPackages } from './venv.ts';
 
@@ -99,6 +100,7 @@ export const strandsEngine = defineEngine({
   runtimeStamp: async (model, ctx) => strandsRuntimeStamp(model.id, ctx),
   modelsPresent: strandsModelsPresent,
   downloadSteps: strandsDownloadSteps,
+  removeModel: removeStrandsModel,
   create: (config, ctx) => new StrandsDeciderEngine(config, ctx.paths, ctx.tools, ctx.host),
 });
 

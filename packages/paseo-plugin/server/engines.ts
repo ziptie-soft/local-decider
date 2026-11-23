@@ -146,6 +146,19 @@ export async function downloadModel(
   return { ok: res.ok, error: res.error, download: res.value };
 }
 
+export async function removeModel(
+  deps: Deps,
+  target: { engine: string; model: string },
+): Promise<{ ok: boolean; error: string | null }> {
+  const res = await call(
+    deps,
+    `remove ${target.engine} ${target.model}`,
+    async (gw) => gw.removeModel(target, { timeoutMs: 90_000 }),
+    () => true,
+  );
+  return { ok: res.ok, error: res.error };
+}
+
 export async function validateEngine(
   deps: Deps,
   engine: string,

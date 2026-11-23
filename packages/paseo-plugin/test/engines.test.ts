@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   cancelBenchmark,
   downloadModel,
+  removeModel,
   listEngines,
   readBenchmark,
   startBenchmark,
@@ -21,6 +22,7 @@ import {
   engineTag,
   ENGINES_POLL_MS,
   initialEngine,
+  canRemoveModel,
   modelRowState,
   modelRowView,
   parseEngineCatalog,
@@ -419,6 +421,20 @@ describe('GET /v1/engines recommend fields', () => {
 });
 
 describe('model row state', () => {
+  it('offers removal only for downloaded models that are not in use or downloading', () => {
+    const lite = model({ id: 'd3:lite' });
+    assert.equal(canRemoveModel(lite, { kind: 'use' }), true);
+    assert.equal(canRemoveModel(lite, { kind: 'no-fit' }), true);
+    assert.equal(canRemoveModel(lite, { kind: 'in-use', loading: false }), false);
+    assert.equal(canRemoveModel(lite, { kind: 'switch-device' }), false);
+    assert.equal(canRemoveModel(lite, { kind: 'downloading', progress: null }), false);
+    assert.equal(
+      canRemoveModel(model({ id: 'd3:lite', installed: false }), { kind: 'use' }),
+      false,
+    );
+    assert.equal(canRemoveModel(model({ id: 'x', downloadGb: null }), { kind: 'use' }), false);
+  });
+
   it('marks the active model in use, or loading', () => {
     assert.deepEqual(modelRowState(model({ id: 'd3:nano' }), ctx()), {
       kind: 'in-use',
@@ -811,11 +827,16 @@ describe('engine RPC handlers', () => {
       { ok: true, error: null },
     );
     await downloadModel(d, { engine: 'fastflowlm', model: 'd3:mini' });
+    assert.deepEqual(await removeModel(d, { engine: 'fastflowlm', model: 'd3:lite' }), {
+      ok: true,
+      error: null,
+    });
     await validateEngine(d, 'fastflowlm');
     await setPath(d, { key: 'tools.flm', value: ' /opt/flm/bin/flm ' });
     assert.deepEqual(gw.posts, [
       { name: 'selectEngine', input: { engine: 'fastflowlm', model: 'd3:nano', device: 'auto' } },
       { name: 'downloadModel', input: { engine: 'fastflowlm', model: 'd3:mini' } },
+      { name: 'removeModel', input: { engine: 'fastflowlm', model: 'd3:lite' } },
       { name: 'validateEngine', input: 'fastflowlm' },
       { name: 'setPath', input: { key: 'tools.flm', value: '/opt/flm/bin/flm' } },
     ]);

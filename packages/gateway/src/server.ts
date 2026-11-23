@@ -458,6 +458,12 @@ const CONTROL_ROUTES: Readonly<Record<string, ControlHandler>> = {
     const record = isRecord(body) ? body : {};
     return [202, { download: c.download(String(record['engine']), String(record['model'])) }];
   },
+  'POST /v1/models/remove': async (req, c) => {
+    const body = await readJson(req);
+    const record = isRecord(body) ? body : {};
+    await c.removeModel(String(record['engine']), String(record['model']));
+    return [200, { removed: true }];
+  },
   'POST /v1/engines/validate': async (req, c) => {
     const body = await readJson(req);
     return [200, { validation: await c.validate(String(isRecord(body) ? body['engine'] : '')) }];

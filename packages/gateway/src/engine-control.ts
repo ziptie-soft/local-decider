@@ -475,6 +475,11 @@ function startupKey(config: GatewayConfig): string {
   return JSON.stringify([config.host, config.port, config.engine, config.decisionTimeoutMs]);
 }
 
+/** The descriptor slice `removeModel` needs, widened to any catalogue model. */
+interface RemoveProvider {
+  removeModel?(this: void, model: ModelDescriptor, ctx: EngineContext): Promise<void>;
+}
+
 /**
  * Owns the engine: which one runs (switchable at runtime between strands-decider and
  * FastFlowLM), its lifecycle (lazy or eager), tool paths, model downloads and FLM validation,
@@ -1265,6 +1270,33 @@ export class EngineControl implements BenchmarkHost {
       throw new DownloadError(400, `unknown ${engine} model "${model}"`);
     }
     return this.#downloads.start(entry, this.#context(), () => this.#status.invalidate());
+  }
+
+  /** Deletes a downloaded model's files; refused while it is in use or downloading. */
+  async removeModel(engine: string, model: string): Promise<void> {
+    const entry = catalogModel(model, engine as EngineId);
+    const provider: RemoveProvider | undefined = engineDescriptor(engine);
+    const remove = provider?.removeModel;
+    if (entry === undefined) {
+      throw new DownloadError(400, `unknown ${engine} model "${model}"`);
+    }
+    if (remove === undefined) {
+      throw new DownloadError(400, `${engine} does not support removing models`);
+    }
+    this.#guardBenchmark();
+    if (this.#downloads.running(model)) {
+      throw new DownloadError(409, `${model} is downloading`);
+    }
+    if (this.#engine.id === engine && this.#engine.model === model) {
+      throw new DownloadError(409, `${model} is the active model; switch to another one first`);
+    }
+    try {
+      await remove(entry, this.#context());
+    } catch (error) {
+      throw new DownloadError(409, error instanceof Error ? error.message : String(error));
+    } finally {
+      this.#status.invalidate();
+    }
   }
 
   validate(engine: string): Promise<Validation> {

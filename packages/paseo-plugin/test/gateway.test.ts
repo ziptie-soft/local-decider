@@ -294,6 +294,7 @@ describe('createGateway (fail open)', () => {
       gw?.selectEngine({ model: 'm' }),
       gw?.setSelectionMode('auto'),
       gw?.downloadModel({ engine: 'e', model: 'm' }),
+      gw?.removeModel({ engine: 'e', model: 'm' }),
       gw?.validateEngine('e'),
       gw?.saveEngineConnection({}),
       gw?.discoverServers({}),
@@ -314,7 +315,7 @@ describe('createGateway (fail open)', () => {
       gw?.review(1, 5),
     ]);
     const requests = seen.slice(first);
-    assert.equal(requests.length, 27);
+    assert.equal(requests.length, 28);
     assert.ok(requests.every((request) => request.control === 'control-secret'));
   });
 
@@ -516,6 +517,7 @@ describe('createGateway engine calls', () => {
   it('posts downloads, validation, paths, load and lifecycle to their endpoints', async () => {
     const { gateway, sent } = recording(202, { download: { id: 'dl-1' } });
     await gateway?.downloadModel({ engine: 'fastflowlm', model: 'd3:mini' });
+    await gateway?.removeModel({ engine: 'fastflowlm', model: 'd3:mini' });
     await gateway?.validateEngine('fastflowlm');
     await gateway?.setPath('tools.flm', null);
     await gateway?.engineLoad('load');
@@ -525,6 +527,7 @@ describe('createGateway engine calls', () => {
       sent.map((s) => [new URL(s.url).pathname, s.body]),
       [
         ['/v1/models/download', { engine: 'fastflowlm', model: 'd3:mini' }],
+        ['/v1/models/remove', { engine: 'fastflowlm', model: 'd3:mini' }],
         ['/v1/engines/validate', { engine: 'fastflowlm' }],
         ['/v1/paths', { key: 'tools.flm', value: null }],
         ['/v1/engine/load', {}],

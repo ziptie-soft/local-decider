@@ -333,7 +333,7 @@ how to add an engine or a model, and the macOS notes
 | `GET /health`, `GET /ping`, `GET /v1/stats?days=N` | Open | Engine state, p50/p95 of answered calls (`p50Ms`, `p95Ms`) and of failed ones (`errorP50Ms`, `errorP95Ms`), `queueDepth` and `counters`: integers since gateway start (`queueFull`, `busy`, `timeouts`, `errors`, `passThroughErrors`, `logWriteFailures`, `logDropped`, `engineRestarts`, `engineHangs`; `busy` counts budget refusals and engine 503s, and a caller that hung up counts as neither a timeout nor an error). JSON only. Unknown server errors answer 502 `{"error":"engine error"}`; the redacted detail goes to the gateway log. Stats as JSON (30-day default, bounded by retention) |
 | `GET /models` | Open | Model catalogue |
 | `GET /v1/engines`, `POST /v1/engine`, `/v1/engine/mode`, `/v1/engine/load`, `/v1/engine/unload`, `/v1/engine/lifecycle` | Control | Engine status, switching and lifecycle |
-| `POST /v1/models/download`, `/v1/engines/validate`, `/v1/engines/discover`, `/v1/paths` | Control | Downloads, `flm validate`, discovery and tool paths |
+| `POST /v1/models/download`, `/v1/models/remove`, `/v1/engines/validate`, `/v1/engines/discover`, `/v1/paths` | Control | Downloads, removing downloaded models (refused for the active model or one downloading), `flm validate`, discovery and tool paths |
 | `GET /v1/policies` | Open | Policy list and variants |
 | `POST /v1/policies/:id/mode`, `/variant`, `/thresholds`, `/v1/policies/reload` | Control | Policy settings, written to `config.yaml` |
 | `GET /v1/policies/:id/prompt`, `GET /v1/config`, `POST /v1/config/reload`, `/v1/config/engine`, `/v1/routing/presets` | Control | Authoring prompt, config view and reload, engine connection and preset mapping |

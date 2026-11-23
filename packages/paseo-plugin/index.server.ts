@@ -5,6 +5,7 @@ import type { HookDeps } from './server/deps.ts';
 import {
   cancelBenchmark,
   downloadModel,
+  removeModel,
   engineLoad,
   listEngines,
   readBenchmark,
@@ -45,6 +46,7 @@ import {
   benchmarkStartRpc,
   decideRpc,
   downloadModelRpc,
+  removeModelRpc,
   engineLoadRpc,
   enginesRpc,
   feedbackRpc,
@@ -208,6 +210,7 @@ export default function contribute(server: PluginServerContext): () => void {
   server.handle(saveConnectionRpc, async (input) => saveConnection(deps, input));
   server.handle(discoverServersRpc, async (input) => discoverServers(deps, input));
   server.handle(downloadModelRpc, async (input) => downloadModel(deps, input));
+  server.handle(removeModelRpc, async (input) => removeModel(deps, input));
   server.handle(validateEngineRpc, async ({ engine }) => validateEngine(deps, engine));
   server.handle(setPathRpc, async (input) => setPath(deps, input));
   server.handle(engineLoadRpc, async ({ action }) => engineLoad(deps, action));

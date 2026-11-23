@@ -400,6 +400,16 @@ export function modelRowState(model: EngineModel, ctx: ModelRowContext): ModelRo
   return { kind: 'use' };
 }
 
+/**
+ * True when the gateway can delete the model's files: it was downloaded by the gateway (has a
+ * download size), is installed, and is neither the active model nor downloading.
+ */
+export function canRemoveModel(model: EngineModel, state: ModelRowState): boolean {
+  const busy =
+    state.kind === 'in-use' || state.kind === 'switch-device' || state.kind === 'downloading';
+  return !busy && model.installed && model.downloadGb !== null;
+}
+
 export interface ModelRowView {
   readonly label: string;
   readonly hint: string;

@@ -252,7 +252,7 @@ function setup(options: SetupOptions = {}): Setup {
   const control = new EngineControl({
     store,
     paths,
-    env: { PATH: binDir(paths) },
+    env: { PATH: binDir(paths), HF_HUB_CACHE: join(paths.data, 'hf') },
     capabilities: options.capabilities ?? stubCapabilities,
     ...(options.host === undefined ? {} : { host: options.host }),
     totalMemory: options.totalMemory ?? 1e12,
@@ -2019,6 +2019,22 @@ describe('EngineControl state', () => {
     assert.throws(() => control.download('fastflowlm', E2B), /unknown fastflowlm model/);
     assert.throws(() => control.download('strands-decider', '../etc'), /unknown/);
   });
+
+  it('removes downloaded models but refuses unknown, unsupported and active ones', async () => {
+    const { control, paths } = setup();
+    await assert.rejects(control.removeModel('fastflowlm', E2B), /unknown fastflowlm model/);
+    await assert.rejects(control.removeModel('strands-decider', '../etc'), /unknown/);
+    const active = control.engine.model;
+    await assert.rejects(control.removeModel('strands-decider', active), /active model/);
+    const repo = join(
+      paths.data,
+      'hf',
+      'models--StrandsAgents--strands-decider-E2B-gemma4-v1-2610',
+    );
+    mkdirSync(repo, { recursive: true });
+    await control.removeModel('strands-decider', E2B);
+    assert.equal(existsSync(repo), false);
+  });
 });
 
 describe('request parsing', () => {
@@ -2282,6 +2298,10 @@ describe('control routes', () => {
       });
       assert.equal(
         (await post('/v1/models/download', { engine: 'fastflowlm', model: 'nope' })).status,
+        400,
+      );
+      assert.equal(
+        (await post('/v1/models/remove', { engine: 'fastflowlm', model: 'nope' })).status,
         400,
       );
       assert.equal((await post('/v1/engine/unload', {})).status, 200);

@@ -808,6 +808,7 @@ describe('control token', () => {
       ['POST', '/v1/engine/unload'],
       ['POST', '/v1/engine/lifecycle'],
       ['POST', '/v1/models/download'],
+      ['POST', '/v1/models/remove'],
       ['POST', '/v1/engines/validate'],
       ['POST', '/v1/engines/discover'],
       ['POST', '/v1/paths'],
