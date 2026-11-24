@@ -46,7 +46,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install node, pnpm and linters (versions from mise.toml)
-        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
           install_args: node pnpm bats jactionlint shellcheck rumdl github:moznion/cccc github:fallow-rs/fallow
           cache: false
@@ -88,7 +88,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install node and pnpm (versions from mise.toml)
-        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
           install_args: node pnpm
       - name: Install dependencies
@@ -127,7 +127,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install node, pnpm, Claude Code and Codex (versions from mise.toml and mise.e2e.toml)
-        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
           install_args: node pnpm claude-code github:openai/codex
           cache: false
