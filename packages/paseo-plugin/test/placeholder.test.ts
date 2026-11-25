@@ -16,6 +16,8 @@ const agent: PluginHookAgent = {
   provider: 'claude',
   cwd: '/p',
   title: null,
+  background: false,
+  metadata: {},
 };
 
 const request = (id: string): AgentPermissionRequest => ({
