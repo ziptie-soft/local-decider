@@ -810,7 +810,7 @@
           "type": "object",
           "propertyNames": {
             "type": "string",
-            "enum": ["paseo", "claude-code", "codex", "mcp", "cli"]
+            "enum": ["paseo", "claude-code", "codex", "pi", "mcp", "cli"]
           },
           "additionalProperties": {
             "type": "object",
