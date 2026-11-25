@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.2.0](https://github.com/ziptie-soft/local-decider/compare/local-decider-v3.1.0...local-decider-v3.2.0) (2026-11-25)
+
+
+### Features
+
+* **core:** add pi harness ([c3c1527](https://github.com/ziptie-soft/local-decider/commit/c3c1527bffda70b6638c2437ddbdbc287a413e7c))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @ziptie-soft/local-decider-core bumped to 3.1.0
+
 ## [3.1.0](https://github.com/ziptie-soft/local-decider/compare/local-decider-v3.0.0...local-decider-v3.1.0) (2026-11-23)
 
 

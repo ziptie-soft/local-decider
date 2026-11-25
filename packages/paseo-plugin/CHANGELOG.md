@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.1.1](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v3.1.0...paseo-plugin-v3.1.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **paseo-plugin:** add background and metadata to test agent fixtures for [@getpaseo](https://github.com/getpaseo) 0.16 ([77789bb](https://github.com/ziptie-soft/local-decider/commit/77789bb6f5cece0489bddb616d6d410ff8c842fd))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * devDependencies
+    * @ziptie-soft/local-decider-core bumped to 3.1.0
+
 ## [3.1.0](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v3.0.1...paseo-plugin-v3.1.0) (2026-11-23)
 
 

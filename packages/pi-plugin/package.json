@@ -1,6 +1,6 @@
 {
   "name": "@ziptie-soft/pi-local-decider",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "pi extension for local-decider: guards tool calls and, optionally, approves routine ones, using a local decision model.",
   "keywords": [
     "ai-agents",
