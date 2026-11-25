@@ -5,7 +5,7 @@
 import type { Action, Mode } from './policy.ts';
 import type { Answers } from './systemone.ts';
 
-export const HARNESSES = ['paseo', 'claude-code', 'codex', 'mcp', 'cli'] as const;
+export const HARNESSES = ['paseo', 'claude-code', 'codex', 'pi', 'mcp', 'cli'] as const;
 export type Harness = (typeof HARNESSES)[number];
 
 /** Claude Code permission modes a decide request's `call` may report. */

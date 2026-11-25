@@ -52,7 +52,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["paseo", "claude-code", "codex", "mcp", "cli"]
+        "enum": ["paseo", "claude-code", "codex", "pi", "mcp", "cli"]
       }
     },
     "state": {

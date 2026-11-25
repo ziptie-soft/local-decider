@@ -88,6 +88,27 @@ describe('decide call and scope fields', () => {
     }
   });
 
+  it('accepts the pi harness and rejects an unknown one', async () => {
+    const gw = await startGateway({
+      config: testConfig({ policies: { permission: { mode: 'act' } } }),
+      paths: tempPaths(),
+      engine: new FakeEngine({ allow: 0.97, ask: 0.02, deny: 0.01 }),
+      env: {},
+    });
+    try {
+      const pi = await post(gw, '/v1/decide/permission', { harness: 'pi', input });
+      assert.equal(pi['action'], 'allow');
+      const bogus = await fetch(`${gw.url}/v1/decide/permission`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ harness: 'bogus', input }),
+      });
+      assert.equal(bogus.status, 400);
+    } finally {
+      await gw.close();
+    }
+  });
+
   it('accepts classifier as an outcome source', async () => {
     const paths = tempPaths();
     const gw = await startGateway({
