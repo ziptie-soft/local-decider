@@ -251,6 +251,12 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
 
+  packages/pi-plugin:
+    devDependencies:
+      '@ziptie-soft/local-decider-core':
+        specifier: workspace:*
+        version: link:../core
+
   plugins/local-decider: {}
 
 packages:

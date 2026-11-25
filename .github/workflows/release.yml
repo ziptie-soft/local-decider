@@ -86,6 +86,8 @@ jobs:
       # Release runs alongside CI on the master push, not after it, so it re-checks the bundle.
       - name: Plugin package contents
         run: scripts/check-plugin-pack.sh
+      - name: pi package contents
+        run: scripts/check-pi-pack.sh
       # Publishes only package versions not yet on the registry; private packages are skipped.
       - name: Publish
         run: pnpm -r publish --access public --provenance --no-git-checks

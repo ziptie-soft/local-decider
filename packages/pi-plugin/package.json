@@ -1,0 +1,50 @@
+{
+  "name": "@ziptie-soft/pi-local-decider",
+  "version": "0.0.0",
+  "description": "pi extension for local-decider: guards tool calls and, optionally, approves routine ones, using a local decision model.",
+  "keywords": [
+    "ai-agents",
+    "coding-agents",
+    "decision-model",
+    "local-decider",
+    "local-llm",
+    "permissions",
+    "pi",
+    "pi-package"
+  ],
+  "homepage": "https://github.com/ziptie-soft/local-decider/tree/master/packages/pi-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/ziptie-soft/local-decider/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "ziptie-soft",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ziptie-soft/local-decider.git",
+    "directory": "packages/pi-plugin"
+  },
+  "files": [
+    "extension/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "pnpm run typecheck",
+    "test": "node --test --conditions=source 'test/**/*.test.ts'",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@ziptie-soft/local-decider-core": "workspace:*"
+  },
+  "engines": {
+    "node": ">=24.15"
+  },
+  "pi": {
+    "extensions": [
+      "./extension/index.ts"
+    ]
+  }
+}

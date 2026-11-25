@@ -1,0 +1,250 @@
+/**
+ * pi extension entry point. Registration does no I/O. The config is resolved from the environment
+ * and the mode flag at `session_start` (or lazily on first use), the gateway and gate are rebuilt
+ * per session, and a `/local-decider` command shows the state and sets a session mode override.
+ */
+
+import { registerClassifier } from './classifier.ts';
+import { resolveConfig, parseMode, type Config, type Env, type GateMode } from './config.ts';
+import { createGate, type Gate } from './gate.ts';
+import { createGateway, type CallOptions, type Gateway } from './gateway.ts';
+import type { PiAPI, PiContext } from './pi-types.ts';
+
+export const FLAG_NAME = 'local-decider-mode';
+const COMMAND_NAME = 'local-decider';
+export const STATUS_KEY = 'local-decider';
+const HEALTH_TIMEOUT_MS = 1500;
+
+const USAGE = 'local-decider: usage: /local-decider [mode <off|guard|approve>]';
+
+export interface ExtensionOptions {
+  readonly env?: Env;
+  readonly fetch?: typeof fetch;
+  readonly platform?: NodeJS.Platform;
+  readonly now?: () => number;
+}
+
+type Health = 'ok' | 'offline' | 'unknown';
+
+interface Resolved {
+  readonly config: Config;
+  readonly warnings: readonly string[];
+}
+
+/** UI calls never throw out of a handler (pi's `ui` may be absent or a no-op without a UI). */
+function safeNotify(ctx: PiContext, message: string, level?: 'info' | 'warning' | 'error'): void {
+  try {
+    ctx.ui.notify(message, level);
+  } catch {
+    // ignored
+  }
+}
+
+function safeStatus(ctx: PiContext, text: string): void {
+  try {
+    ctx.ui.setStatus(STATUS_KEY, text);
+  } catch {
+    // ignored
+  }
+}
+
+function readFlag(pi: PiAPI): unknown {
+  try {
+    return pi.getFlag(FLAG_NAME);
+  } catch {
+    return undefined;
+  }
+}
+
+function statusText(mode: GateMode, health: Health): string {
+  return mode === 'off' || health !== 'offline' ? `ld: ${mode}` : 'ld: offline';
+}
+
+/** Per-activation mutable state, reset on `session_shutdown`. */
+function createState(pi: PiAPI, opts: ExtensionOptions): State {
+  const env: Env = opts.env ?? process.env;
+  let resolved: Resolved | null = null;
+  let override: GateMode | null = null;
+  let gateway: Gateway | null = null;
+  let gate: Gate | null = null;
+  let health: Health = 'unknown';
+  let lastDecision: string | undefined;
+  let epoch = 0;
+
+  const getResolved = (): Resolved => {
+    resolved ??= resolveConfig(env, { mode: readFlag(pi) });
+    return resolved;
+  };
+  const getConfig = (): Config => {
+    const { config } = getResolved();
+    return override === null ? config : { ...config, mode: override };
+  };
+  const getGateway = (): Gateway => {
+    gateway ??= createGateway({
+      url: getResolved().config.url,
+      token: getResolved().config.token,
+      ...(opts.fetch === undefined ? {} : { fetch: opts.fetch }),
+    });
+    return gateway;
+  };
+  const getGate = (): Gate => {
+    gate ??= createGate({
+      getConfig,
+      gateway: getGateway(),
+      now: opts.now ?? Date.now,
+      log: () => {},
+      platform: opts.platform ?? process.platform,
+      onDecision: (id) => {
+        lastDecision = id;
+      },
+    });
+    return gate;
+  };
+
+  return {
+    getConfig,
+    getGateway,
+    getGate,
+    warnings: (): readonly string[] => getResolved().warnings,
+    setOverride: (mode: GateMode): void => {
+      override = mode;
+    },
+    health: (): Health => health,
+    setHealth: (value: Health): void => {
+      health = value;
+    },
+    lastDecision: (): string | undefined => lastDecision,
+    nextEpoch: (): number => ++epoch,
+    isCurrent: (n: number): boolean => n === epoch,
+    /** Forget the session: override, config, gateway, gate (breaker) and caches. */
+    reset: (): void => {
+      epoch++;
+      resolved = null;
+      override = null;
+      gateway = null;
+      gate = null;
+      health = 'unknown';
+      lastDecision = undefined;
+    },
+  };
+}
+
+interface State {
+  getConfig(): Config;
+  getGateway(): Gateway;
+  getGate(): Gate;
+  warnings(): readonly string[];
+  setOverride(mode: GateMode): void;
+  health(): Health;
+  setHealth(value: Health): void;
+  lastDecision(): string | undefined;
+  nextEpoch(): number;
+  isCurrent(n: number): boolean;
+  reset(): void;
+}
+
+/** A `Gateway` that always delegates to the state's current gateway. */
+function gatewayProxy(state: State): Gateway {
+  const call = <T>(f: (g: Gateway) => Promise<T>, fallback: T): Promise<T> => {
+    try {
+      return f(state.getGateway());
+    } catch {
+      return Promise.resolve(fallback);
+    }
+  };
+  return {
+    decide: (policy, request, options) => call((g) => g.decide(policy, request, options), null),
+    reportOutcome: (id, outcome, options) =>
+      call((g) => g.reportOutcome(id, outcome, options), false),
+    health: (options: CallOptions) => call((g) => g.health(options), false),
+    systemOne: (body, options) => call((g) => g.systemOne(body, options), null),
+  };
+}
+
+function startHealthCheck(state: State, ctx: PiContext): void {
+  const epoch = state.nextEpoch();
+  const settle = (ok: boolean): void => {
+    if (!state.isCurrent(epoch)) return;
+    state.setHealth(ok ? 'ok' : 'offline');
+    if (!ok) safeStatus(ctx, statusText(state.getConfig().mode, 'offline'));
+  };
+  try {
+    state
+      .getGateway()
+      .health({ timeoutMs: HEALTH_TIMEOUT_MS })
+      .then(settle, () => settle(false));
+  } catch {
+    settle(false);
+  }
+}
+
+function onSessionStart(state: State, ctx: PiContext): void {
+  for (const warning of state.warnings()) safeNotify(ctx, `local-decider: ${warning}`, 'warning');
+  safeStatus(ctx, statusText(state.getConfig().mode, 'unknown'));
+  if (state.getConfig().mode !== 'off') startHealthCheck(state, ctx);
+}
+
+function describe(state: State): string {
+  const { mode, url } = state.getConfig();
+  return [
+    `local-decider: mode ${mode}`,
+    url,
+    `gateway ${state.health()}`,
+    `last decision ${state.lastDecision() ?? 'none'}`,
+  ].join(' · ');
+}
+
+function setMode(state: State, value: string, ctx: PiContext): void {
+  const mode = parseMode(value);
+  if (mode === null) {
+    safeNotify(
+      ctx,
+      `local-decider: unknown mode "${value.slice(0, 40)}" (use off, guard or approve)`,
+      'warning',
+    );
+    return;
+  }
+  state.setOverride(mode);
+  safeStatus(ctx, statusText(mode, state.health()));
+  safeNotify(ctx, `local-decider: mode ${mode} for this session`, 'info');
+}
+
+async function onCommand(state: State, args: string, ctx: PiContext): Promise<void> {
+  const parts = args.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) {
+    safeNotify(ctx, describe(state), 'info');
+  } else if (parts[0]?.toLowerCase() === 'mode' && parts.length === 2) {
+    setMode(state, parts[1] ?? '', ctx);
+  } else {
+    safeNotify(ctx, USAGE, 'info');
+  }
+}
+
+/** Builds the pi extension factory; `opts` lets tests inject the environment, fetch and clock. */
+export function createExtension(opts: ExtensionOptions = {}): (pi: PiAPI) => void {
+  return (pi) => {
+    const state = createState(pi, opts);
+    pi.registerFlag(FLAG_NAME, {
+      type: 'string',
+      description: 'local-decider mode: off, guard or approve',
+    });
+    pi.on('tool_call', (event, ctx) => state.getGate()(event, ctx));
+    pi.on('session_start', (_event, ctx) => {
+      onSessionStart(state, ctx);
+    });
+    pi.on('session_shutdown', () => {
+      state.reset();
+    });
+    pi.registerCommand(COMMAND_NAME, {
+      description:
+        'Show local-decider state, or set the mode: /local-decider mode <off|guard|approve>',
+      handler: (args, ctx) => onCommand(state, args, ctx),
+    });
+    registerClassifier(pi, {
+      gateway: gatewayProxy(state),
+      url: resolveConfig(opts.env ?? process.env, {}).config.url,
+    });
+  };
+}
+
+export default createExtension();

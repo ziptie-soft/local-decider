@@ -99,7 +99,7 @@ description: What this decides.
 variantOf: permission     # optional: can stand in for another policy (see Variants)
 mode: shadow              # off | shadow | act
 priority: high            # engine queue order: high (a hook waits), normal, low
-harnesses: []             # empty = every harness; else paseo, claude-code, codex, mcp, cli
+harnesses: []             # empty = every harness; else paseo, claude-code, codex, pi, mcp, cli
 mcp: true                 # false: not callable or listed through MCP (hook-enforced policies);
                           # unset: open, but a variant inherits its base policy's value
 cache: { ttlSeconds: 0 }  # reuse answers for identical state
@@ -160,7 +160,7 @@ default: ask              # when no rule matches or the engine failed
     [config.yaml thresholds](#thresholds) are keyed by it. The error names both rules
     (`rules.2 (ask) repeats the threshold key "pick.a" of rules.0 (allow)`). A
     `precedent: allow` rule may repeat the key of a plain rule, as `permission` does.
-  - `harnesses` entries are `paseo`, `claude-code`, `codex`, `mcp` or `cli`; other ids are
+  - `harnesses` entries are `paseo`, `claude-code`, `codex`, `pi`, `mcp` or `cli`; other ids are
     rejected.
   - `answer` may be an unquoted `true`, `false` or number: YAML reads those as non-strings, so
     they become the strings `"true"`, `"false"` and `"3"` before the answer-space check. Quote

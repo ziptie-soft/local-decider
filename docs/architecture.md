@@ -12,6 +12,7 @@ flowchart LR
     PA["Paseo daemon + local-decider plugin"]
     CC["Claude Code + hooks"]
     CX["Codex + hooks"]
+    PI["pi + extension"]
     MC["MCP clients"]
     CLI["local-decider CLI"]
   end
@@ -31,6 +32,7 @@ flowchart LR
   PA --> HTTP
   CC --> HTTP
   CX --> HTTP
+  PI --> HTTP
   MC --> HTTP
   CLI --> HTTP
   HTTP --> DEC
@@ -48,6 +50,7 @@ flowchart LR
 | Core | `packages/core` | `/v1/systemone` types and answer normalisation, policy schema and rules, redaction, truncation, gateway client |
 | Gateway | `packages/gateway` | HTTP service, engine supervisor, decider, SQLite decision store, stats, MCP server, `local-decider` CLI, service units |
 | Hooks | `packages/hooks` → `plugins/local-decider/dist/local-decider-hook.mjs`, `hooks/local-decider-auto-mode.mjs` (built at release, published as `@ziptie-soft/local-decider-agent-plugin`) | One zero-dependency hook runner for Claude Code and Codex, with the deterministic guard, and the Claude Code auto-mode mod |
+| pi extension | `packages/pi-plugin` | `tool_call` gate and a `local-decider` decision-model provider for pi; a thin client of the gateway |
 | Paseo plugin | `packages/paseo-plugin` | Hooks, decision rows, settings and status screens; never runs a model in-process |
 | Policies | `policies/` | Default policies and eval fixtures |
 
@@ -133,6 +136,7 @@ Adapters change behaviour only when `enforced` is true, and only in ways their e
 | Claude Code | `PreToolUse` → guard, write guard (incl. Bash redirects), then `command-risk` | `deny` or `ask`; in auto mode `ask` prints nothing |
 | Claude Code, auto mode | mod `tool.check` → `permission` (scope `claude-auto`) | `allow` of a plain ask, in `act` only |
 | Codex | `PreToolUse` → guard, write guard (incl. `apply_patch`, redirects), then `command-risk` | `deny` only |
+| pi | `tool_call` → guard, then `command-risk` (`guard` mode) or `permission` (`approve` mode) | `deny` blocks; `ask` shows a dialog; in `approve`, an enforced allow of a shell or edit call runs without one and any other outcome, including gateway failure, asks |
 | Claude Code, Codex | `PermissionRequest` → `permission` | `allow` only; abstains for outside-cwd, protected or risky targets |
 | Claude Code, Codex | `UserPromptSubmit` → `routing` | Add a hint that names the mapped model |
 | Claude Code, Codex | `Stop` → `turn-outcome` | Nothing: logged only, since Stop output would continue the turn |
