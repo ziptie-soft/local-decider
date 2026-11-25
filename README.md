@@ -350,7 +350,7 @@ The gateway requires Node >= 24.15 for its built-in SQLite decision store. Recor
 `~/.local/share/local-decider/decider.db`; use `local-decider logs backup <file>` for a SQLite
 snapshot or `local-decider logs export [--since YYYY-MM-DD] <dir>` for daily JSONL export files.
 See [install and try it](docs/install.md#log-storage-and-portability) and
-[ADR-0010](docs/adr/0010-sqlite-decision-store.md) for details.
+ADR-0010 for details.
 
 ## Results
 
@@ -391,7 +391,6 @@ Latency of one 4-option question, measured at the client (p50):
 - [Threat model and known limits](docs/security.md)
 - [Supervised child agents](docs/supervised-subagents.md)
 - [Benchmarks](docs/benchmarks.md) and [end-to-end demos](docs/demos.md)
-- [Architecture decision records](docs/adr/)
 - [Paseo plugin](packages/paseo-plugin/README.md) and its [settings overview](packages/paseo-plugin/OVERVIEW.md)
 - [Claude Code and Codex plugin](plugins/local-decider/README.md)
 

@@ -194,7 +194,7 @@ form nor `local-decider engine configure` accepts the token value itself. Setup 
 - **Claude Code auto mode** ignores a hook `allow`
   ([anthropics/claude-code#94740](https://github.com/anthropics/claude-code/issues/94740)). The
   plugin's `tool.check` mod can allow there once you set the `permission` policy and its
-  `claude-auto` scope to `act` ([ADR-0007](adr/0007-claude-auto-mode-mod.md)); it never allows
+  `claude-auto` scope to `act` (ADR-0007); it never allows
   before that. In act mode:
   - a mod allow skips the classifier, even a `hard_deny` rule of the classifier;
   - the mod keeps outside-cwd and protected paths, `git push`, publishing, network tools and

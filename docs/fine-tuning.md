@@ -1,7 +1,7 @@
 # Fine-tuning the decider
 
 Status: plan (2026-11-14). Only report-only `local-decider calibrate` is implemented. It builds on
-[ADR-0012 §4](adr/0012-cross-harness-precedent.md). Points marked *(unverified)* still need checking
+ADR-0012 §4. Points marked *(unverified)* still need checking
 against upstream code or a real run.
 
 ## 1. Goal and non-goals

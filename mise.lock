@@ -6,6 +6,7 @@ lockfile_version = 3
 version = "1.14.0"
 backend = "aqua:bats-core/bats-core"
 specifiers = ["1.14.0"]
+unsupported_platforms = ["windows-x64"]
 
 [tools.bats."platforms.linux-arm64"]
 checksum = "sha256:bb537b70b15b732f6d8827dd6578e3d8ce166636ce1f18ea9a074184fcce9177"
@@ -268,6 +269,7 @@ url_api = "https://api.github.com/repos/redhat-et/ripwire/releases/assets/657743
 version = "0.6.8"
 backend = "github:redhat-et/ripwire"
 specifiers = ["0.6.8"]
+unsupported_platforms = ["macos-x64"]
 
 [tools."github:redhat-et/ripwire"."platforms.windows-x64"]
 checksum = "sha256:f351ae8068a5d9524b78b93d4863e1bdb1544a512ef3796b655e00a891723e14"

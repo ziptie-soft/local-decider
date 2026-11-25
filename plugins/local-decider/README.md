@@ -2,7 +2,7 @@
 
 Hooks that send routine decisions to a local decision-model gateway: a deterministic command
 guard, command-risk checks, permission triage, routing hints and turn-outcome logging. One plugin
-directory serves both harnesses ([ADR-0004](../../docs/adr/0004-marketplace-layout.md)).
+directory serves both harnesses (ADR-0004).
 
 ## Requirements
 
@@ -116,7 +116,7 @@ local-decider policies mode permission act --scope claude-auto
 Needs Claude Code 2.1.304 or newer (older versions are skipped) and a running gateway. Set
 `LOCAL_DECIDER_MOD=off` to switch it off. In act mode Claude Code shows the model a notice that
 the plugin's hook "was skipped" on each allow, and in Paseo-launched sessions the allow is ignored
-and the classifier decides. See [ADR-0007](../../docs/adr/0007-claude-auto-mode-mod.md).
+and the classifier decides. See ADR-0007.
 The mod never needs or reads the gateway's `control-token` file.
 
 `hooks/local-decider-auto-mode.mjs` is generated (not committed) from `packages/hooks/src/mod`
@@ -168,7 +168,7 @@ environment.
 `pnpm --filter @ziptie-soft/local-decider-hooks build`. Do not edit it by hand. Neither generated
 file is committed: the release workflow builds them and publishes this directory to npm as
 `@ziptie-soft/local-decider-agent-plugin`, which both marketplaces install
-([ADR-0009](../../docs/adr/0009-plugin-npm-distribution.md)). The `npm` CLI must be on `PATH`.
+(ADR-0009). The `npm` CLI must be on `PATH`.
 
 ## Development
 

@@ -121,7 +121,7 @@ Extensions can call it with `ctx.modelRegistry.classify()`. Questions are `choic
   does not revalidate it. Extensions are trusted code.
 - The extension does not gate `read`, so it does not protect secrets that a model can read.
 
-Design notes: [ADR-0013](https://github.com/ziptie-soft/local-decider/blob/master/docs/adr/0013-pi-extension.md).
+Design notes: ADR-0013.
 
 ## Maintainer notes
 
@@ -129,4 +129,4 @@ The `core/` directory holds verbatim copies of `packages/core` sources; a test k
 identical. `scripts/check-pi-pack.sh` checks the package contents and activates the packed
 extension with a fake pi API. The first publish (0.1.0) is manual, to set up npm trusted
 publishing; see
-[ADR-0009](https://github.com/ziptie-soft/local-decider/blob/master/docs/adr/0009-plugin-npm-distribution.md).
+ADR-0009.
