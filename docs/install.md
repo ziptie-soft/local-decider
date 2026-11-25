@@ -19,9 +19,11 @@ flowchart TD
   Q2 -->|Paseo| PA["paseo plugin install"]
   Q2 -->|"Claude Code"| CC["claude plugin install"]
   Q2 -->|Codex| CX["codex plugin add, then trust in /hooks"]
+  Q2 -->|pi| PI["pi install npm:@ziptie-soft/pi-local-decider"]
   PA --> V["Verify, then shadow for a week"]
   CC --> V
   CX --> V
+  PI --> V
 ```
 
 ## 1. Gateway
@@ -320,6 +322,16 @@ Both install the plugin from npm (`@ziptie-soft/local-decider-agent-plugin`, bui
 the `npm` CLI must be on `PATH`.
 
 Details: [Claude Code and Codex plugin README](../plugins/local-decider/README.md).
+
+**pi.** The extension is a thin client of the gateway. It blocks dangerous tool calls by default
+(`guard`); `approve` makes pi ask like Claude Code.
+
+```sh
+pi install npm:@ziptie-soft/pi-local-decider
+LOCAL_DECIDER_PI_MODE=approve pi    # optional: ask before tool calls
+```
+
+Details: [pi extension README](../packages/pi-plugin/README.md).
 
 ## Verify it works
 

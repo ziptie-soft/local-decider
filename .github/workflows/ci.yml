@@ -107,6 +107,8 @@ jobs:
       # The plugin bundle is built, not committed; a broken `files` list must fail before release.
       - name: Plugin package contents
         run: scripts/check-plugin-pack.sh
+      - name: pi package contents
+        run: scripts/check-pi-pack.sh
       - name: Test
         run: pnpm -r test
 

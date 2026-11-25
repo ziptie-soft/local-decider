@@ -1,0 +1,11 @@
+{
+  // pi loads extension/index.ts through jiti, so this only typechecks the sources and the tests.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["extension/**/*", "test/**/*"]
+}

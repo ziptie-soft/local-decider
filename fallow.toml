@@ -2,22 +2,27 @@
 # See https://fallow.tools/docs/
 
 # The stats worker is loaded by file URL (worker_threads), which static analysis cannot follow.
+# pi loads packages/pi-plugin/extension/index.ts from its package.json `pi.extensions`.
 entry = [
   "packages/gateway/src/stats-worker.ts",
   "scripts/harness-e2e.mjs",
   "scripts/e2e-approve.mjs",
+  "scripts/pi-pack-smoke.mjs",
+  "packages/pi-plugin/extension/index.ts",
   "packages/gateway/test/eval-live.ts",
   "packages/gateway/test/eval-compare.ts",
 ]
 
 # local-decider-auto-mode.mjs is generated from packages/hooks/src/mod; tests/ runs under
 # `claude plugin test` (mise run test:mod), which supplies the `claude-code/testing` module.
-# packages/paseo-plugin/server/core/ holds verbatim copies of core sources (the published plugin has
-# no runtime dependencies); test/package-deps.test.ts keeps them identical.
+# packages/paseo-plugin/server/core/ and packages/pi-plugin/extension/core/ hold verbatim copies of
+# core sources (the published plugins have no runtime dependencies); each package's
+# test/package-deps.test.ts keeps them identical.
 ignorePatterns = [
   "plugins/local-decider/hooks/local-decider-auto-mode.mjs",
   "plugins/local-decider/tests/**",
   "packages/paseo-plugin/server/core/**",
+  "packages/pi-plugin/extension/core/**",
 ]
 
 [health]

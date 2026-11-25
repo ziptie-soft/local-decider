@@ -26,6 +26,9 @@
     "packages/paseo-plugin": {
       "component": "paseo-plugin"
     },
+    "packages/pi-plugin": {
+      "component": "pi-plugin"
+    },
     "plugins/local-decider": {
       "component": "agent-plugin",
       "extra-files": [
