@@ -27,6 +27,8 @@ const agent: PluginHookAgent = {
   provider: 'claude',
   cwd: '/p',
   title: null,
+  background: false,
+  metadata: {},
 };
 
 const turn: { item: AgentTimelineItem; turnId?: string }[] = [
@@ -1253,6 +1255,8 @@ const open = (purpose: 'interactive' | 'history'): { request: PluginSessionOpenR
     tools: [],
     env: {},
     mcpServers: {},
+    background: false,
+    metadata: {},
   },
 });
 

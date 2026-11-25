@@ -21,6 +21,8 @@ const agentOf = (id: string, cwd = '/p'): PluginHookAgent => ({
   provider: 'claude',
   cwd,
   title: null,
+  background: false,
+  metadata: {},
 });
 
 const request = (

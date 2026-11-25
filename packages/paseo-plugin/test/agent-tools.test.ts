@@ -18,6 +18,8 @@ function context(id = 'agent-1', signal = new AbortController().signal): AgentTo
       provider: 'claude',
       cwd: '/work/project',
       title: null,
+      background: false,
+      metadata: {},
     },
     paseo: {} as never,
     signal,
