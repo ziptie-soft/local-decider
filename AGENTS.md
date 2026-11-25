@@ -21,8 +21,9 @@ workspace refuses versions younger than 3 days (`minimumReleaseAge`).
 - `packages/hooks` — the Claude Code and Codex hook handlers, thin clients of the gateway.
 - `packages/paseo-plugin` — the Paseo plugin, a thin client of the gateway. Clients never run
   models in-process.
-- `policies/` — default policy YAMLs. `docs/` — human-facing docs and ADRs.
-  Research notes and reviews stay local in the git-ignored `docs/research/` and `docs/review/`.
+- `policies/` — default policy YAMLs. `docs/` — human-facing docs.
+  Research notes, reviews and ADRs stay local in the git-ignored `docs/research/`,
+  `docs/review/` and `docs/adr/`.
 
 Workspace packages export a `source` condition pointing at `src/`; tests and `mise run gateway`
 run with `--conditions=source`, builds resolve `dist/`.

@@ -82,7 +82,7 @@ local-decider stats --scope claude-auto                         # agreement with
 
 Both must be `act` for the mod to allow anything. Until then it only logs what it would have
 allowed, so setting the policy to `act` does not change Claude Code's auto mode. See
-[ADR-0007](adr/0007-claude-auto-mode-mod.md).
+ADR-0007.
 
 ## Schema
 
@@ -226,7 +226,7 @@ and never changes the config.
 ## Precedent
 
 Precedent lets the model's own lower-confidence allow count when you have allowed the exact same
-request before. ADR: [0006](adr/0006-outcome-precedent.md).
+request before. ADR: 0006.
 
 - A policy names an input key as its subject (`precedent.from`). The adapter builds it from native
   tool metadata (for example `shell: git status`). The gateway hashes it with the policy id and

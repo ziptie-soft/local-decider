@@ -2,7 +2,8 @@
 
 local-decider puts a small local decision model in front of routine, fixed-choice decisions in
 coding-agent harnesses. This page shows the pieces and how one decision flows through them. The
-reasons behind each choice are in the [architecture decision records](adr/).
+reasons behind each choice are in the architecture decision records (ADRs), which are kept locally
+and not in git.
 
 ## Components
 
@@ -167,7 +168,7 @@ sequenceDiagram
 ```
 
 It records the classifier's verdict as an outcome (`source: classifier`) for
-`local-decider stats --scope claude-auto`. Details and limits: [ADR-0007](adr/0007-claude-auto-mode-mod.md).
+`local-decider stats --scope claude-auto`. Details and limits: ADR-0007.
 
 The Paseo plugin needs both the gateway mode and its own setting at `act`. Inside Paseo, Claude
 Code and Codex agents also load the hooks. The Paseo plugin sets
@@ -302,7 +303,7 @@ flowchart LR
 
 Each engine is one descriptor in a registry; see [engines.md](engines.md) for the engine table,
 how to add an engine or a model, and the macOS notes
-([ADR-0008](adr/0008-engine-registry.md)).
+(ADR-0008).
 
 - **Supervision.** A spawned engine runs on a free loopback port and logs filtered stdout/stderr
   to `logs/engine-<id>.log`. Lines containing request `state` or `questions`, and lines over 500

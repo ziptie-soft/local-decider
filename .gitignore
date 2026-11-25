@@ -26,3 +26,4 @@ plugins/local-decider/hooks/local-decider-auto-mode.mjs
 # Agent research, review and scratch docs (kept locally, not in git)
 docs/research/
 docs/review/
+docs/adr/

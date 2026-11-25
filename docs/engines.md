@@ -4,7 +4,7 @@ An engine turns a `/v1/systemone` request (state plus questions) into answer pro
 gateway has a registry of engine descriptors; the config schema, `GET /v1/engines`, the CLI and
 the Paseo settings page all read it. Decision architecture is in
 [architecture.md](architecture.md); the reasoning behind the registry is in
-[ADR-0008](adr/0008-engine-registry.md).
+ADR-0008.
 
 The `strands-decider` engine runs [Strands Decider](https://github.com/strands-labs/strands-decider)
 (Apache-2.0, see [NOTICE](../NOTICE)). Its
