@@ -21,6 +21,10 @@ export const ROW_VERSION = 1;
 /** Policies the plugin drives from hooks; each has its own plugin-side mode. */
 export const HOOK_POLICIES = ['turn-outcome', 'permission', 'routing'] as const;
 
+/** Every decision kind the gateway runs and Paseo shows; synchronous kinds first. */
+export const GATEWAY_POLICIES = ['command-risk', 'permission', 'routing', 'turn-outcome'] as const;
+export type GatewayPolicy = (typeof GATEWAY_POLICIES)[number];
+
 /**
  * Set on every agent the plugin opens: the policies it runs itself, so the Claude Code and Codex
  * hooks (`packages/hooks/src/run.ts`) inside that agent skip them instead of deciding twice.
@@ -41,6 +45,7 @@ export const AGENT_TOOL_NAMES = [
 export const CLAUDE_PASEO_TOOL_PREFIX = 'mcp__paseo__';
 
 export const PLUGIN_MODES = ['off', 'shadow', 'act'] as const;
+export type PluginMode = (typeof PLUGIN_MODES)[number];
 
 /**
  * Lowering an auto-allow threshold (permission `verdict.allow`, default 0.95): below `soft` the

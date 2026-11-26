@@ -10,6 +10,7 @@ import { IDLE_MINUTES } from './lifecycle.ts';
 import { progressSchema } from './machine.ts';
 import { PATH_KEY, pathEntrySchema } from './paths.ts';
 import {
+  policyModeInputSchema,
   policyModesSchema,
   policyPromptSchema,
   policyThresholdsSchema,
@@ -179,10 +180,10 @@ export const engineLoadRpc = defineRpc({
   output: z.object({ ok: z.boolean(), error: failure }),
 });
 
-/** Lazy (load on demand, unload when idle) or eager (`POST /v1/engine/lifecycle`). */
+/** Sets the gateway's run mode for a policy (`POST /v1/policies/:id/mode`). */
 export const policyModeRpc = defineRpc({
   name: 'policy-mode',
-  input: z.object({ policy: z.enum(HOOK_POLICIES), mode: z.enum(['off', 'shadow', 'act']) }),
+  input: policyModeInputSchema,
   output: z.object({ ok: z.boolean(), error: failure }),
 });
 

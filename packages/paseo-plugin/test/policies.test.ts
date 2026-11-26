@@ -13,13 +13,19 @@ import {
   setPolicyVariant,
   setRoutingPreset,
 } from '../server/engines.ts';
-import { ALLOW_THRESHOLD } from '../shared/constants.ts';
+import { ALLOW_THRESHOLD, GATEWAY_POLICIES, type PluginMode } from '../shared/constants.ts';
+import { DECISION_KINDS } from '../shared/decision-kinds.ts';
 import {
   allowWarning,
   legacyPresetMoves,
   mismatchLabel,
+  modeHint,
   modeMismatch,
+  modeOutcome,
+  modeRowHint,
+  popoverRowLabel,
   parsePolicyModes,
+  policyModeInputSchema,
   parsePolicyThresholds,
   parsePolicyVariants,
   parseRoutingSettings,
@@ -295,5 +301,232 @@ describe('routing settings in config.yaml', () => {
     });
     assert.equal((await policyPrompt(d, 'permission')).ok, false);
     assert.equal((await policyPrompt(deps(settings(), null), 'routing')).ok, false);
+  });
+});
+
+const MODES: readonly PluginMode[] = ['off', 'shadow', 'act'];
+const HOOK_KIND = 'permission';
+
+type WriteResult = Parameters<typeof modeOutcome>[2];
+const hookText = (res: WriteResult): string => modeOutcome('turn-outcome', 'act', res).text;
+const riskText = (res: WriteResult): string => modeOutcome('command-risk', 'off', res).text;
+const parse = (policy: string): { success: boolean } =>
+  policyModeInputSchema.safeParse({ policy, mode: 'off' });
+
+describe('parsePolicyModes over the gateway kinds', () => {
+  it('keeps command-risk with the three hook modes and drops unknown ids', () => {
+    const body = [
+      { id: 'command-risk', mode: 'off' },
+      { id: 'permission', mode: 'act' },
+      { id: 'routing', mode: 'shadow' },
+      { id: 'turn-outcome', mode: 'off' },
+      { id: 'nope', mode: 'act' },
+    ];
+    const parsed = parsePolicyModes(body);
+    assert.deepEqual(parsed.modes, {
+      'command-risk': 'off',
+      'permission': 'act',
+      'routing': 'shadow',
+      'turn-outcome': 'off',
+    });
+    assert.equal(Object.hasOwn(parsed.modes, 'nope'), false);
+  });
+});
+
+describe('modeHint', () => {
+  it('warns when the plugin acts and the gateway does not', () => {
+    for (const gateway of ['off', 'shadow'] as const) {
+      const hint = modeHint(HOOK_KIND, 'act', gateway);
+      assert.match(hint ?? '', /^Warning: the gateway runs this in (Shadow|Off)/);
+      assert.match(hint ?? '', /Choose Act again/);
+    }
+  });
+
+  it('warns when the gateway acts and the plugin does not', () => {
+    assert.match(modeHint(HOOK_KIND, 'off', 'act') ?? '', /Choose Off again/);
+    assert.match(modeHint(HOOK_KIND, 'shadow', 'act') ?? '', /Choose Shadow again/);
+    assert.match(modeHint(HOOK_KIND, 'off', 'act') ?? '', /^Warning: the gateway still runs/);
+  });
+
+  it('does not warn for any other combination', () => {
+    const quiet: [PluginMode, PluginMode | undefined][] = [
+      ['act', 'act'],
+      ['act', undefined],
+      ['off', 'off'],
+      ['off', 'shadow'],
+      ['off', undefined],
+      ['shadow', 'off'],
+      ['shadow', 'shadow'],
+      ['shadow', undefined],
+    ];
+    for (const [plugin, gateway] of quiet) {
+      assert.equal(modeHint(HOOK_KIND, plugin, gateway), null);
+    }
+  });
+
+  it('is always null for command-risk', () => {
+    for (const plugin of MODES) {
+      for (const gateway of [...MODES, undefined]) {
+        assert.equal(modeHint('command-risk', plugin, gateway), null);
+      }
+    }
+  });
+});
+
+describe('modeRowHint', () => {
+  const base = {
+    pluginMode: 'shadow',
+    gatewayMode: 'shadow',
+    modesLoaded: true,
+    reachable: true,
+    busy: false,
+  } as const;
+
+  it('1: shows Saving… while a write is in flight', () => {
+    for (const id of GATEWAY_POLICIES) {
+      assert.equal(modeRowHint(id, { ...base, busy: true }).hint, 'Saving…');
+    }
+  });
+
+  it('2: command-risk waits for the gateway mode', () => {
+    const row = modeRowHint('command-risk', {
+      ...base,
+      gatewayMode: undefined,
+      modesLoaded: false,
+    });
+    assert.deepEqual(row, { hint: 'Asking the gateway…', disabled: true });
+  });
+
+  it('3: command-risk is disabled while the gateway is unreachable', () => {
+    const row = modeRowHint('command-risk', { ...base, reachable: false });
+    assert.deepEqual(row, {
+      hint: "Can't be changed while the gateway is unreachable.",
+      disabled: true,
+    });
+  });
+
+  it('4: a loaded gateway with no entry for command-risk never runs it', () => {
+    const row = modeRowHint('command-risk', { ...base, gatewayMode: undefined });
+    assert.deepEqual(row, {
+      hint: 'The gateway has not loaded this policy, so it never runs.',
+      disabled: true,
+    });
+  });
+
+  it('4: a hook kind stays enabled when the gateway has no entry for it', () => {
+    for (const id of GATEWAY_POLICIES.filter((kind) => kind !== 'command-risk')) {
+      const row = modeRowHint(id, { ...base, gatewayMode: undefined });
+      assert.deepEqual(row, { hint: DECISION_KINDS[id].modes.shadow, disabled: false });
+    }
+  });
+
+  it('5: shows the mismatch warning of a hook kind', () => {
+    const row = modeRowHint(HOOK_KIND, { ...base, pluginMode: 'act', gatewayMode: 'shadow' });
+    assert.equal(row.hint, modeHint(HOOK_KIND, 'act', 'shadow'));
+    assert.equal(row.disabled, false);
+  });
+
+  it('6: otherwise explains the mode', () => {
+    for (const id of GATEWAY_POLICIES) {
+      for (const mode of MODES) {
+        const row = modeRowHint(id, { ...base, pluginMode: mode, gatewayMode: mode });
+        assert.deepEqual(row, { hint: DECISION_KINDS[id].modes[mode], disabled: false });
+      }
+    }
+  });
+
+  it('explains a hook kind by its plugin mode while the gateway is unknown', () => {
+    const row = modeRowHint(HOOK_KIND, {
+      ...base,
+      pluginMode: 'act',
+      gatewayMode: undefined,
+      modesLoaded: false,
+    });
+    assert.equal(row.hint, DECISION_KINDS[HOOK_KIND].modes.act);
+  });
+});
+
+describe('modeOutcome', () => {
+  it('reports success for each kind and mode', () => {
+    assert.deepEqual(modeOutcome('routing', 'shadow', { ok: true }), {
+      tone: 'success',
+      text: 'Routing is now Shadow.',
+    });
+    assert.deepEqual(modeOutcome('command-risk', 'act', { ok: true }), {
+      tone: 'success',
+      text: 'Command risk is now Act.',
+    });
+  });
+
+  it('adds the own-rules note when command-risk is turned Off', () => {
+    assert.equal(
+      modeOutcome('command-risk', 'off', { ok: true }).text,
+      'Command risk is now Off. Claude Code, Codex and pi may still ask by their own rules.',
+    );
+    assert.equal(modeOutcome('permission', 'off', { ok: true }).text, 'Permission is now Off.');
+  });
+
+  it('substitutes the reason on a hook-kind failure', () => {
+    const tail = 'Claude Code and Codex outside Paseo keep the old mode.';
+    assert.equal(
+      hookText({ ok: false, error: 'bad mode' }),
+      `Saved in Paseo, but the gateway refused: bad mode. ${tail}`,
+    );
+    assert.equal(
+      hookText({ ok: false, error: null }),
+      `Saved in Paseo, but the gateway refused: the gateway refused without a reason. ${tail}`,
+    );
+    assert.equal(
+      hookText({ ok: false, unreachable: true }),
+      `Saved in Paseo, but the gateway refused: the gateway is unreachable. ${tail}`,
+    );
+    assert.equal(modeOutcome('turn-outcome', 'act', { ok: false }).tone, 'error');
+  });
+
+  it('substitutes the reason on a command-risk failure', () => {
+    assert.equal(
+      riskText({ ok: false, error: 'no such policy' }),
+      "Couldn't change Command risk: no such policy.",
+    );
+    assert.equal(
+      riskText({ ok: false }),
+      "Couldn't change Command risk: the gateway refused without a reason.",
+    );
+    assert.equal(
+      riskText({ ok: false, unreachable: true }),
+      "Couldn't change Command risk: the gateway is unreachable.",
+    );
+  });
+});
+
+describe('popoverRowLabel', () => {
+  it('names the plugin mode of a hook kind', () => {
+    assert.equal(popoverRowLabel('routing', 'shadow', 'shadow'), 'Routing: Shadow.');
+    assert.equal(popoverRowLabel('routing', 'off', undefined), 'Routing: Off.');
+  });
+
+  it('adds the mismatch sentence when the plugin acts and the gateway does not', () => {
+    assert.equal(
+      popoverRowLabel('permission', 'act', 'shadow'),
+      'Permission: Act. The gateway runs it in Shadow, so its decisions are not enforced.',
+    );
+  });
+
+  it('shows the gateway mode of command-risk, or unknown', () => {
+    assert.equal(popoverRowLabel('command-risk', undefined, 'off'), 'Command risk: Off.');
+    assert.equal(
+      popoverRowLabel('command-risk', undefined, undefined),
+      'Command risk: mode unknown.',
+    );
+  });
+});
+
+describe('policyModeInputSchema', () => {
+  it('accepts every gateway kind and rejects others', () => {
+    assert.equal(parse('command-risk').success, true);
+    for (const id of GATEWAY_POLICIES) {
+      assert.equal(parse(id).success, true);
+    }
+    assert.equal(parse('nope').success, false);
   });
 });

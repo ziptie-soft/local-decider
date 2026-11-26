@@ -4,7 +4,14 @@
  */
 import { z } from 'zod';
 
-import { ALLOW_THRESHOLD, HOOK_POLICIES } from './constants.ts';
+import {
+  ALLOW_THRESHOLD,
+  GATEWAY_POLICIES,
+  type GatewayPolicy,
+  PLUGIN_MODES,
+  type PluginMode,
+} from './constants.ts';
+import { DECISION_KINDS } from './decision-kinds.ts';
 
 const policyId = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/);
 
@@ -107,16 +114,22 @@ export function parsePolicyThresholds(body: unknown, id: string): PolicyThreshol
 export const policyModesSchema = z.object({
   ok: z.boolean(),
   error: z.string().nullable(),
-  /** The gateway's run mode per hook policy; a policy it does not report is left out. */
-  modes: z.partialRecord(z.enum(HOOK_POLICIES), z.enum(['off', 'shadow', 'act'])),
+  /** The gateway's run mode per decision kind; a policy it does not report is left out. */
+  modes: z.partialRecord(z.enum(GATEWAY_POLICIES), z.enum(['off', 'shadow', 'act'])),
 });
 export type PolicyModes = z.output<typeof policyModesSchema>;
 
-/** The gateway's run mode of every hook policy it lists. */
+/** Input of `policyModeRpc`; here so tests can parse it without loading `@getpaseo/plugin`. */
+export const policyModeInputSchema = z.object({
+  policy: z.enum(GATEWAY_POLICIES),
+  mode: z.enum(PLUGIN_MODES),
+});
+
+/** The gateway's run mode of every decision kind it lists. */
 export function parsePolicyModes(body: unknown): PolicyModes {
   const entries = parseEntries(Array.isArray(body) ? body : []);
   const modes: PolicyModes['modes'] = {};
-  for (const policy of HOOK_POLICIES) {
+  for (const policy of GATEWAY_POLICIES) {
     const mode = entries.get(policy)?.mode;
     if (mode !== undefined) {
       modes[policy] = mode;
@@ -140,6 +153,123 @@ export function modeMismatch(
 /** `act · gateway shadow`: the pill text for a mismatch. */
 export function mismatchLabel(gatewayMode: 'off' | 'shadow' | 'act'): string {
   return `act · gateway ${gatewayMode}`;
+}
+
+const MODE_LABELS: Readonly<Record<PluginMode, string>> = {
+  off: 'Off',
+  shadow: 'Shadow',
+  act: 'Act',
+};
+
+/**
+ * Warning for a Paseo mode and a gateway mode that disagree, or null. Command risk has no plugin
+ * mode, so it never warns; an unknown gateway mode never warns.
+ */
+export function modeHint(
+  policy: GatewayPolicy,
+  pluginMode: PluginMode,
+  gatewayMode: PluginMode | undefined,
+): string | null {
+  if (!DECISION_KINDS[policy].pluginMode || gatewayMode === undefined) {
+    return null;
+  }
+  if (pluginMode === 'act' && gatewayMode !== 'act') {
+    return `Warning: the gateway runs this in ${MODE_LABELS[gatewayMode]}, so its decisions are not enforced. Choose Act again to set the gateway too.`;
+  }
+  if (pluginMode !== 'act' && gatewayMode === 'act') {
+    return `Warning: the gateway still runs this in Act, so Claude Code and Codex outside Paseo enforce it. Choose ${MODE_LABELS[pluginMode]} again to set the gateway too.`;
+  }
+  return null;
+}
+
+export interface ModeRowState {
+  pluginMode: PluginMode;
+  gatewayMode: PluginMode | undefined;
+  /** The gateway's modes were fetched successfully. */
+  modesLoaded: boolean;
+  /** The gateway answered its last status check. */
+  reachable: boolean;
+  /** A write from this card is in flight. */
+  busy: boolean;
+}
+
+/** The hint under a card's Mode select: the first row of the plan's table that applies. */
+export function modeRowHint(
+  policy: GatewayPolicy,
+  state: ModeRowState,
+): { hint: string; disabled: boolean } {
+  const gatewayOnly = !DECISION_KINDS[policy].pluginMode;
+  if (state.busy) {
+    return { hint: 'Saving…', disabled: false };
+  }
+  if (gatewayOnly && !state.reachable) {
+    return { hint: "Can't be changed while the gateway is unreachable.", disabled: true };
+  }
+  if (gatewayOnly && !state.modesLoaded) {
+    return { hint: 'Asking the gateway…', disabled: true };
+  }
+  if (gatewayOnly && state.modesLoaded && state.gatewayMode === undefined) {
+    return { hint: 'The gateway has not loaded this policy, so it never runs.', disabled: true };
+  }
+  const warning = modeHint(policy, state.pluginMode, state.gatewayMode);
+  const mode = gatewayOnly ? (state.gatewayMode ?? state.pluginMode) : state.pluginMode;
+  return { hint: warning ?? DECISION_KINDS[policy].modes[mode], disabled: false };
+}
+
+/** What the gateway answered to a mode write; `unreachable` when the call itself failed. */
+export interface ModeWriteResult {
+  ok: boolean;
+  error?: string | null | undefined;
+  unreachable?: boolean | undefined;
+}
+
+function failureReason(res: ModeWriteResult): string {
+  if (res.unreachable === true) {
+    return 'the gateway is unreachable';
+  }
+  return res.error === undefined || res.error === null || res.error === ''
+    ? 'the gateway refused without a reason'
+    : res.error;
+}
+
+/** The message shown on a card after a mode write. */
+export function modeOutcome(
+  policy: GatewayPolicy,
+  mode: PluginMode,
+  res: ModeWriteResult,
+): { tone: 'success' | 'error'; text: string } {
+  const { title, pluginMode } = DECISION_KINDS[policy];
+  if (res.ok) {
+    const text =
+      !pluginMode && mode === 'off'
+        ? `${title} is now Off. Claude Code, Codex and pi may still ask by their own rules.`
+        : `${title} is now ${MODE_LABELS[mode]}.`;
+    return { tone: 'success', text };
+  }
+  const reason = failureReason(res);
+  return {
+    tone: 'error',
+    text: pluginMode
+      ? `Saved in Paseo, but the gateway refused: ${reason}. Claude Code and Codex outside Paseo keep the old mode.`
+      : `Couldn't change ${title}: ${reason}.`,
+  };
+}
+
+/** Accessibility label of a popover row; command risk shows the gateway mode. */
+export function popoverRowLabel(
+  policy: GatewayPolicy,
+  pluginMode: PluginMode | undefined,
+  gatewayMode: PluginMode | undefined,
+): string {
+  const { title, pluginMode: hasPluginMode } = DECISION_KINDS[policy];
+  const mode = hasPluginMode ? pluginMode : gatewayMode;
+  if (mode === undefined) {
+    return `${title}: mode unknown.`;
+  }
+  const base = `${title}: ${MODE_LABELS[mode]}.`;
+  return hasPluginMode && gatewayMode !== undefined && modeMismatch(mode, gatewayMode)
+    ? `${base} The gateway runs it in ${MODE_LABELS[gatewayMode]}, so its decisions are not enforced.`
+    : base;
 }
 
 const ACTION_VERBS: Readonly<Record<string, string>> = { allow: 'auto-allow' };

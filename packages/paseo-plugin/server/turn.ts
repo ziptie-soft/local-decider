@@ -12,7 +12,7 @@ import { appendRow } from './timeline.ts';
 const TURN_POLICY = 'turn-outcome';
 const HISTORY_LIMIT = 60;
 /** Detached from the hook, so this can exceed the 30 s hook limit; the gateway caps it too. */
-const DECIDE_TIMEOUT_MS = 60_000;
+export const DECIDE_TIMEOUT_MS = 60_000;
 
 export interface TurnEvent {
   readonly agent: PluginHookAgent;
