@@ -2,13 +2,11 @@
 import { useRpc } from '@getpaseo/plugin/client';
 import { useQuery } from '@tanstack/react-query';
 
-import type { HOOK_POLICIES } from '../shared/constants.ts';
+import type { GatewayPolicy, PluginMode } from '../shared/constants.ts';
 import { policyModesRpc } from '../shared/rpc.ts';
 import { hostQueryKey, useHostId } from './host-scope.ts';
 
-export type GatewayModes = Partial<
-  Record<(typeof HOOK_POLICIES)[number], 'off' | 'shadow' | 'act'>
->;
+export type GatewayModes = Partial<Record<GatewayPolicy, PluginMode>>;
 
 /** Empty until fetched, and when the gateway is down or too old to report modes. */
 export function useGatewayModes(): GatewayModes {

@@ -32,7 +32,7 @@ import { pluginEnforces } from './turn.ts';
 import type { UsageLinks } from './usage.ts';
 
 const ROUTING_POLICY = 'routing';
-const ROUTING_BUDGET_MS = 2000;
+export const ROUTING_BUDGET_MS = 2000;
 /** Below this much budget left, the gateway call is skipped; it would get at least 500 ms. */
 const MIN_ROUTE_DECIDE_MS = 1000;
 const SHADOW_TIMEOUT_MS = 30_000;

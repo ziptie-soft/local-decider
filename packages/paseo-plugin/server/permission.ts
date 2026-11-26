@@ -53,7 +53,7 @@ const TIMELINE_FETCH_LIMIT = 100;
  * within ~12 s (`docs/supervised-subagents.md`), so a later decision is wasted engine work. A
  * timeout means no row and no allow; the request stays pending for the user.
  */
-const PERMISSION_DEADLINE_MS = 10_000;
+export const PERMISSION_DEADLINE_MS = 10_000;
 /** Below this much of the deadline left, the gateway call is skipped. */
 const MIN_PERMISSION_DECIDE_MS = 1000;
 /** A circuit breaker, not a sampler: a normal agent never asks 20 times a minute. */
