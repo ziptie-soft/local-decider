@@ -119,6 +119,14 @@ describe('engine registry', () => {
   });
 });
 
+describe('Kev catalogue entry', () => {
+  it('lists Kev 0.8B Q8_0 on llama-vulkan without recommending it', () => {
+    const kev = allModels().find((m) => m.id === 'kev-0.8b-q8_0');
+    assert.equal(kev?.engine, 'llama-vulkan');
+    assert.ok(kev?.recommended !== true);
+  });
+});
+
 describe('Strands E2B measurements', () => {
   it('records the MLX latency and GPU memory measured on the M5 Pro', () => {
     const e2b = allModels().find(

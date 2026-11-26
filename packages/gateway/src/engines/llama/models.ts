@@ -48,6 +48,13 @@ export const GGUF: Readonly<Record<string, PinnedFile>> = {
     1082017408,
     '14e1d3ad398bdc245b5afe42e4e2a90e12b17fac699d3ab28c3b7632aaacc827',
   ),
+  'kev-0.8b-q8_0': pin(
+    'Kev-0.8B-GGUF',
+    '9231cb757e3320120077e42e52371971968f008d',
+    'Kev-0.8B-Q8_0.gguf',
+    812406304,
+    '27278f34eb3273bceea4c053dc50dd61a5161da21a718c4aacdf8fd5830771d0',
+  ),
   'd3-flash-q4_k_m': pin(
     'vllm-d3-flash-GGUF',
     '1307737011b75c2d1f389243484296d9d6c54a4f',
@@ -120,6 +127,18 @@ export const LLAMA_MODELS: readonly ModelDescriptor<'llama-vulkan'>[] = [
     // Verified from ggml-org/vllm-d3-flash-GGUF cardData.base_model, 2026-11-12.
     baseModel: 'vllm-sr/d3-flash',
     quant: 'Q4_K_M',
+  },
+  {
+    id: 'kev-0.8b-q8_0',
+    engine: 'llama-vulkan',
+    label: 'Kev 0.8B Q8_0',
+    downloadGb: 0.8,
+    memoryGb: 1.5,
+    latencyHint: null,
+    source: 'https://huggingface.co/ggml-org/Kev-0.8B-GGUF',
+    // Verified from ggml-org/Kev-0.8B-GGUF cardData.base_model, 2026-11-27.
+    baseModel: 'jaredpalmer/kev-0.8b',
+    quant: 'Q8_0',
   },
 ];
 

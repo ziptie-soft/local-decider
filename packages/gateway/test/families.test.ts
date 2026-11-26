@@ -19,6 +19,7 @@ const VERIFIED = new Map<string, string>([
   ['llama-vulkan|d3-mini-q4_k_m', 'vllm-sr/d3-mini'],
   ['llama-vulkan|d3-mini-q8_0', 'vllm-sr/d3-mini'],
   ['llama-vulkan|d3-flash-q4_k_m', 'vllm-sr/d3-flash'],
+  ['llama-vulkan|kev-0.8b-q8_0', 'jaredpalmer/kev-0.8b'],
 ]);
 
 describe('model families', () => {

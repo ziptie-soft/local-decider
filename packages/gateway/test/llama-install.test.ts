@@ -4,9 +4,9 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import type { PinnedFile } from '../src/engines/llama/models.ts';
+import { GGUF, type PinnedFile } from '../src/engines/llama/models.ts';
 import { recordMatches, recordPath } from '../src/engines/llama/verified.ts';
-import { fetchPinned, installPinnedModel } from '../src/llama-install.ts';
+import { fetchPinned, installLlamaModel, installPinnedModel } from '../src/llama-install.ts';
 import { tempPaths } from './helpers.ts';
 
 function pinFor(bytes: Buffer): PinnedFile {
@@ -122,6 +122,33 @@ describe('llama model installer', () => {
       assert.equal(calls, 1);
       assert.deepEqual(readFileSync(dest), bytes);
       assert.equal(recordMatches(dest, pin.sha256), true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('plans the Kev download from the pinned URL, sha256 and bytes', async () => {
+    const pin = GGUF['kev-0.8b-q8_0'];
+    assert.ok(pin);
+    assert.equal(
+      pin.url,
+      'https://huggingface.co/ggml-org/Kev-0.8B-GGUF/resolve/9231cb757e3320120077e42e52371971968f008d/Kev-0.8B-Q8_0.gguf',
+    );
+    assert.equal(
+      pin.sha256,
+      'sha256:27278f34eb3273bceea4c053dc50dd61a5161da21a718c4aacdf8fd5830771d0',
+    );
+    assert.equal(pin.bytes, 812406304);
+    const paths = tempPaths();
+    const originalFetch = globalThis.fetch;
+    const urls: string[] = [];
+    globalThis.fetch = async (input) => {
+      urls.push(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+      return new Response(Buffer.from('not the pinned bytes'));
+    };
+    try {
+      await assert.rejects(installLlamaModel(paths, 'kev-0.8b-q8_0'));
+      assert.deepEqual(urls, [pin.url]);
     } finally {
       globalThis.fetch = originalFetch;
     }
