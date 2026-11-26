@@ -45,6 +45,7 @@
   "pi": {
     "extensions": [
       "./extension/index.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/ziptie-soft/local-decider/master/docs/assets/social-preview.png"
   }
 }
