@@ -4,16 +4,18 @@ import { useMemo, type ReactNode } from 'react';
 import { Text, type TextStyle, View, type ViewStyle } from 'react-native';
 
 import {
-  HOOK_POLICIES,
+  GATEWAY_POLICIES,
+  type GatewayPolicy,
   INSTALL_SERVICE_COMMAND,
   SETTINGS_PAGE_ID,
   STATUS_SCREEN_ID,
 } from '../shared/constants.ts';
+import { DECISION_KINDS } from '../shared/decision-kinds.ts';
 import { engineTag } from '../shared/engines.ts';
 import { engineStateNote } from '../shared/lifecycle.ts';
-import { mismatchLabel, modeMismatch } from '../shared/policies.ts';
+import { mismatchLabel, modeMismatch, popoverRowLabel } from '../shared/policies.ts';
 import { type Status, useDeciderValues, useGatewayStatus, useServiceInfo } from './hooks.ts';
-import { useGatewayModes } from './policy-modes.ts';
+import { type GatewayModes, useGatewayModes } from './policy-modes.ts';
 import { ReviewPopoverSection } from './review.tsx';
 import { useServiceRun } from './service.tsx';
 import { Button, type Theme } from './ui.tsx';
@@ -45,12 +47,6 @@ export function headline(data: Status | undefined): string {
   const state = data.engineState ?? (data.status === 'ok' ? 'ready' : 'starting');
   return STATE_LABELS[state] ?? state;
 }
-
-const POLICY_LABELS: Record<(typeof HOOK_POLICIES)[number], string> = {
-  'turn-outcome': 'Turn outcome',
-  'permission': 'Permission',
-  'routing': 'Routing',
-};
 
 const MODE_LABELS = { off: 'Off', shadow: 'Shadow', act: 'Act' } as const;
 
@@ -92,6 +88,36 @@ function ModePill({
       >
         {label}
       </Text>
+    </View>
+  );
+}
+
+/** One decision row: the plugin mode for hook kinds, the gateway mode for command risk. */
+function DecisionRow({
+  policy,
+  values,
+  gatewayModes,
+  theme,
+  styles,
+}: {
+  policy: GatewayPolicy;
+  values: ReturnType<typeof useDeciderValues>;
+  gatewayModes: GatewayModes;
+  theme: Theme;
+  styles: Styles;
+}): ReactNode {
+  const { title, pluginMode } = DECISION_KINDS[policy];
+  const gatewayMode = gatewayModes[policy];
+  const hook = pluginMode && values !== null && policy !== 'command-risk';
+  const mode = hook ? values.modes[policy] : pluginMode ? undefined : gatewayMode;
+  return (
+    <View style={styles.row} accessibilityLabel={popoverRowLabel(policy, mode, gatewayMode)}>
+      <Text style={styles.label}>{title}</Text>
+      {mode === undefined ? (
+        <Text style={styles.caption}>…</Text>
+      ) : (
+        <ModePill mode={mode} gatewayMode={pluginMode ? gatewayMode : undefined} theme={theme} />
+      )}
     </View>
   );
 }
@@ -219,19 +245,15 @@ export function QuickStatus(props: PluginPopoverProps): ReactNode {
       {data?.up === false && hasService ? <StartRow theme={theme} styles={styles} /> : null}
       <View style={styles.divider} />
       <View style={styles.section}>
-        {HOOK_POLICIES.map((policy) => (
-          <View key={policy} style={styles.row}>
-            <Text style={styles.label}>{POLICY_LABELS[policy]}</Text>
-            {values === null ? (
-              <Text style={styles.caption}>…</Text>
-            ) : (
-              <ModePill
-                mode={values.modes[policy]}
-                gatewayMode={gatewayModes[policy]}
-                theme={theme}
-              />
-            )}
-          </View>
+        {GATEWAY_POLICIES.map((policy) => (
+          <DecisionRow
+            key={policy}
+            policy={policy}
+            values={values}
+            gatewayModes={gatewayModes}
+            theme={theme}
+            styles={styles}
+          />
         ))}
       </View>
       <ReviewPopoverSection theme={theme} />
