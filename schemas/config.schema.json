@@ -154,7 +154,8 @@
                 "d3-nano-q8_0",
                 "d3-lite-q8_0",
                 "d3-mini-q8_0",
-                "d3-flash-q4_k_m"
+                "d3-flash-q4_k_m",
+                "kev-0.8b-q8_0"
               ]
             },
             "binary": {
@@ -485,7 +486,8 @@
                 "d3-nano-q8_0",
                 "d3-lite-q8_0",
                 "d3-mini-q8_0",
-                "d3-flash-q4_k_m"
+                "d3-flash-q4_k_m",
+                "kev-0.8b-q8_0"
               ]
             },
             "binary": {
