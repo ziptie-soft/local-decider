@@ -10,6 +10,11 @@ export type GatewayModes = Partial<Record<GatewayPolicy, PluginMode>>;
 
 /** Empty until fetched, and when the gateway is down or too old to report modes. */
 export function useGatewayModes(): GatewayModes {
+  return useGatewayModesState().modes;
+}
+
+/** The modes plus whether the gateway answered the fetch successfully. */
+export function useGatewayModesState(): { modes: GatewayModes; loaded: boolean } {
   const modes = useRpc(policyModesRpc);
   const hostId = useHostId();
   const query = useQuery({
@@ -18,5 +23,7 @@ export function useGatewayModes(): GatewayModes {
     retry: false,
     staleTime: 10_000,
   });
-  return query.data?.ok === true ? query.data.modes : {};
+  return query.data?.ok === true
+    ? { modes: query.data.modes, loaded: true }
+    : { modes: {}, loaded: false };
 }

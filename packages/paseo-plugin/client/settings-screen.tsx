@@ -1,25 +1,21 @@
 import type { PluginScreenProps, PluginSurfaceProps } from '@getpaseo/plugin/client';
-import { useRpc, useSettings } from '@getpaseo/plugin/client';
+import { useSettings } from '@getpaseo/plugin/client';
 import {
   Loading,
   SettingsAction,
   SettingsCard,
   SettingsInput,
   SettingsSection,
-  SettingsSelect,
   SettingsSwitch,
 } from '@getpaseo/plugin/client/ui';
-import { Fragment, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
 
-import { HOOK_POLICIES, PLUGIN_MODES } from '../shared/constants.ts';
-import { modeMismatch } from '../shared/policies.ts';
-import { policyModeRpc } from '../shared/rpc.ts';
 import { deciderSettings } from '../shared/settings.ts';
 import { normaliseBaseUrl } from '../shared/url.ts';
 import { StatusSection } from './engine-state.tsx';
-import { useGatewayModes } from './policy-modes.ts';
-import { choices, type Save, type SectionProps } from './settings-common.ts';
+import { type Save, type SectionProps } from './settings-common.ts';
+import { DecisionsSection } from './settings-decisions.tsx';
 import { RowsSection, SidebarSection } from './settings-display.tsx';
 import { EngineSection } from './settings-engines.tsx';
 import { PathsSection } from './settings-paths.tsx';
@@ -74,51 +70,6 @@ function GatewaySection({ values, save }: SectionProps): ReactNode {
   );
 }
 
-/** A warning hint when the plugin is in act but the gateway is not; nothing otherwise. */
-function mismatchHint(
-  mode: 'off' | 'shadow' | 'act',
-  gatewayMode: 'off' | 'shadow' | 'act' | undefined,
-): { hint?: string } {
-  return modeMismatch(mode, gatewayMode) && gatewayMode !== undefined
-    ? {
-        hint: `Warning: the gateway runs this policy in ${gatewayMode}, so its decisions are not enforced. Choose Act again to set the gateway too.`,
-      }
-    : {};
-}
-
-function PolicySection({ values, save }: SectionProps): ReactNode {
-  const setGatewayMode = useRpc(policyModeRpc);
-  const gatewayModes = useGatewayModes();
-  return (
-    <SettingsSection
-      title="Policies"
-      info="Shadow records what would have happened. Act lets the decider change Paseo's behaviour. Choosing a mode here sets it in the gateway too. How sure the model must be is under Decision thresholds."
-    >
-      <SettingsCard>
-        {HOOK_POLICIES.map((policy) => (
-          <Fragment key={policy}>
-            <SettingsSelect
-              label={policy}
-              {...mismatchHint(values.modes[policy], gatewayModes[policy])}
-              value={values.modes[policy]}
-              options={choices(PLUGIN_MODES, {
-                off: 'Off',
-                shadow: 'Shadow (record only)',
-                act: 'Act (when the gateway does)',
-              })}
-              onValueChange={(mode) => {
-                save({ ...values, modes: { ...values.modes, [policy]: mode } });
-                // The gateway's own mode decides whether a decision is enforced: keep both in step.
-                void setGatewayMode({ policy, mode });
-              }}
-            />
-          </Fragment>
-        ))}
-      </SettingsCard>
-    </SettingsSection>
-  );
-}
-
 function Message({ theme, text }: { theme: Theme; text: string }): ReactNode {
   return (
     <View style={{ padding: 16 }}>
@@ -159,7 +110,7 @@ export function SettingsScreen({ theme, navigation }: PluginSurfaceProps): React
     <View style={{ gap: 16 }}>
       {settings.saveError === null ? null : <Message theme={theme} text={settings.saveError} />}
       <StatusSection theme={theme} gatewayUrl={values.gatewayUrl} />
-      <PolicySection values={values} save={save} />
+      <DecisionsSection theme={theme} values={values} save={save} />
       <RoutingSection
         theme={theme}
         navigation={navigation}
