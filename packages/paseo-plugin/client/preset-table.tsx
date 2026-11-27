@@ -24,6 +24,8 @@ import { Disclosure, type Theme } from './ui.tsx';
 
 const PROFILE_PREFIX = 'profile:';
 const COLUMNS = { route: 120, effort: 120, mode: 140 } as const;
+/** The trailing slot of the remove button (an icon), reserved in every row and the header. */
+const REMOVE_SLOT = 16;
 
 /** Paseo's agent profiles, for profile targets. */
 function useProfiles(): readonly ProfileLike[] {
@@ -248,15 +250,17 @@ function PresetRow(props: RowProps): ReactNode {
       <Cell width={COLUMNS.mode}>
         <ModeCell theme={theme} preset={preset} target={target} write={write} />
       </Cell>
-      {used ? null : (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Remove route:${preset}`}
-          onPress={() => write({})}
-        >
-          <Icon name="X" size={16} color={theme.colors.foregroundMuted} />
-        </Pressable>
-      )}
+      <View style={{ width: REMOVE_SLOT }}>
+        {used ? null : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Remove route:${preset}`}
+            onPress={() => write({})}
+          >
+            <Icon name="X" size={REMOVE_SLOT} color={theme.colors.foregroundMuted} />
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
@@ -269,6 +273,7 @@ function Header({ theme }: { theme: Theme }): ReactNode {
       <Cell>{head('Profile or model')}</Cell>
       <Cell width={COLUMNS.effort}>{head('Effort')}</Cell>
       <Cell width={COLUMNS.mode}>{head('Mode')}</Cell>
+      <View style={{ width: REMOVE_SLOT }} />
     </HeaderRow>
   );
 }
