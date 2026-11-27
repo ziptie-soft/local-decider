@@ -578,8 +578,14 @@ describe('model row state', () => {
       action: 'download',
     });
     // A fresh measurement on this machine replaces the catalog figure; a stale one does not.
-    assert.match(view(model({ measured: [here(null, 'fresh', 480)] })).hint, /~480 ms in the benchmark$/);
-    assert.match(view(model({ measured: [here('auto', 'fresh', 480)] })).hint, /~480 ms in the benchmark$/);
+    assert.match(
+      view(model({ measured: [here(null, 'fresh', 480)] })).hint,
+      /~480 ms in the benchmark$/,
+    );
+    assert.match(
+      view(model({ measured: [here('auto', 'fresh', 480)] })).hint,
+      /~480 ms in the benchmark$/,
+    );
     assert.doesNotMatch(view(model({ measured: [here(null, 'fresh', 480)] })).hint, /reference/);
     assert.match(view(model({ measured: [here(null, 'stale', 480)] })).hint, /reference: ~0.5 s$/);
     assert.doesNotMatch(view(model({ latencyHint: null })).hint, /here|reference/);

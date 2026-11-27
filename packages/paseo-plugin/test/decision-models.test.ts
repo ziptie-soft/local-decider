@@ -748,6 +748,14 @@ describe('headerBadge', () => {
 });
 
 describe('modelOutcome', () => {
+  it('turns the cap error into a recovery step', () => {
+    const res = { ok: false, error: 'too many decisions with their own model (max 3)' };
+    assert.deepEqual(modelOutcome('command-risk', 'D3 Lite', 'act', res), {
+      tone: 'error',
+      text: "Couldn't give Command risk its own model: 3 decisions already have one. Set one of them to Default or Off, then try again.",
+    });
+  });
+
   const ok = { ok: true } as const;
 
   it('confirms a model set in Off or Shadow', () => {
