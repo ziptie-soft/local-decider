@@ -44,5 +44,8 @@
   },
   "scripts": {
     "prepublishOnly": "test -s dist/local-decider-hook.mjs && test -s hooks/local-decider-auto-mode.mjs"
+  },
+  "localDecider": {
+    "gateway": "3.2.0"
   }
 }

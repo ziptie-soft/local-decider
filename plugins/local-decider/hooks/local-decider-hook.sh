@@ -1,24 +1,25 @@
 #!/bin/sh
 # Runs dist/local-decider-hook.mjs with whichever node can be found. A harness started from the macOS GUI has
 # a bare PATH, so look in the usual places. With no node, or an unbuilt checkout without
-# dist/local-decider-hook.mjs, fail open (exit 0): SessionStart prints one static notice so the
-# broken install is visible, every other event prints nothing.
+# dist/local-decider-hook.mjs, fail open (exit 0): Claude SessionStart prints one static notice so
+# the broken install is visible; Codex and every other event stay silent.
 harness=$1
 event=$2
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd) || exit 0
 
 # notice <reason>: report an inactive install and fail open. <reason> is a fixed string from this
-# script, never hook input. Claude Code and Codex both accept `systemMessage` from SessionStart.
+# script, never hook input. Claude Code accepts `systemMessage` from SessionStart; Codex stays silent.
 notice() {
   if [ "${LOCAL_DECIDER_DEBUG:-}" = 1 ]; then
     printf 'local-decider: %s (root %s); failing open\n' "$1" "$root" >&2
   fi
   if [ "$event" = SessionStart ]; then
     case $harness in
-      claude | codex)
+      claude)
         printf '{"systemMessage":"local-decider: hooks inactive (%s). Reinstall the plugin or rebuild it with: pnpm --filter @ziptie-soft/local-decider-hooks build"}\n' "$1"
         ;;
+      codex) : ;;
       *) ;;
     esac
   fi
@@ -42,12 +43,6 @@ fi
 [ -n "$node_bin" ] || notice 'node not found'
 
 [ -f "$root/dist/local-decider-hook.mjs" ] || notice 'bundle dist/local-decider-hook.mjs missing'
-
-# The runner's SessionStart work (gateway health notice, pending purge) is Claude Code only, so
-# a healthy Codex install skips starting node.
-if [ "$harness" = codex ] && [ "$event" = SessionStart ]; then
-  exit 0
-fi
 
 # A mise shim resolves node for the project in the current directory, which is the agent's
 # workspace: it may install a node of its own (slower than the hook timeout), pin one the bundle

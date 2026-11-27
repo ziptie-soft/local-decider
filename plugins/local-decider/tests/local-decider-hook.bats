@@ -61,11 +61,11 @@ setup() {
   [ -z "$stderr" ] || { printf 'expected empty stderr, got %s\n' "$stderr"; return 1; }
 }
 
-@test "Codex SessionStart with the bundle missing prints a systemMessage notice" {
+@test "Codex SessionStart with the bundle missing stays silent" {
   rm "$tmp/plugin/dist/local-decider-hook.mjs"
   run env HOME="$home" PATH="$fakebin:$sysbin" /bin/sh "$tmp/plugin/hooks/local-decider-hook.sh" codex SessionStart
   [ "$status" -eq 0 ]
-  [[ "$output" == '{"systemMessage":"local-decider: hooks inactive (bundle '* ]] || { printf 'got %s\n' "$output"; return 1; }
+  [ -z "$output" ] || { printf 'expected empty stdout, got %s\n' "$output"; return 1; }
 }
 
 @test "unknown harness SessionStart with the bundle missing prints nothing" {
@@ -101,10 +101,11 @@ setup() {
   [ "$output" = "$expected" ] || { printf 'expected %s, got %s\n' "$expected" "$output"; return 1; }
 }
 
-@test "Codex SessionStart with the bundle present exits without running node" {
+@test "Codex SessionStart with the bundle present runs node silently" {
   run env HOME="$home" PATH="$fakebin:$sysbin" /bin/sh "$tmp/plugin/hooks/local-decider-hook.sh" codex SessionStart
   [ "$status" -eq 0 ]
-  [ -z "$output" ] || { printf 'expected empty stdout (node not run), got %s\n' "$output"; return 1; }
+  local expected="node:$tmp/plugin/dist/local-decider-hook.mjs codex SessionStart"
+  [ "$output" = "$expected" ] || { printf 'expected %s, got %s\n' "$expected" "$output"; return 1; }
 }
 
 @test "the mise node shim runs from the plugin root" {

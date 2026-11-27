@@ -84,7 +84,7 @@ describe('main (process wrapper)', () => {
     assert.match(codex.stdout, /"permissionDecision":"deny"/);
   });
 
-  it('says nothing for a 33 MiB payload in auto mode or on other events', () => {
+  it('keeps oversized non-PreToolUse events silent', () => {
     const auto = runMain('claude', 'PreToolUse', padded('Write', {}, 33, 'auto'));
     assert.equal(auto.stdout, '');
     const start = runMain('claude', 'SessionStart', padded('Write', {}, 33));

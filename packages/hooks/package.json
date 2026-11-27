@@ -12,6 +12,7 @@
   },
   "devDependencies": {
     "@ziptie-soft/local-decider-core": "workspace:*",
+    "@ziptie-soft/local-decider-launcher": "workspace:*",
     "esbuild": "^0.28.0"
   },
   "engines": {

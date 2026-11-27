@@ -3,6 +3,7 @@
  * gateway says so once. Healthy → no output. Never prints the URL's userinfo, path or the token.
  */
 import { str, type GatewayHealth } from '@ziptie-soft/local-decider-core';
+import { isLoopbackUrl } from '@ziptie-soft/local-decider-launcher';
 
 import { gatewayClient, gatewayConfig, type Env } from './gateway-config.ts';
 import type { HookHarness } from './mapping.ts';
@@ -62,10 +63,20 @@ export async function sessionStart(
   harness: HookHarness,
   env: Env,
   health: Health,
+  startGateway?: () => void,
 ): Promise<string> {
-  if (harness !== 'claude') {
-    return '';
-  }
-  const found = problem(await health(), `gateway at ${originOf(gatewayConfig(env).url)}`);
-  return found === null ? '' : message(found);
+  const url = gatewayConfig(env).url;
+  const found = problem(await health(), `gateway at ${originOf(url)}`);
+  if (found === null) return '';
+  const autostart = env['LOCAL_DECIDER_AUTOSTART']?.toLowerCase();
+  const shouldStart =
+    startGateway !== undefined &&
+    isLoopbackUrl(url) &&
+    autostart !== '0' &&
+    autostart !== 'off' &&
+    autostart !== 'false';
+  if (shouldStart) startGateway();
+  return harness === 'claude'
+    ? message(shouldStart ? `${found}; the gateway is starting in the background` : found)
+    : '';
 }

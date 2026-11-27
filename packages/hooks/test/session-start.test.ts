@@ -93,14 +93,66 @@ describe('SessionStart', () => {
     assert.ok(!out.includes('sekrit'));
   });
 
-  it('prints nothing for Codex', async () => {
+  it('keeps Codex SessionStart silent while checking gateway health', async () => {
     let asked = false;
     const health: Health = async () => {
       asked = true;
       return null;
     };
     assert.equal(await start(health, {}, 'codex'), '');
-    assert.equal(asked, false);
+    assert.equal(asked, true);
+  });
+
+  it('starts the gateway for Codex without writing to stdout', async () => {
+    let started = false;
+    const out = await run(
+      'codex',
+      'SessionStart',
+      STDIN,
+      {},
+      {
+        health: answer(null),
+        startGateway: () => {
+          started = true;
+        },
+      },
+    );
+    assert.equal(out.stdout, '');
+    assert.equal(started, true);
+  });
+
+  it('tells Claude SessionStart that the gateway is starting in the background', async () => {
+    let started = false;
+    const out = await run(
+      'claude',
+      'SessionStart',
+      STDIN,
+      {},
+      {
+        health: answer(null),
+        startGateway: () => {
+          started = true;
+        },
+      },
+    );
+    assert.equal(started, true);
+    assert.match(systemMessage(out.stdout), /the gateway is starting in the background$/);
+  });
+
+  it('does not kick a detached launcher for remote URLs or when auto-start is disabled', async () => {
+    for (const env of [
+      { LOCAL_DECIDER_URL: 'https://gateway.example.test' },
+      { LOCAL_DECIDER_AUTOSTART: 'false' },
+    ]) {
+      let started = false;
+      await run('claude', 'SessionStart', STDIN, env, {
+        health: answer(null),
+        startGateway: () => {
+          started = true;
+        },
+      });
+      assert.equal(started, false);
+    }
   });
 
   it('fails open when the health check throws or answers garbage', async () => {
