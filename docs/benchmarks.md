@@ -191,7 +191,7 @@ answers often fall below the policy thresholds, and its actions are `ask` or the
 | command-risk | 23/44 | fail: dangerous 0/11, safe 0/14 |
 | permission | 75/89 | fail: allow 0/33, deny 0/13 |
 | routing | 14/30 | fail: fast 2/10, standard 0/10, deep 0/10 |
-| routing-budget | 17/30 | fail: cheap 0/10, standard 0/10, premium 0/10 |
+| routing-budget | 17/30 | fail: cheap 0/10, premium 0/10 (standard 0/10, floor 0.0) |
 | routing-task-kind | 17/25 | fail: code 3/5, debug 2/5, plan 3/5 |
 | turn-outcome | 18/36 | fail: needs_input 0/10, stuck 1/11, failed 1/5 |
 
