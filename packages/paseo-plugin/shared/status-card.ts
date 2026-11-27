@@ -11,7 +11,7 @@ import type { Status } from './status.ts';
 type StatusLike = Pick<
   Status,
   'up' | 'gatewayUrl' | 'p50Ms' | 'engineState' | 'detail' | 'benchmark' | 'engine' | 'engineTag'
-> & { readonly launch?: Status['launch'] };
+> & { readonly launch?: Status['launch']; readonly socket?: string | null };
 
 /** What a section that needs the gateway says while Status cannot reach it. */
 export const GATEWAY_UNAVAILABLE = 'Unavailable while the gateway is not running.';
@@ -53,14 +53,18 @@ export function gatewayRow(status: StatusLike | undefined): GatewayRow {
   if (!status.up) {
     return {
       label: 'Cannot reach the gateway',
-      hint: `No answer from ${status.gatewayUrl}.${launchSentence(status.launch)} Start it with: local-decider gateway start (on the computer that runs the Paseo daemon). Or press Start under Details › Gateway service.`,
+      hint: `No answer from ${status.socket ?? status.gatewayUrl}.${launchSentence(status.launch)} Start it with: local-decider gateway start (on the computer that runs the Paseo daemon). Or press Start under Details › Gateway service.`,
       ...guideOf(status.launch),
     };
   }
   // The live p50, unrounded like the quick-status popover and the sidebar, so the three agree.
   const typical =
     status.p50Ms === null ? '' : ` · recent decisions: typically ${formatMs(status.p50Ms)}`;
-  return { label: 'Gateway is running', hint: `Answering at ${status.gatewayUrl}${typical}` };
+  const where =
+    status.socket == null
+      ? `Answering at ${status.gatewayUrl} (TCP)`
+      : `Answering over the Unix socket ${status.socket}`;
+  return { label: 'Gateway is running', hint: `${where}${typical}` };
 }
 
 export interface DefaultModelRowInput {

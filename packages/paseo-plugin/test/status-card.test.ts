@@ -68,20 +68,32 @@ describe('gatewayRow', () => {
   it('says where it answers, with the recent decisions: typically when known', () => {
     assert.deepEqual(gatewayRow(status()), {
       label: 'Gateway is running',
-      hint: `Answering at ${URL}`,
+      hint: `Answering at ${URL} (TCP)`,
     });
     assert.equal(
       gatewayRow(status({ p50Ms: 850.4 })).hint,
-      `Answering at ${URL} · recent decisions: typically 850 ms`,
+      `Answering at ${URL} (TCP) · recent decisions: typically 850 ms`,
     );
     // Not rounded to tens: the popover and the sidebar show the same p50.
     assert.equal(
       gatewayRow(status({ p50Ms: 92.3 })).hint,
-      `Answering at ${URL} · recent decisions: typically 92 ms`,
+      `Answering at ${URL} (TCP) · recent decisions: typically 92 ms`,
     );
     assert.equal(
       gatewayRow(status({ p50Ms: 1500 })).hint,
-      `Answering at ${URL} · recent decisions: typically 1.5 s`,
+      `Answering at ${URL} (TCP) · recent decisions: typically 1.5 s`,
+    );
+  });
+
+  it('names the Unix socket when the plugin talks to the gateway over it', () => {
+    const sock = '/home/u/.local/share/local-decider/run/gateway.sock';
+    assert.equal(
+      gatewayRow({ ...status(), socket: sock }).hint,
+      `Answering over the Unix socket ${sock}`,
+    );
+    assert.match(
+      gatewayRow({ ...status({ up: false }), socket: sock }).hint,
+      /^No answer from \/home\/u\//,
     );
   });
 

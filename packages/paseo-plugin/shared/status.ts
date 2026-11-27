@@ -19,6 +19,8 @@ export const statusSchema = z.object({
   /** The decisions with their own model, from `/health`; undefined from an older gateway. */
   policyEngines: z.array(policyEngineSchema).optional().catch(undefined),
   gatewayUrl: z.string(),
+  /** The Unix socket the plugin reaches the gateway over; null over TCP or from an older plugin. */
+  socket: z.string().nullable().default(null),
   /** Consecutive failed checks, for client-side backoff. */
   downStreak: z.number().int(),
   checkedAt: z.string(),

@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { gatewaySource } from '../server/gateway-source.ts';
+import { gatewaySource, localSocketFor } from '../server/gateway-source.ts';
 import type { GatewayOptions } from '../shared/gateway.ts';
 import { fakeGateway, tempDir } from './fakes.ts';
 
@@ -42,6 +42,29 @@ describe('gatewaySource', () => {
     assert.equal(builds[1]?.controlToken, control);
     assert.equal(source('http://127.0.0.1:8765'), rebuilt);
     assert.equal(builds.length, 2);
+  });
+
+  it('uses the Unix socket for the default URL unless the setting turns it off', () => {
+    const env: NodeJS.ProcessEnv = { LOCAL_DECIDER_HOME: '/data/ld' };
+    const sock = process.platform === 'win32' ? null : '/data/ld/run/gateway.sock';
+    assert.equal(localSocketFor('http://127.0.0.1:8765', true, env), sock);
+    assert.equal(localSocketFor('http://127.0.0.1:8765', false, env), null);
+    assert.equal(localSocketFor('http://127.0.0.1:9000', true, env), null);
+    const overridden = { ...env, LOCAL_DECIDER_URL: 'http://127.0.0.1:8765' };
+    assert.equal(localSocketFor('http://127.0.0.1:8765', true, overridden), null);
+    const builds: GatewayOptions[] = [];
+    const source = gatewaySource({
+      env,
+      log: () => {},
+      create: (options) => {
+        builds.push(options ?? {});
+        return fakeGateway(() => null);
+      },
+    });
+    source('http://127.0.0.1:8765', true);
+    source('http://127.0.0.1:8765', false);
+    assert.equal(builds.length, 2, 'switching the transport builds a new client');
+    assert.equal(builds[1]?.fetch, undefined);
   });
 
   it('uses an explicit client identity when configured', () => {

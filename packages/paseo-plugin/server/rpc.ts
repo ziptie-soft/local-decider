@@ -10,6 +10,7 @@ import { parsePolicyEngines, type PolicyEngine } from '../shared/policy-models.t
 import { toRowData, type DecisionRow } from '../shared/row.ts';
 import { parsePolicyStats, type PolicyStats } from '../shared/stats.ts';
 import type { HookDeps, PaseoLike } from './deps.ts';
+import { localSocketFor } from './gateway-source.ts';
 import { appendRow } from './timeline.ts';
 
 const STATUS_TIMEOUT_MS = 1500;
@@ -35,6 +36,8 @@ export interface StatusResult {
   /** Absent when the gateway predates per-decision models. */
   policyEngines?: PolicyEngine[];
   gatewayUrl: string;
+  /** The Unix socket the plugin reaches the gateway over; null when it uses TCP. */
+  socket: string | null;
   downStreak: number;
   checkedAt: string;
   launch: LaunchSummary | null;
@@ -83,13 +86,15 @@ export function createStatusHandler(
     const up = health !== null;
     downStreak = up ? 0 : downStreak + 1;
     onResult(up);
-    const gatewayUrl = gateway?.baseUrl ?? (await deps.settings()).gatewayUrl;
+    const settings = await deps.settings();
+    const gatewayUrl = gateway?.baseUrl ?? settings.gatewayUrl;
     const launch = onDown === undefined ? null : await onDown(gatewayUrl, !up);
     return {
       up,
       ...healthFields(health),
       ...policyEnginesField(health),
       gatewayUrl,
+      socket: localSocketFor(gatewayUrl, settings.useSocket),
       downStreak,
       checkedAt: now().toISOString(),
       launch,

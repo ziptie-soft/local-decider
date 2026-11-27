@@ -1331,7 +1331,7 @@ describe('rpc handlers', () => {
     const up = fakeGateway(() => null);
     let healthy = false;
     up.health = async () => (healthy ? { status: 'ok', model: 'm', p50Ms: 5 } : null);
-    const status = createStatusHandler(deps(settings(), up), () => new Date(0));
+    const status = createStatusHandler(deps(settings({ useSocket: false }), up), () => new Date(0));
     assert.equal((await status()).downStreak, 1);
     assert.equal((await status()).downStreak, 2);
     healthy = true;
@@ -1347,6 +1347,7 @@ describe('rpc handlers', () => {
       p50Ms: 5,
       benchmark: null,
       gatewayUrl: 'http://127.0.0.1:8765',
+      socket: null,
       downStreak: 0,
       checkedAt: '1970-01-01T00:00:00.000Z',
       launch: null,

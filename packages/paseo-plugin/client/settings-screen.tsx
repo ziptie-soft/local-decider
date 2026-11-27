@@ -48,6 +48,12 @@ function GatewaySection({ values, save }: SectionProps): ReactNode {
           }}
         />
         <SettingsSwitch
+          label="Connect over the Unix socket"
+          hint="With the default URL on Linux and macOS, the daemon reaches the gateway over ~/.local/share/local-decider/run/gateway.sock, which only your user can open. Off: plain TCP to the URL above. Other URLs always use TCP. Status › Gateway shows which one is in use."
+          value={values.useSocket}
+          onValueChange={(useSocket: boolean) => save({ ...values, useSocket })}
+        />
+        <SettingsSwitch
           label="Agent tools (decide, explain)"
           hint="Gives agents opened from now on three tools through Paseo's own paseo MCP server: local_decider_decide, local_decider_explain and local_decider_policies. Answers are advisory and never enforced; the gateway address and tokens stay in the plugin. Costs a few tool descriptions of context per agent; Codex agents can't use them yet."
           value={values.agentTools}
