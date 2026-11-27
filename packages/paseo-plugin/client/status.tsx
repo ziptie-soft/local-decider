@@ -10,11 +10,12 @@ import {
   STATUS_SCREEN_ID,
   type SidebarPosition,
 } from '../shared/constants.ts';
+import { activeNames } from '../shared/decision-models.ts';
 import { shortModel } from '../shared/models.ts';
 import { checkedAgo, statusLabel } from '../shared/poll.ts';
 import { formatMs } from '../shared/stats.ts';
 import { EngineControls } from './engine-state.tsx';
-import { type Status, useDeciderValues, useGatewayStatus } from './hooks.ts';
+import { type Status, useDeciderValues, useEngines, useGatewayStatus } from './hooks.ts';
 import { withHostScope } from './host-scope.ts';
 import { headline, healthColor, QuickStatus } from './quick-status.tsx';
 import { ReviewSection } from './review.tsx';
@@ -70,13 +71,19 @@ function StatusDot({ theme, data }: { theme: Theme; data: Status | undefined }):
   );
 }
 
-/** The full model id as the row's hint, only when the value beside it is a shortened form. */
-function fullModelHint(model: string | null | undefined): { readonly hint?: string } {
-  return model == null || shortModel(model) === model ? {} : { hint: model };
+/** The raw id as the row's hint, only when the value beside it is a label or a shortened form. */
+function rawIdHint(
+  id: string | null | undefined,
+  shown: string | null,
+): { readonly hint?: string } {
+  return id == null || shown === id ? {} : { hint: id };
 }
 
-function GatewaySection({ theme, data, isFetching, refetch }: GatewayProps): ReactNode {
+function GatewaySection({ theme, data, isFetching, refetch, gatewayUrl }: GatewayProps): ReactNode {
   const now = useNow(5000);
+  const names = activeNames(useEngines(gatewayUrl).data);
+  const model = names?.model ?? (data?.model == null ? null : shortModel(data.model));
+  const engine = names?.runtime ?? data?.engine ?? null;
   return (
     <SettingsSection
       title="Gateway"
@@ -97,11 +104,11 @@ function GatewaySection({ theme, data, isFetching, refetch }: GatewayProps): Rea
             <Value theme={theme}>{headline(data)}</Value>
           </View>
         </SettingsRow>
-        <SettingsRow label="Model" {...fullModelHint(data?.model)}>
-          <Value theme={theme}>{data?.model == null ? '—' : shortModel(data.model)}</Value>
+        <SettingsRow label="Model" {...rawIdHint(data?.model, model)}>
+          <Value theme={theme}>{model ?? '—'}</Value>
         </SettingsRow>
-        <SettingsRow label="Engine">
-          <Value theme={theme}>{data?.engine ?? '—'}</Value>
+        <SettingsRow label="Runtime" {...rawIdHint(data?.engine, engine)}>
+          <Value theme={theme}>{engine ?? '—'}</Value>
         </SettingsRow>
         <SettingsRow label="Median latency">
           <Value theme={theme}>{formatMs(data?.p50Ms ?? null)}</Value>
@@ -122,6 +129,7 @@ function GatewaySection({ theme, data, isFetching, refetch }: GatewayProps): Rea
 interface GatewayProps {
   readonly theme: Theme;
   readonly data: Status | undefined;
+  readonly gatewayUrl: string;
   readonly isFetching: boolean;
   readonly refetch: () => void;
 }
@@ -180,6 +188,7 @@ export function StatusScreen(props: PluginScreenProps): ReactNode {
       <GatewaySection
         theme={theme}
         data={data}
+        gatewayUrl={values?.gatewayUrl ?? DEFAULT_GATEWAY_URL}
         isFetching={isFetching}
         refetch={() => void refetch()}
       />

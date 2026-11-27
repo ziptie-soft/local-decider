@@ -27,24 +27,39 @@ const DEFAULT_VALUE = 'default';
 
 // ── names ────────────────────────────────────────────────────────────────────────────────────
 
-/** `d3 lite on NPU · 4-bit Q4_K_M`, else `FastFlowLM · d3:lite` when the model is unknown. */
+/** The runtime the default model runs on (`GPU (Vulkan)`); null when it has no engine. */
+function activeRuntime(catalog: EngineCatalog): string | null {
+  const a = catalog.active;
+  return a?.engine == null
+    ? null
+    : runtimeName(catalog, {
+        engine: a.engine,
+        device: a.resolvedDevice ?? a.device,
+        backend: a.backend,
+      });
+}
+
+/** `D3 Lite Q8_0 on GPU (Vulkan)`, else `FastFlowLM · d3:lite` when the model is unknown. */
 export function runningName(catalog: EngineCatalog): string | null {
   const a = catalog.active;
   if (a?.engine == null) {
     return null;
   }
   const model = catalog.models.find((m) => m.engine === a.engine && m.id === a.model);
-  const engine = catalog.engines.find((e) => e.id === a.engine)?.label ?? a.engine;
-  if (model?.family == null) {
+  if (model === undefined) {
+    const engine = catalog.engines.find((e) => e.id === a.engine)?.label ?? a.engine;
     return a.model === null ? engine : `${engine} · ${a.model}`;
   }
-  const where = runtimeName(catalog, {
-    engine: a.engine,
-    device: a.resolvedDevice ?? a.device,
-    backend: a.backend,
-  });
-  const format = model.format === null ? '' : ` · ${model.format.label}`;
-  return `${model.family.label} on ${where}${format}`;
+  return `${model.label} on ${activeRuntime(catalog)}`;
+}
+
+/** The default model and its runtime as short labels (`D3 Lite Q8_0`, `GPU (Vulkan)`). */
+export function activeNames(
+  catalog: EngineCatalog | undefined,
+): { readonly model: string; readonly runtime: string } | null {
+  const model = defaultModelLabel(catalog);
+  const runtime = catalog === undefined ? null : activeRuntime(catalog);
+  return model === null || runtime === null ? null : { model, runtime };
 }
 
 /** The default model's catalog label (`D3 Lite Q8_0`), its id when unlisted; null when none. */
