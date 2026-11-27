@@ -545,6 +545,26 @@ describe('model row state', () => {
     assert.equal(deviceFor(catalog, 'other', 'auto'), null);
   });
 
+  it('tags only the machine recommendation when there is one', () => {
+    const label = (m: EngineModel, machineBest: { engine: string; model: string } | null): string =>
+      modelRowView(m, modelRowState(m, ctx()), {
+        device: 'auto',
+        speedDevice: null,
+        totalMemoryGb: null,
+        machineBest,
+      }).label;
+    const flagged = model({ id: 'a', label: 'A', recommended: true });
+    const named = model({ id: 'b', label: 'B' });
+    const best = { engine: 'fastflowlm', model: 'b' };
+    assert.equal(label(flagged, best), 'A');
+    assert.equal(label(named, best), 'B · Recommended');
+    // The same model id on another engine is not the recommendation.
+    assert.equal(label(model({ id: 'b', label: 'B', engine: 'other' }), best), 'B');
+    // Without a machine recommendation the static flag still tags.
+    assert.equal(label(flagged, null), 'A · Recommended');
+    assert.equal(label(named, null), 'B');
+  });
+
   it('labels each state', () => {
     const options = { device: 'auto', speedDevice: null, totalMemoryGb: 66 };
     const view = (m: EngineModel, c: ModelRowContext = ctx()): ModelRowView =>
