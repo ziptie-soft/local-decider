@@ -249,9 +249,11 @@ function fasterFamily(
   allOptions: readonly MachineOption[],
 ): MachineRecommendation['fasterFamily'] {
   if (!hasRankableMeasurement(best)) return null;
-  const families = [...new Set(allOptions.map((option) => option.family))].filter(
-    (family) => family !== best.family,
+  // Only families the catalogue recommends: a fast model that fails the gate is not a suggestion.
+  const recommended = new Set(
+    allOptions.filter((option) => option.recommended).map((option) => option.family),
   );
+  const families = [...recommended].filter((family) => family !== best.family);
   const faster = families
     .map((family) => familyBest(allOptions.filter((option) => option.family === family)))
     .filter(hasRankableMeasurement)
