@@ -233,8 +233,8 @@ function variantCtx(policies: Obj[], mode: PluginMode = 'shadow'): ModelHintCont
 
 describe('speedHere', () => {
   it('prints a fresh benchmark as a rounded duration', () => {
-    assert.equal(speedHere(byId('d3:nano'), null), '~760 ms here');
-    assert.equal(speedHere(byId('mid'), null), '~1.2 s here');
+    assert.equal(speedHere(byId('d3:nano'), null), '~760 ms in the benchmark');
+    assert.equal(speedHere(byId('mid'), null), '~1.2 s in the benchmark');
   });
 
   it('never uses the catalog latency hint: only a fresh measurement counts', () => {
@@ -247,13 +247,13 @@ describe('speedHere', () => {
   });
 
   it('reads the benchmark of the device the model runs on', () => {
-    assert.equal(speedHere(byId('strands'), 'cpu'), '~2.4 s here');
-    assert.equal(speedHere(byId('strands'), 'cuda'), '~500 ms here');
+    assert.equal(speedHere(byId('strands'), 'cpu'), '~2.4 s in the benchmark');
+    assert.equal(speedHere(byId('strands'), 'cuda'), '~500 ms in the benchmark');
     assert.equal(speedHere(byId('strands'), 'mps'), 'speed not measured here');
   });
 
   it('gives the range when the device is unknown and several were measured', () => {
-    assert.equal(speedHere(byId('strands'), null), '~500 ms to 2.4 s here');
+    assert.equal(speedHere(byId('strands'), null), '~500 ms to 2.4 s in the benchmark');
   });
 
   it('uses the only measurement when the device is unknown, never for a named device', () => {
@@ -262,8 +262,8 @@ describe('speedHere', () => {
     });
     const found = world({ models: [solo] }).models[0];
     assert.ok(found);
-    assert.equal(speedHere(found, null), '~2.4 s here');
-    assert.equal(speedHere(found, 'cpu'), '~2.4 s here');
+    assert.equal(speedHere(found, null), '~2.4 s in the benchmark');
+    assert.equal(speedHere(found, 'cpu'), '~2.4 s in the benchmark');
     assert.equal(speedHere(found, 'cuda'), 'speed not measured here');
   });
 });
@@ -298,13 +298,13 @@ describe('modelOptions', () => {
   it('lists Default first, then models by speed, unmeasured last in catalogue order', () => {
     const options = modelOptions('command-risk', world(), none());
     assert.deepEqual(pairs(options), [
-      'Default | D3 Nano · NPU · ~760 ms here',
-      'Fast | GPU (Vulkan) · ~460 ms here',
-      'D3 Nano | NPU · ~760 ms here',
-      'Edge 1000 | GPU (Vulkan) · ~1.0 s here',
-      'Edge 1001 | GPU (Vulkan) · ~1.0 s here · too slow for hooks',
-      'Mid | GPU (Vulkan) · ~1.2 s here · too slow for hooks',
-      'Slow | GPU (Vulkan) · ~2.4 s here · too slow for hooks',
+      'Default | D3 Nano · NPU · ~760 ms in the benchmark',
+      'Fast | GPU (Vulkan) · ~460 ms in the benchmark',
+      'D3 Nano | NPU · ~760 ms in the benchmark',
+      'Edge 1000 | GPU (Vulkan) · ~1.0 s in the benchmark',
+      'Edge 1001 | GPU (Vulkan) · ~1.0 s in the benchmark · too slow for hooks',
+      'Mid | GPU (Vulkan) · ~1.2 s in the benchmark · too slow for hooks',
+      'Slow | GPU (Vulkan) · ~2.4 s in the benchmark · too slow for hooks',
       // A catalog latency hint is a reference, not a measurement: it is not shown here.
       'Hinted | GPU (Vulkan) · speed not measured here',
       'Bare | GPU (Vulkan) · speed not measured here',
@@ -312,7 +312,7 @@ describe('modelOptions', () => {
       'Found | LM Studio · speed not measured here',
       // Several devices on a non-active engine: the catalog cannot say which one `auto` picks,
       // so the option shows the range across them. It still sorts with the unmeasured.
-      'Strands 2B | Strands · ~500 ms to 2.4 s here',
+      'Strands 2B | Strands · ~500 ms to 2.4 s in the benchmark',
     ]);
     assert.equal(options[0]?.value, 'default');
     assert.equal(options[1]?.value, 'llama-vulkan|fast|auto');
@@ -333,7 +333,7 @@ describe('modelOptions', () => {
     const option = modelOptions('command-risk', one, none()).find((o) =>
       o.value.startsWith('strands-decider|'),
     );
-    assert.equal(option?.detail, 'GPU · ~500 ms here');
+    assert.equal(option?.detail, 'GPU · ~500 ms in the benchmark');
   });
 
   it('gives each option the selection it sets and the name of its model', () => {
@@ -602,7 +602,7 @@ describe('modelRowHint', () => {
     const line = modelRowHint('command-risk', ctxFor(entry('command-risk'))).line;
     assert.equal(
       line?.text,
-      'Own model on GPU (Vulkan), about 3.5 GB of extra memory. Loads on its first decision. About 460 ms per decision here.',
+      'Own model on GPU (Vulkan), about 3.5 GB of extra memory. Loads on its first decision. About 460 ms per decision in the benchmark.',
     );
     assert.equal(line?.tone, 'muted');
   });
@@ -611,7 +611,7 @@ describe('modelRowHint', () => {
     const row = entry('command-risk', selectionOf('llama-vulkan', 'edge1000'));
     assert.equal(
       hint(row),
-      'Own model on GPU (Vulkan). Loads on its first decision. About 1.0 s per decision here.',
+      'Own model on GPU (Vulkan). Loads on its first decision. About 1.0 s per decision in the benchmark.',
     );
   });
 
@@ -619,12 +619,12 @@ describe('modelRowHint', () => {
     const w = { active: { lifecycle: 'eager' } };
     assert.equal(
       hint(entry('command-risk'), 'shadow', w),
-      'Own model on GPU (Vulkan), about 3.5 GB of extra memory. Stays loaded. About 460 ms per decision here.',
+      'Own model on GPU (Vulkan), about 3.5 GB of extra memory. Stays loaded. About 460 ms per decision in the benchmark.',
     );
     const row = entry('command-risk', selectionOf('llama-vulkan', 'edge1000'));
     assert.equal(
       hint(row, 'shadow', w),
-      'Own model on GPU (Vulkan). Stays loaded. About 1.0 s per decision here.',
+      'Own model on GPU (Vulkan). Stays loaded. About 1.0 s per decision in the benchmark.',
     );
   });
 

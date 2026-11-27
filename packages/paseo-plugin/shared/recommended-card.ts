@@ -193,7 +193,7 @@ function latencyOf(c: Ctx): string | null {
     return 'Speed not measured yet';
   }
   const long = m.long === null ? '' : ` · ${ms(m.long.p50Ms)} on long prompts`;
-  return `${ms(m.typical.p50Ms)} per decision${long}`;
+  return `${ms(m.typical.p50Ms)} in the benchmark${long}`;
 }
 
 // ── reason line ──────────────────────────────────────────────────────────────────────────────
