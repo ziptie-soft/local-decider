@@ -3,6 +3,7 @@
  * (`active.selectionMode`, `active.fallback`): lenient parsers and the text the settings screen
  * shows. Older gateways send none of it, so every field here may be missing.
  */
+import { stateBadge } from './lifecycle.ts';
 import { fields, runtimeOf, str } from './parse.ts';
 
 export interface Target {
@@ -239,13 +240,6 @@ function shortName(engine: string, backend: string | null, names: Names): string
   return backend === null ? (names.engines.get(engine) ?? engine) : backendName(backend);
 }
 
-const STATES: Record<string, { text: string; tone: 'success' | 'error' | 'info' }> = {
-  ready: { text: 'Ready', tone: 'success' },
-  starting: { text: 'Loading', tone: 'info' },
-  stopped: { text: 'Stopped', tone: 'info' },
-  failed: { text: 'Failed', tone: 'error' },
-};
-
 const MAX_LATENCY_HINT = 40;
 
 export interface RunningView {
@@ -267,7 +261,7 @@ export function runningView(active: ActiveInfo | null, names: Names): RunningVie
   return {
     value: fullName(active.engine, runningBackend(active), names),
     hint: [model?.label ?? null, latency].filter((p) => p !== null).join(' · '),
-    state: STATES[active.state ?? ''] ?? null,
+    state: stateBadge(active.state),
   };
 }
 

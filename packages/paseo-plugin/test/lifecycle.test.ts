@@ -11,6 +11,7 @@ import {
   idleValue,
   lifecycleLabel,
   parseIdleValue,
+  stateBadge,
 } from '../shared/lifecycle.ts';
 import { deps, fakeGateway, settings } from './fakes.ts';
 
@@ -48,6 +49,17 @@ describe('engine state note', () => {
       engineStateNote({ ...base, state: 'ready', benchmark: null }),
       'Loaded · d3:nano · NPU',
     );
+  });
+});
+
+describe('state badge', () => {
+  it('uses the words of the Status row', () => {
+    assert.deepEqual(stateBadge('ready'), { text: 'Loaded', tone: 'success' });
+    assert.deepEqual(stateBadge('stopped'), { text: 'Not loaded', tone: 'info' });
+    assert.deepEqual(stateBadge('starting'), { text: 'Loading', tone: 'info' });
+    assert.deepEqual(stateBadge('failed'), { text: 'Failed', tone: 'error' });
+    assert.equal(stateBadge('weird'), null);
+    assert.equal(stateBadge(null), null);
   });
 });
 
