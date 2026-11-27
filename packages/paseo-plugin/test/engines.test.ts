@@ -527,7 +527,8 @@ describe('model row state', () => {
       }).hint;
     assert.match(view('vulkan'), /~480 ms here$/);
     assert.match(view('cpu'), /~900 ms here$/);
-    assert.match(view(null), /reference: ~0.5 s$/);
+    // An unknown device with several measurements: their range, not the catalog's reference.
+    assert.match(view(null), /~480 ms to 900 ms here$/);
     const catalog = parseEngineCatalog({
       active: {
         engine: 'llama-vulkan',

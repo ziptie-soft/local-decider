@@ -473,10 +473,37 @@ export function deviceFor(
   return resolved === 'auto' ? null : resolved;
 }
 
-/** `~{ms} here` for a fresh measurement on `device`; null when there is none. */
-export function measuredSpeed(model: EngineModel, device: string | null): string | null {
+/** The fresh typical p50s of the model on every device it was measured on, fastest first. */
+function freshP50s(model: EngineModel): number[] {
+  return model.measured
+    .filter((m) => m.freshness !== 'stale')
+    .flatMap((m) => (m.typical === null ? [] : [m.typical.p50Ms]))
+    .toSorted((a, b) => a - b);
+}
+
+/**
+ * The fresh measurement on `device` as a duration: `350 ms`. When the device is unknown and the
+ * model was measured on several, the range `1.4 s to 5.5 s`, because any of them may run it.
+ * Null when there is no fresh measurement for it.
+ */
+export function measuredDuration(model: EngineModel, device: string | null): string | null {
   const p50 = typicalP50(model, device);
-  return p50 === null ? null : `~${ms(p50)} here`;
+  if (p50 !== null) {
+    return ms(p50);
+  }
+  const all = device === null ? freshP50s(model) : [];
+  const fastest = all[0];
+  const slowest = all.at(-1);
+  if (fastest === undefined || slowest === undefined) {
+    return null;
+  }
+  return ms(fastest) === ms(slowest) ? ms(fastest) : `${ms(fastest)} to ${ms(slowest)}`;
+}
+
+/** `~{duration} here` for a fresh measurement on `device`; null when there is none. */
+export function measuredSpeed(model: EngineModel, device: string | null): string | null {
+  const duration = measuredDuration(model, device);
+  return duration === null ? null : `~${duration} here`;
 }
 
 /** The measurement, else the catalog's figure labelled as a reference. */

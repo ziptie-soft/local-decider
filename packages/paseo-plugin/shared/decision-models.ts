@@ -10,6 +10,7 @@ import { DECISION_KINDS } from './decision-kinds.ts';
 import {
   deviceFor,
   gb,
+  measuredDuration,
   measuredSpeed,
   typicalP50,
   type EngineCatalog,
@@ -410,8 +411,12 @@ function ownModelText(f: Facts, lifecycle: string): string {
     f.target === null
       ? 'its runtime'
       : runtimeName(f.catalog, { engine: f.target.engine, device: f.target.device, backend: null });
+  const model =
+    f.target === null ? undefined : findModel(f.catalog, f.target.engine, f.target.model);
+  const duration =
+    f.target === null || model === undefined ? null : measuredDuration(model, f.target.device);
   const speed =
-    f.p50 === null ? 'Speed not measured here.' : `About ${ms(f.p50)} per decision here.`;
+    duration === null ? 'Speed not measured here.' : `About ${duration} per decision here.`;
   return `Own model on ${where}${memoryClause(f)}. ${lifecycle} ${speed}`;
 }
 
