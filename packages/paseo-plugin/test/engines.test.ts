@@ -26,6 +26,7 @@ import {
   canRemoveModel,
   engineCatalogSchema,
   modelRowState,
+  deviceFor,
   modelRowView,
   parseEngineCatalog,
   type Download,
@@ -516,8 +517,35 @@ describe('model row state', () => {
     );
   });
 
+  it('reads the speed on the resolved device, not on auto', () => {
+    const m = model({ measured: [here('vulkan', 'fresh', 480), here('cpu', 'fresh', 900)] });
+    const view = (speedDevice: string | null): string =>
+      modelRowView(m, modelRowState(m, ctx()), {
+        device: 'auto',
+        speedDevice,
+        totalMemoryGb: null,
+      }).hint;
+    assert.match(view('vulkan'), /~480 ms here$/);
+    assert.match(view('cpu'), /~900 ms here$/);
+    assert.match(view(null), /reference: ~0.5 s$/);
+    const catalog = parseEngineCatalog({
+      active: {
+        engine: 'llama-vulkan',
+        model: 'x',
+        device: 'auto',
+        resolvedDevice: 'vulkan',
+        state: 'ready',
+      },
+      engines: [{ id: 'llama-vulkan', label: 'llama', available: true }],
+      models: [],
+    });
+    assert.equal(deviceFor(catalog, 'llama-vulkan', 'auto'), 'vulkan');
+    assert.equal(deviceFor(catalog, 'llama-vulkan', 'cpu'), 'cpu');
+    assert.equal(deviceFor(catalog, 'other', 'auto'), null);
+  });
+
   it('labels each state', () => {
-    const options = { device: 'auto', totalMemoryGb: 66 };
+    const options = { device: 'auto', speedDevice: null, totalMemoryGb: 66 };
     const view = (m: EngineModel, c: ModelRowContext = ctx()): ModelRowView =>
       modelRowView(m, modelRowState(m, c), options);
     assert.deepEqual(view(model({ installed: false, recommended: true })), {
@@ -1061,6 +1089,7 @@ describe('engine selection helpers', () => {
         (m) =>
           modelRowView(m, modelRowState(m, ctx()), {
             device: 'auto',
+            speedDevice: null,
             totalMemoryGb: null,
           }).label,
       ),

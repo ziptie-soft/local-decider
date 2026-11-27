@@ -7,7 +7,14 @@
  */
 import type { GatewayPolicy, PluginMode } from './constants.ts';
 import { DECISION_KINDS } from './decision-kinds.ts';
-import { gb, typicalP50, type EngineCatalog, type EngineModel } from './engines.ts';
+import {
+  deviceFor,
+  gb,
+  measuredSpeed,
+  typicalP50,
+  type EngineCatalog,
+  type EngineModel,
+} from './engines.ts';
 import { failureReason, type ModeWriteResult, type StatusLine } from './policies.ts';
 import type { PolicyEngine, PolicyModel, PolicySelection } from './policy-models.ts';
 import { ms, runtimeName } from './recommended-card.ts';
@@ -47,34 +54,11 @@ function sentence(text: string): string {
 // ── speed ────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * The device an engine runs on: the one asked for, else the one the default model resolved to
- * when it runs on that engine, else the engine's only device. Any other engine with several
- * devices stays null: the catalog cannot say which one `auto` picks there.
- */
-function deviceFor(
-  catalog: EngineCatalog,
-  engine: string,
-  requested: string | null | undefined,
-): string | null {
-  if (requested != null && requested !== 'auto') {
-    return requested;
-  }
-  const active = catalog.active;
-  if (active?.engine !== engine) {
-    const devices = catalog.engines.find((e) => e.id === engine)?.devices ?? [];
-    return devices.length === 1 ? (devices[0] ?? null) : null;
-  }
-  const resolved = active.resolvedDevice ?? active.device;
-  return resolved === 'auto' ? null : resolved;
-}
-
-/**
  * How fast a model is on `device`, from a fresh benchmark only: `~{ms} here`, else
  * `speed not measured here`. The catalog's latency hint is a reference, not a measurement.
  */
 export function speedHere(model: EngineModel, device: string | null): string {
-  const p50 = typicalP50(model, device);
-  return p50 === null ? 'speed not measured here' : `~${ms(p50)} here`;
+  return measuredSpeed(model, device) ?? 'speed not measured here';
 }
 
 /** Typical p50 above the hooks' budget: 1000 ms is not too slow, 1001 ms is. */

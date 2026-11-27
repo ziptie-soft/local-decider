@@ -24,6 +24,7 @@ import {
   engineOptions,
   initialEngine,
   modelRowState,
+  deviceFor,
   modelRowView,
   type EngineCatalog,
   type EngineInfo,
@@ -118,7 +119,11 @@ function ModelRow({ theme, model, catalog, engine, device, action }: RowProps): 
     engineAvailable: engine.available,
     device,
   });
-  const view = modelRowView(model, state, { device, totalMemoryGb: catalog.totalMemoryGb });
+  const view = modelRowView(model, state, {
+    device,
+    speedDevice: deviceFor(catalog, model.engine, device),
+    totalMemoryGb: catalog.totalMemoryGb,
+  });
   if (state.kind === 'downloading') {
     const pct =
       state.progress === null ? 'Downloading…' : `${String(Math.round(state.progress * 100))}%`;
