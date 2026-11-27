@@ -7,6 +7,8 @@ export const TABLE = {
   gap: 10,
   mode: 110,
   model: 220,
+  /** The Model chip never shrinks below this in the stacked layout; below it the pair wraps. */
+  minModelChip: 120,
   /** The narrowest the description is given before the controls wrap under it. */
   description: 220,
 } as const;
