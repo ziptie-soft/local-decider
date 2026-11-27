@@ -245,6 +245,10 @@ function StartRow({ theme, styles }: { theme: Theme; styles: Styles }): ReactNod
   );
 }
 
+function useActiveNames(gatewayUrl: string | undefined): ReturnType<typeof activeNames> {
+  return activeNames(useEngines(gatewayUrl ?? DEFAULT_GATEWAY_URL).data);
+}
+
 export function QuickStatus(props: PluginPopoverProps): ReactNode {
   const { theme } = props;
   const styles = useStyles(theme);
@@ -253,7 +257,7 @@ export function QuickStatus(props: PluginPopoverProps): ReactNode {
   const gatewayModes = useGatewayModes();
   const service = useServiceInfo();
   const hasService = service.data?.commands != null;
-  const names = activeNames(useEngines(values?.gatewayUrl ?? DEFAULT_GATEWAY_URL).data);
+  const names = useActiveNames(values?.gatewayUrl);
   const sub = subtitle(data, hasService, names);
   return (
     <View style={styles.root}>
