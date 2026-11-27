@@ -77,12 +77,24 @@ function setup(options: {
 
 const wait = async (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Waits for the pending row instead of a fixed sleep: a loaded CI runner can fire the 5 ms timer
+ * well after 40 ms.
+ */
+async function pendingDrawn(paseo: ReturnType<typeof fakePaseo>): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (paseo.agent.appended.length === 0) {
+    if (Date.now() > deadline) assert.fail('no pending row within 5 s');
+    await wait(5);
+  }
+}
+
 describe('pending permission row', () => {
   it('draws "deciding…" for a slow decision, then the decided row with the same id', async () => {
     const { promise: gate, resolve } = Promise.withResolvers<void>();
     const { bg, paseo, ask } = setup({ decide: async () => gate.then(() => verdict) });
     await ask('r1');
-    await wait(40);
+    await pendingDrawn(paseo);
     assert.equal(paseo.agent.appended.length, 1);
     assert.equal(rowSummary(rowsOf(paseo)[0] as DecisionRow), 'permission · deciding… · act');
     resolve();
@@ -107,7 +119,7 @@ describe('pending permission row', () => {
     const { promise: gate, resolve } = Promise.withResolvers<void>();
     const { bg, paseo, ask } = setup({ decide: async () => gate.then(() => null) });
     await ask('r1');
-    await wait(40);
+    await pendingDrawn(paseo);
     resolve();
     await bg.idle();
     const rows = rowsOf(paseo);
@@ -146,7 +158,7 @@ describe('pending permission row', () => {
       decide: async () => gate.then(() => ({ ...verdict, answers: {} })),
     });
     await ask('r1');
-    await wait(40);
+    await pendingDrawn(paseo);
     resolve();
     await bg.idle();
     assert.deepEqual(
