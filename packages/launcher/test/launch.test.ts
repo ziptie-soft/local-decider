@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
@@ -140,6 +149,86 @@ describe('launchGateway', () => {
     assert.equal(execCalls[0]?.env['NODE_PATH'], undefined);
     assert.equal(execCalls[0]?.env['EXAMPLE'], 'kept');
     assert.match(readFileSync(join(root, 'data', 'logs', 'launcher.log'), 'utf8'), /started/);
+  });
+
+  it('keeps the default endpoint implicit so gateway ensure uses its socket', async () => {
+    const root = tempRoot();
+    const cli = join(root, 'local-decider');
+    writeFileSync(cli, '#!/usr/bin/env node\n');
+    let args: readonly string[] = [];
+    const result = await launchGateway({
+      ...options(root, { LOCAL_DECIDER_BIN: cli }),
+      url: 'http://127.0.0.1:8765',
+      defaultEndpoint: true,
+      deps: {
+        nodeReleaseName: 'node',
+        nodeVersion: '24.15.0',
+        execPath: '/trusted/node',
+        fetch: async () => {
+          throw new Error('offline');
+        },
+        execFile: async (_file, callArgs) => {
+          args = callArgs;
+          return {
+            stdout: JSON.stringify({ listener: 'started', engine: null, message: 'started' }),
+            stderr: '',
+          };
+        },
+      },
+    });
+    assert.equal(result.status, 'started');
+    assert.deepEqual(args, [cli, 'gateway', 'ensure', '--json']);
+  });
+
+  it('resolves symlinked CLI installs from LOCAL_DECIDER_BIN and PATH', async () => {
+    for (const source of ['LOCAL_DECIDER_BIN', 'PATH'] as const) {
+      const root = tempRoot();
+      const target = join(root, 'real-cli');
+      const linkDir = join(root, 'bin');
+      const link = join(linkDir, 'local-decider');
+      mkdirSync(linkDir);
+      writeFileSync(target, '#!/usr/bin/env node\n');
+      symlinkSync(target, link);
+      let invoked = false;
+      const env = source === 'LOCAL_DECIDER_BIN' ? { LOCAL_DECIDER_BIN: link } : { PATH: linkDir };
+      const result = await launchGateway({
+        ...options(root, env),
+        deps: {
+          nodeReleaseName: 'node',
+          nodeVersion: '24.15.0',
+          execPath: '/trusted/node',
+          fetch: async () => {
+            throw new Error('offline');
+          },
+          execFile: async (file) => {
+            invoked = file === '/trusted/node';
+            return {
+              stdout: JSON.stringify({ listener: 'started', engine: null, message: 'started' }),
+              stderr: '',
+            };
+          },
+        },
+      });
+      assert.equal(result.status, 'started', source);
+      assert.equal(invoked, true, source);
+    }
+  });
+
+  it('skips non-Node targets reached through a symlink', async () => {
+    const root = tempRoot();
+    const target = join(root, 'other-tool');
+    const link = join(root, 'local-decider');
+    writeFileSync(target, '#!/usr/bin/env python3\n');
+    symlinkSync(target, link);
+    const result = await launchGateway({
+      ...options(root, { LOCAL_DECIDER_BIN: link }),
+      deps: {
+        fetch: async () => {
+          throw new Error('offline');
+        },
+      },
+    });
+    assert.equal(result.status, 'not-installed');
   });
 
   it('reports not installed with a manual fish-compatible command and guide', async () => {
@@ -307,6 +396,8 @@ describe('launchGateway', () => {
     assert.ok(npmArgs.includes('@ziptie-soft/local-decider@3.2.0'));
     assert.ok(!npmArgs.includes('secret-token'));
     assert.throws(() => readFileSync(stage), { code: 'ENOENT' });
+    const destination = join(root, 'data', 'gateway', '3.2.0');
+    assert.deepEqual(readdirSync(destination), ['node_modules']);
     assert.equal(
       JSON.parse(
         readFileSync(

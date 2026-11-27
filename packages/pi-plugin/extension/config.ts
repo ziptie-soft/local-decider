@@ -10,6 +10,7 @@ export type GateMode = 'off' | 'guard' | 'approve';
 export interface Config {
   readonly mode: GateMode;
   readonly url: string;
+  readonly defaultEndpoint?: boolean;
   readonly token?: string;
   readonly guardTimeoutMs: number;
   readonly approveTimeoutMs: number;
@@ -81,6 +82,7 @@ export function resolveConfig(
   const config: Config = {
     mode,
     url: nonEmpty(env['LOCAL_DECIDER_URL']) ?? DEFAULT_URL,
+    defaultEndpoint: nonEmpty(env['LOCAL_DECIDER_URL']) === undefined,
     ...(token === undefined ? {} : { token }),
     guardTimeoutMs,
     approveTimeoutMs: 10_000,

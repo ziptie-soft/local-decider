@@ -28,6 +28,8 @@ describe('gatewaySource', () => {
     assert.ok(firstBuild !== undefined);
     assert.equal(firstBuild.reportToken, undefined);
     assert.equal(firstBuild.controlToken, undefined);
+    assert.equal(firstBuild.clientId, 'paseo/3.1.1');
+    assert.equal(typeof firstBuild.fetch, 'function');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'control-token'), 'truncated');
     assert.equal(source('http://127.0.0.1:8765'), first);

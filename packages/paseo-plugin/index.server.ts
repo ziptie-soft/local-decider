@@ -146,6 +146,9 @@ function createAutoLauncher(): (url: string, attempt?: boolean) => Promise<Launc
       }
       const outcome = await launchGateway({
         url,
+        defaultEndpoint:
+          url === 'http://127.0.0.1:8765' &&
+          (process.env['LOCAL_DECIDER_URL']?.trim() ?? '') === '',
         env: process.env,
         pinnedVersion: version,
         guideUrl: 'https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md',

@@ -8,11 +8,14 @@
  * with the option token only. With the default URL either token is accepted, env first.
  */
 import { DEFAULT_GATEWAY_URL, GatewayClient, str } from '@ziptie-soft/local-decider-core';
+import { gatewaySocketPathForEnv } from '@ziptie-soft/local-decider-launcher/socket-path';
+import { socketFetch } from '@ziptie-soft/local-decider-launcher/transport';
 
 export type Env = Readonly<Record<string, string | undefined>>;
 
 export interface GatewayConfig {
   readonly url: string;
+  readonly defaultEndpoint: boolean;
   /** Never logged; `GatewayClient` sends it only over https or to loopback. */
   readonly token: string | undefined;
 }
@@ -22,21 +25,28 @@ export function gatewayConfig(env: Env): GatewayConfig {
   const optionToken = str(env['CLAUDE_PLUGIN_OPTION_GATEWAY_TOKEN']);
   const envUrl = str(env['LOCAL_DECIDER_URL']);
   if (envUrl !== undefined) {
-    return { url: envUrl, token: envToken };
+    return { url: envUrl, defaultEndpoint: false, token: envToken };
   }
   const optionUrl = str(env['CLAUDE_PLUGIN_OPTION_GATEWAY_URL']);
   if (optionUrl !== undefined) {
-    return { url: optionUrl, token: optionToken };
+    return { url: optionUrl, defaultEndpoint: false, token: optionToken };
   }
-  return { url: DEFAULT_GATEWAY_URL, token: envToken ?? optionToken };
+  return { url: DEFAULT_GATEWAY_URL, defaultEndpoint: true, token: envToken ?? optionToken };
 }
 
 /** A `GatewayClient` for the gateway `env` points at. */
-export function gatewayClient(env: Env, timeoutMs: number): GatewayClient {
-  const { url, token } = gatewayConfig(env);
+export function gatewayClient(
+  env: Env,
+  timeoutMs: number,
+  harness: 'claude' | 'codex' = 'claude',
+): GatewayClient {
+  const { url, token, defaultEndpoint } = gatewayConfig(env);
+  const socketPath = defaultEndpoint ? gatewaySocketPathForEnv(env) : null;
   return new GatewayClient({
     baseUrl: url,
     timeoutMs,
+    clientId: `${harness}-hooks/1.0.0`,
+    ...(socketPath === null ? {} : { fetch: socketFetch(socketPath) }),
     ...(token === undefined ? {} : { token }),
   });
 }

@@ -1,9 +1,11 @@
+import { gatewaySocketPathForEnv } from './launcher/socket-path.ts';
 /**
  * Fail-open client of the local-decider gateway. Every call has a hard timeout and resolves to
  * `null` or `false` on any failure (gateway down, slow, redirected, non-2xx, bad JSON, aborted),
  * so the extension falls back to pi's default behaviour. It never throws and never puts the token
  * in an error or return value. Uses only the global `fetch` and `AbortSignal`.
  */
+import { socketFetch } from './launcher/transport.ts';
 
 /** Mirrors `packages/core/src/decision.ts` (`Harness`, `DecideRequest`, `DecideResponse`). */
 export interface DecideRequest {
@@ -27,6 +29,8 @@ export interface DecideReply {
 
 export interface GatewayOptions {
   readonly url: string;
+  readonly defaultEndpoint?: boolean;
+  readonly env?: NodeJS.ProcessEnv;
   /** Bearer token; sent only over https or to a loopback host, never logged. */
   readonly token?: string | undefined;
   readonly fetch?: typeof fetch;
@@ -118,7 +122,10 @@ function budgetFor(timeoutMs: number): number | undefined {
 /** With an unusable URL every call resolves to `null` or `false` without any I/O. */
 export function createGateway(options: GatewayOptions): Gateway {
   const baseUrl = normaliseUrl(options.url);
-  const doFetch = options.fetch ?? globalThis.fetch;
+  const socketPath =
+    options.defaultEndpoint === true ? gatewaySocketPathForEnv(options.env ?? process.env) : null;
+  const doFetch =
+    options.fetch ?? (socketPath === null ? globalThis.fetch : socketFetch(socketPath));
   const token =
     baseUrl !== null &&
     options.token !== undefined &&
@@ -136,6 +143,7 @@ export function createGateway(options: GatewayOptions): Gateway {
     if (baseUrl === null) return null;
     try {
       const headers: Record<string, string> = { accept: 'application/json' };
+      headers['x-local-decider-client'] = 'pi/1.0.0';
       if (body !== undefined) headers['content-type'] = 'application/json';
       if (token !== undefined) headers['authorization'] = `Bearer ${token}`;
       const res = await doFetch(`${baseUrl}${path}`, {

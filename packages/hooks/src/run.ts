@@ -81,8 +81,8 @@ export function timeoutOf(env: Env): number {
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_TIMEOUT_MS;
 }
 
-function clientFromEnv(env: Env): Decide {
-  const client = gatewayClient(env, timeoutOf(env));
+function clientFromEnv(env: Env, harness: HookHarness): Decide {
+  const client = gatewayClient(env, timeoutOf(env), harness);
   return async (policy, request) => client.decide(policy, request);
 }
 
@@ -178,7 +178,7 @@ async function decideAndTranslate(ctx: Context): Promise<string> {
     return '';
   }
   const request = requestOf(ctx, call);
-  const decide = ctx.deps.decide ?? clientFromEnv(ctx.env);
+  const decide = ctx.deps.decide ?? clientFromEnv(ctx.env, ctx.harness);
   const res = await decide(call.policy, request);
   ctx.log(
     res === null
@@ -249,7 +249,7 @@ async function lifecycle(ctx: LifecycleContext): Promise<string> {
   return sessionStart(
     harness,
     env,
-    deps.health ?? healthFromEnv(env, timeoutOf(env)),
+    deps.health ?? healthFromEnv(env, timeoutOf(env), harness),
     deps.startGateway,
   );
 }

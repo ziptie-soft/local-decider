@@ -50,9 +50,15 @@ test('decide returns a validated reply and posts to the policy route', async () 
   const gateway = createGateway({ url: 'http://127.0.0.1:8765/', fetch });
   const result = await gateway.decide('permission', REQUEST, { timeoutMs: 1500 });
   assert.equal(result?.decisionId, ID);
-  assert.equal(seen[0]?.url, 'http://127.0.0.1:8765/v1/decide/permission');
-  assert.equal(seen[0]?.init.redirect, 'error');
-  assert.equal((bodyOf(seen[0]) as { budgetMs: number }).budgetMs, 1000);
+  const first = seen[0];
+  assert.ok(first);
+  assert.equal(first.url, 'http://127.0.0.1:8765/v1/decide/permission');
+  assert.equal(first.init.redirect, 'error');
+  assert.equal(
+    (first.init.headers as Record<string, string>)['x-local-decider-client'],
+    'pi/1.0.0',
+  );
+  assert.equal((bodyOf(first) as { budgetMs: number }).budgetMs, 1000);
 });
 
 test('an absent signal still gets a timeout signal', async () => {

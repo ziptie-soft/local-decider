@@ -3,11 +3,22 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "source": "./src/launch.ts",
       "types": "./src/launch.ts",
       "default": "./src/launch.ts"
+    },
+    "./transport": {
+      "source": "./src/transport.ts",
+      "types": "./src/transport.ts",
+      "default": "./src/transport.ts"
+    },
+    "./socket-path": {
+      "source": "./src/socket-path.ts",
+      "types": "./src/socket-path.ts",
+      "default": "./src/socket-path.ts"
     }
   },
   "scripts": {

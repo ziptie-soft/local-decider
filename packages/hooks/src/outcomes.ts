@@ -97,8 +97,8 @@ export function rememberPermission(answer: PermissionAnswer): void {
   }
 }
 
-function reporterFromEnv(env: Env, timeoutMs: number): ReportOutcome {
-  const client = gatewayClient(env, timeoutMs);
+function reporterFromEnv(env: Env, timeoutMs: number, harness: HookHarness): ReportOutcome {
+  const client = gatewayClient(env, timeoutMs, harness);
   return async (decisionId) => client.reportOutcome(decisionId, 'allow', 'user');
 }
 
@@ -121,7 +121,7 @@ export async function postToolUse(
     if (decisionId === undefined) {
       return;
     }
-    const report = deps?.reportOutcome ?? reporterFromEnv(env, timeoutMs);
+    const report = deps?.reportOutcome ?? reporterFromEnv(env, timeoutMs, harness);
     const ok = await report(decisionId);
     log(`outcome: allow for ${decisionId} ${ok ? 'reported' : 'not taken by the gateway'}`);
   } catch (error) {
