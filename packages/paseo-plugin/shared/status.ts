@@ -23,3 +23,5 @@ export const statusSchema = z.object({
   downStreak: z.number().int(),
   checkedAt: z.string(),
 });
+
+export type Status = z.output<typeof statusSchema>;
