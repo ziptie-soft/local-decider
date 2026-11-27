@@ -19,6 +19,7 @@ import {
 import { routingPresetRpc } from '../shared/rpc.ts';
 import { ChipPicker, type ChipOption } from './chip-picker.tsx';
 import { useQueryKey } from './host-scope.ts';
+import { Head, HeaderRow } from './table-parts.tsx';
 import type { Theme } from './ui.tsx';
 
 const PROFILE_PREFIX = 'profile:';
@@ -262,26 +263,14 @@ function PresetRow(props: RowProps): ReactNode {
 }
 
 function Header({ theme }: { theme: Theme }): ReactNode {
-  const head = (text: string): ReactNode => (
-    <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, textTransform: 'uppercase' }}>
-      {text}
-    </Text>
-  );
+  const head = (text: string): ReactNode => <Head theme={theme} text={text} />;
   return (
-    <View
-      style={{
-        flexDirection: 'row',
-        gap: 10,
-        paddingHorizontal: 16,
-        paddingTop: 12,
-        paddingBottom: 6,
-      }}
-    >
+    <HeaderRow>
       <Cell width={COLUMNS.route}>{head('Route')}</Cell>
       <Cell>{head('Profile or model')}</Cell>
       <Cell width={COLUMNS.effort}>{head('Effort')}</Cell>
       <Cell width={COLUMNS.mode}>{head('Mode')}</Cell>
-    </View>
+    </HeaderRow>
   );
 }
 

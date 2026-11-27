@@ -14,12 +14,11 @@ import {
   setRoutingPreset,
 } from '../server/engines.ts';
 import { ALLOW_THRESHOLD, GATEWAY_POLICIES, type PluginMode } from '../shared/constants.ts';
-import { DECISION_KINDS } from '../shared/decision-kinds.ts';
 import {
   allowWarning,
   legacyPresetMoves,
   mismatchLabel,
-  modeHint,
+  modeMismatchLine,
   modeMismatch,
   modeOutcome,
   modeRowHint,
@@ -333,19 +332,31 @@ describe('parsePolicyModes over the gateway kinds', () => {
   });
 });
 
-describe('modeHint', () => {
-  it('warns when the plugin acts and the gateway does not', () => {
+describe('modeMismatchLine', () => {
+  it('warns when Paseo acts and the gateway does not, and offers Act', () => {
     for (const gateway of ['off', 'shadow'] as const) {
-      const hint = modeHint(HOOK_KIND, 'act', gateway);
-      assert.match(hint ?? '', /^Warning: the gateway runs this in (Shadow|Off)/);
-      assert.match(hint ?? '', /Choose Act again/);
+      const line = modeMismatchLine(HOOK_KIND, 'act', gateway);
+      assert.equal(line?.tone, 'warning');
+      assert.equal(
+        line?.text,
+        `The gateway runs this in ${gateway === 'off' ? 'Off' : 'Shadow'}, so its decisions are not enforced.`,
+      );
+      assert.deepEqual(line?.fix, { label: 'Set gateway to Act', mode: 'act' });
     }
   });
 
-  it('warns when the gateway acts and the plugin does not', () => {
-    assert.match(modeHint(HOOK_KIND, 'off', 'act') ?? '', /Choose Off again/);
-    assert.match(modeHint(HOOK_KIND, 'shadow', 'act') ?? '', /Choose Shadow again/);
-    assert.match(modeHint(HOOK_KIND, 'off', 'act') ?? '', /^Warning: the gateway still runs/);
+  it('warns when the gateway acts and Paseo does not, and offers the Paseo mode', () => {
+    const off = modeMismatchLine(HOOK_KIND, 'off', 'act');
+    assert.equal(
+      off?.text,
+      'Outside Paseo the gateway still runs this in Act, so Claude Code and Codex enforce it.',
+    );
+    assert.deepEqual(off?.fix, { label: 'Set gateway to Off', mode: 'off' });
+    assert.deepEqual(modeMismatchLine(HOOK_KIND, 'shadow', 'act')?.fix, {
+      label: 'Set gateway to Shadow',
+      mode: 'shadow',
+    });
+    assert.equal(modeMismatchLine(HOOK_KIND, 'shadow', 'act')?.tone, 'warning');
   });
 
   it('does not warn for any other combination', () => {
@@ -360,14 +371,14 @@ describe('modeHint', () => {
       ['shadow', undefined],
     ];
     for (const [plugin, gateway] of quiet) {
-      assert.equal(modeHint(HOOK_KIND, plugin, gateway), null);
+      assert.equal(modeMismatchLine(HOOK_KIND, plugin, gateway), null);
     }
   });
 
   it('is always null for command-risk', () => {
     for (const plugin of MODES) {
       for (const gateway of [...MODES, undefined]) {
-        assert.equal(modeHint('command-risk', plugin, gateway), null);
+        assert.equal(modeMismatchLine('command-risk', plugin, gateway), null);
       }
     }
   });
@@ -381,68 +392,69 @@ describe('modeRowHint', () => {
     reachable: true,
     busy: false,
   } as const;
+  const NOT_LOADED = {
+    text: 'The gateway has not loaded this policy, so it never runs.',
+    tone: 'warning',
+  };
 
-  it('1: shows Saving… while a write is in flight', () => {
+  it('shows Saving… (muted) while a write is in flight', () => {
     for (const id of GATEWAY_POLICIES) {
-      assert.equal(modeRowHint(id, { ...base, busy: true }).hint, 'Saving…');
+      assert.deepEqual(modeRowHint(id, { ...base, busy: true }), {
+        line: { text: 'Saving…', tone: 'muted' },
+        disabled: false,
+      });
     }
   });
 
-  it('2: command-risk waits for the gateway mode', () => {
-    const row = modeRowHint('command-risk', {
+  it('says nothing, and disables command-risk, while the gateway mode is unknown', () => {
+    const asking = modeRowHint('command-risk', {
       ...base,
       gatewayMode: undefined,
       modesLoaded: false,
     });
-    assert.deepEqual(row, { hint: 'Asking the gateway…', disabled: true });
-  });
-
-  it('3: command-risk is disabled while the gateway is unreachable', () => {
-    const row = modeRowHint('command-risk', { ...base, reachable: false });
-    assert.deepEqual(row, {
-      hint: "Can't be changed while the gateway is unreachable.",
+    assert.deepEqual(asking, { line: null, disabled: true });
+    assert.deepEqual(modeRowHint('command-risk', { ...base, reachable: false }), {
+      line: null,
       disabled: true,
     });
   });
 
-  it('4: a loaded gateway with no entry for command-risk never runs it', () => {
-    const row = modeRowHint('command-risk', { ...base, gatewayMode: undefined });
-    assert.deepEqual(row, {
-      hint: 'The gateway has not loaded this policy, so it never runs.',
+  it('warns that a loaded gateway with no entry for the policy never runs it', () => {
+    assert.deepEqual(modeRowHint('command-risk', { ...base, gatewayMode: undefined }), {
+      line: NOT_LOADED,
       disabled: true,
     });
-  });
-
-  it('4: a hook kind stays enabled when the gateway has no entry for it', () => {
     for (const id of GATEWAY_POLICIES.filter((kind) => kind !== 'command-risk')) {
-      const row = modeRowHint(id, { ...base, gatewayMode: undefined });
-      assert.deepEqual(row, { hint: DECISION_KINDS[id].modes.shadow, disabled: false });
+      assert.deepEqual(modeRowHint(id, { ...base, gatewayMode: undefined }), {
+        line: NOT_LOADED,
+        disabled: false,
+      });
     }
   });
 
-  it('5: shows the mismatch warning of a hook kind', () => {
+  it('shows the mismatch of a hook kind with its fix', () => {
     const row = modeRowHint(HOOK_KIND, { ...base, pluginMode: 'act', gatewayMode: 'shadow' });
-    assert.equal(row.hint, modeHint(HOOK_KIND, 'act', 'shadow'));
+    assert.deepEqual(row.line, modeMismatchLine(HOOK_KIND, 'act', 'shadow'));
     assert.equal(row.disabled, false);
   });
 
-  it('6: otherwise explains the mode', () => {
+  it('shows no line when the modes agree, and never the plain mode description', () => {
     for (const id of GATEWAY_POLICIES) {
       for (const mode of MODES) {
         const row = modeRowHint(id, { ...base, pluginMode: mode, gatewayMode: mode });
-        assert.deepEqual(row, { hint: DECISION_KINDS[id].modes[mode], disabled: false });
+        assert.deepEqual(row, { line: null, disabled: false });
       }
     }
   });
 
-  it('explains a hook kind by its plugin mode while the gateway is unknown', () => {
+  it('says nothing about a hook kind while the gateway is unknown', () => {
     const row = modeRowHint(HOOK_KIND, {
       ...base,
       pluginMode: 'act',
       gatewayMode: undefined,
       modesLoaded: false,
     });
-    assert.equal(row.hint, DECISION_KINDS[HOOK_KIND].modes.act);
+    assert.deepEqual(row, { line: null, disabled: false });
   });
 });
 

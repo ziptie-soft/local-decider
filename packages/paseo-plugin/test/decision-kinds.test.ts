@@ -5,7 +5,7 @@ import { PERMISSION_DEADLINE_MS } from '../server/permission.ts';
 import { ROUTING_BUDGET_MS } from '../server/routing.ts';
 import { DECIDE_TIMEOUT_MS } from '../server/turn.ts';
 import { GATEWAY_POLICIES, HOOK_POLICIES, PLUGIN_MODES } from '../shared/constants.ts';
-import { DECISION_KINDS } from '../shared/decision-kinds.ts';
+import { DECISION_KINDS, modeOptions } from '../shared/decision-kinds.ts';
 
 describe('DECISION_KINDS', () => {
   it('has exactly the gateway policies', () => {
@@ -19,6 +19,25 @@ describe('DECISION_KINDS', () => {
       }
       for (const mode of PLUGIN_MODES) {
         assert.notEqual(info.modes[mode].trim(), '');
+      }
+    }
+  });
+
+  it('offers Off, Shadow and Act with the meaning of each, without a repeated mode prefix', () => {
+    for (const id of GATEWAY_POLICIES) {
+      const options = modeOptions(id);
+      assert.deepEqual(
+        options.map((o) => [o.label, o.value]),
+        [
+          ['Off', 'off'],
+          ['Shadow', 'shadow'],
+          ['Act', 'act'],
+        ],
+      );
+      for (const option of options) {
+        assert.equal(option.detail, DECISION_KINDS[id].modes[option.value]);
+        assert.doesNotMatch(option.detail, /^(Off|Shadow|Act):/);
+        assert.match(option.detail, /^[A-Z]/);
       }
     }
   });

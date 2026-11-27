@@ -55,12 +55,14 @@ checks still run, since Paseo has no equivalent.
 
 ## Settings
 
-- **Status:** whether the gateway is up, and the engine's state: loaded (with model and engine),
-  unloaded and loading on the next decision, loading, failed and why, or "Benchmarking (3 of 6)"
-  while a benchmark runs. Load now and Unload act
-  at once. Lifecycle picks automatic (load on demand, unload after 1 to 1440 idle minutes) or
-  always loaded.
-- **Policies:** the mode of each policy (`off`, `shadow`, `act`).
+- **Status:** three rows. Whether the gateway is up and where it answers. The default model with
+  its state (loaded, not loaded and loading on the next decision, loading, failed and why, or
+  "Benchmarking (3 of 6)" while a benchmark runs) and one Load now or Unload button that acts at
+  once. Unload when idle (after 5 minutes to 4 hours, or never) once the gateway reports its
+  lifecycle.
+- **Decisions:** one table, a row per decision with a Mode picker (`off`, `shadow`, `act`) and a
+  Model picker (the default model or an own one). Lines under a row say when the gateway runs
+  another mode than Paseo, with a button to align it, and what the chosen model costs.
 - **Routing:** which routing policy the gateway runs, a table mapping each of its presets to an
   agent profile or a model, with effort (thinking level) and mode, a reload for policy files, and
   "Write with an agent", which starts an agent that interviews you and writes a routing policy

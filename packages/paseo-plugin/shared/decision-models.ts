@@ -1,16 +1,15 @@
 /**
  * The model of each decision, as the settings and the quick-status popover describe it: the
- * Default model card, the options of a decision's Model select, its hint, badge and outcome, and
+ * options of a decision's Model select, its hint, badge and outcome, and
  * the popover line. Pure functions over the engines catalog (`GET /v1/engines`, `policies[]`) and
  * `/health` `policyEngines[]`; a decision absent from `policies[]` uses the default model, and
  * `policies` undefined means an older gateway that cannot choose per decision.
  */
 import type { GatewayPolicy, PluginMode } from './constants.ts';
 import { DECISION_KINDS } from './decision-kinds.ts';
-import { gb, type EngineCatalog, type EngineModel } from './engines.ts';
-import { failureReason, POLICY_NOT_LOADED_HINT, type ModeWriteResult } from './policies.ts';
+import { gb, typicalP50, type EngineCatalog, type EngineModel } from './engines.ts';
+import { failureReason, type ModeWriteResult, type StatusLine } from './policies.ts';
 import type { PolicyEngine, PolicyModel, PolicySelection } from './policy-models.ts';
-import { fallbackLine, namesOf } from './recommendation.ts';
 import { ms, runtimeName } from './recommended-card.ts';
 
 type Fallback = NonNullable<PolicyModel['fallback']>;
@@ -70,38 +69,12 @@ function deviceFor(
 }
 
 /**
- * Typical p50 of the model's fresh benchmark on `device`; null when it was never measured, only
- * measured when stale, or measured on another device. A benchmark without a device (an engine that
- * does not measure per device) stands in when `device` has no entry. A model measured on one device
- * only stands in just when `device` is unknown (null); a named device without a measurement is not
- * guessed from another one.
+ * How fast a model is on `device`, from a fresh benchmark only: `~{ms} here`, else
+ * `speed not measured here`. The catalog's latency hint is a reference, not a measurement.
  */
-function typicalP50(model: EngineModel, device: string | null): number | null {
-  const fresh = model.measured.filter((m) => m.freshness !== 'stale' && m.typical !== null);
-  const entry =
-    fresh.find((m) => m.device === device) ??
-    fresh.find((m) => m.device === null) ??
-    (device === null && fresh.length === 1 ? fresh[0] : undefined);
-  return entry?.typical?.p50Ms ?? null;
-}
-
-/** The hint without its trailing parenthetical: `~500 ms (NPU)` → `~500 ms`. */
-function withoutParenthetical(hint: string): string {
-  const open = hint.lastIndexOf('(');
-  return hint.endsWith(')') && open > 0 ? hint.slice(0, open).trimEnd() : hint;
-}
-
-/**
- * How fast a model is on `device`: `~{ms}` from a fresh benchmark, else the catalog's latency hint
- * without its parenthetical, else `not benchmarked`.
- */
-export function speedText(model: EngineModel, device: string | null): string {
+export function speedHere(model: EngineModel, device: string | null): string {
   const p50 = typicalP50(model, device);
-  if (p50 !== null) {
-    return `~${ms(p50)}`;
-  }
-  const hint = model.latencyHint === null ? '' : withoutParenthetical(model.latencyHint);
-  return hint === '' ? 'not benchmarked' : hint;
+  return p50 === null ? 'speed not measured here' : `~${ms(p50)} here`;
 }
 
 /** Typical p50 above the hooks' budget: 1000 ms is not too slow, 1001 ms is. */
@@ -188,6 +161,8 @@ export function effectiveP50(
 
 export interface ModelOption {
   readonly label: string;
+  /** The muted second line: runtime and speed, or why the model is not listed. */
+  readonly detail: string;
   /** An opaque key for the select; read `selection`, never split it. */
   readonly value: string;
   /** The model this option sets; undefined for Default model, which clears it. */
@@ -203,12 +178,23 @@ export function selectionValue(selection: PolicySelection | undefined): string {
     : `${selection.engine}|${selection.model}|${selection.device ?? 'auto'}`;
 }
 
-function defaultLabel(catalog: EngineCatalog): string {
+/** `{model} · {runtime} · {speed}` of the default model, or `No default model yet`. */
+function defaultDetail(catalog: EngineCatalog): string {
   const active = catalog.active;
   if (!hasModel(active)) {
-    return 'none yet';
+    return 'No default model yet';
   }
-  return findModel(catalog, active.engine, active.model)?.label ?? active.model;
+  const model = findModel(catalog, active.engine, active.model);
+  const where = runtimeName(catalog, {
+    engine: active.engine,
+    device: active.resolvedDevice ?? active.device,
+    backend: active.backend,
+  });
+  const speed =
+    model === undefined
+      ? 'speed not measured here'
+      : speedHere(model, deviceFor(catalog, active.engine, null));
+  return [model?.label ?? active.model, where, speed].join(' · ');
 }
 
 function engineAvailable(catalog: EngineCatalog, id: string): boolean {
@@ -248,9 +234,9 @@ function selectable(catalog: EngineCatalog): EngineModel[] {
 function optionFor(kind: GatewayPolicy, catalog: EngineCatalog, model: EngineModel): ModelOption {
   const device = deviceFor(catalog, model.engine, null);
   const where = runtimeName(catalog, { engine: model.engine, device, backend: null });
-  const parts = [model.label, where, speedText(model, device)];
+  const parts = [where, speedHere(model, device)];
   if (tooSlow(kind, typicalP50(model, device))) {
-    parts.push('too slow');
+    parts.push('too slow for hooks');
   }
   const selection = {
     engine: model.engine,
@@ -259,7 +245,8 @@ function optionFor(kind: GatewayPolicy, catalog: EngineCatalog, model: EngineMod
     fallback: undefined,
   };
   return {
-    label: parts.join(' · '),
+    label: model.label,
+    detail: parts.join(' · '),
     value: selectionValue(selection),
     selection,
     modelLabel: model.label,
@@ -279,7 +266,7 @@ function currentOption(
   const label = findModel(catalog, current.engine, current.model)?.label ?? current.model;
   const sameModel = listed.some((o) => o.value.startsWith(`${current.engine}|${current.model}|`));
   const suffix = sameModel && current.device !== undefined ? current.device : 'unavailable';
-  return [{ label: `${label} · ${suffix}`, value, selection: current, modelLabel: label }];
+  return [{ label, detail: suffix, value, selection: current, modelLabel: label }];
 }
 
 /**
@@ -294,7 +281,8 @@ export function modelOptions(
   const listed = selectable(catalog).map((model) => optionFor(kind, catalog, model));
   return [
     {
-      label: `Default model (${defaultLabel(catalog)})`,
+      label: 'Default',
+      detail: defaultDetail(catalog),
       value: DEFAULT_VALUE,
       selection: undefined,
       modelLabel: null,
@@ -321,7 +309,8 @@ export interface ModelHintContext {
 }
 
 export interface ModelRowHint {
-  readonly hint: string;
+  /** What shows under the row, or null when there is nothing to say. */
+  readonly line: StatusLine | null;
   /** The select cannot change now. */
   readonly disabled: boolean;
 }
@@ -342,15 +331,15 @@ type RuleId =
   | 'loading'
   | 'too-slow'
   | 'uncalibrated'
-  | 'not-benchmarked'
   | 'off'
   | 'same-as-default'
   | 'own-lazy'
-  | 'own-eager'
-  | 'default';
+  | 'own-eager';
 
 interface Rule {
   readonly id: RuleId;
+  /** Problems are warnings; everything else is information. */
+  readonly tone: StatusLine['tone'];
   readonly applies: (f: Facts) => boolean;
   readonly text: (f: Facts) => string;
 }
@@ -398,80 +387,94 @@ function memoryNote(f: Facts): string {
   return memoryGb === null ? '' : ` Needs about ${gb(memoryGb)} on top of the default model.`;
 }
 
-/** Rows 3 to 6 of the hint table: the problems, which also give the header badge. */
+/** The problems, which also give the badge next to the decision's title. */
 const PROBLEM_RULES: readonly Rule[] = [
   {
     id: 'unavailable-default',
+    tone: 'warning',
     applies: (f) => f.entry?.status === 'unavailable' && fallbackOf(f.entry) === 'default',
     text: (f) => `${unavailableLead(f)}. The default model answers instead.`,
   },
   {
     id: 'unavailable-open',
+    tone: 'warning',
     applies: (f) => f.entry?.status === 'unavailable' && fallbackOf(f.entry) === 'open',
     text: (f) => `${unavailableLead(f)}. These decisions are skipped.`,
   },
   {
     id: 'loading',
+    tone: 'warning',
     applies: (f) => f.entry?.state === 'starting',
     text: () => 'Loading; decisions are skipped until it is ready.',
   },
   {
     id: 'too-slow',
+    tone: 'warning',
     applies: (f) => f.mode !== 'off' && tooSlow(f.kind, f.p50),
     text: tooSlowText,
   },
 ];
 
-/** Rows 7 to 13, in order; the last one always applies. */
+/** `Own model on {runtime}, {speed}. ` and the memory note: what an own model costs. */
+function ownModelText(f: Facts, lifecycle: string): string {
+  const model =
+    f.target === null ? undefined : findModel(f.catalog, f.target.engine, f.target.model);
+  const where =
+    f.target === null
+      ? 'its runtime'
+      : runtimeName(f.catalog, { engine: f.target.engine, device: f.target.device, backend: null });
+  const speed =
+    model === undefined ? 'speed not measured here' : speedHere(model, f.target?.device ?? null);
+  const bench = f.p50 === null ? ' Benchmark it under Models.' : '';
+  return `Own model on ${where}, ${speed}. ${lifecycle}${memoryNote(f)}${bench}`;
+}
+
+/** The rules after the problems, in order; a decision on the default model matches none. */
 const OTHER_RULES: readonly Rule[] = [
   {
     id: 'uncalibrated',
+    tone: 'warning',
     applies: (f) => f.mode === 'act' && uncalibrated(f),
     text: () => 'Uncalibrated engine: keep this decision in Shadow until its decisions look right.',
   },
   {
-    id: 'not-benchmarked',
-    applies: (f) => f.mode !== 'off' && f.target !== null && f.p50 === null,
-    text: () => 'Not benchmarked here, so its speed is unknown. Benchmark it under Models.',
-  },
-  {
     id: 'off',
-    applies: (f) => f.mode === 'off',
-    text: (f) =>
-      f.own === undefined
-        ? 'Not used while Mode is Off.'
-        : 'Not used while Mode is Off, and its own model stays unloaded.',
+    tone: 'muted',
+    applies: (f) => f.mode === 'off' && f.own !== undefined,
+    text: () => 'Its own model stays unloaded while Mode is Off.',
   },
   {
     id: 'same-as-default',
+    tone: 'muted',
     applies: sameAsDefault,
     text: () => 'Same model as the default, but it stays on it if the default changes.',
   },
   {
     id: 'own-lazy',
+    tone: 'muted',
     applies: (f) => f.own !== undefined && f.catalog.active?.lifecycle !== 'eager',
-    text: (f) => `Own model. Loads on its first decision and unloads when idle.${memoryNote(f)}`,
+    text: (f) => ownModelText(f, 'Loads on its first decision and unloads when idle.'),
   },
   {
     id: 'own-eager',
+    tone: 'muted',
     applies: (f) => f.own !== undefined,
-    text: (f) => `Own model, kept loaded.${memoryNote(f)}`,
+    text: (f) => ownModelText(f, 'Kept loaded.'),
   },
-  { id: 'default', applies: () => true, text: () => 'Uses the default model.' },
 ];
 
-/** Why the select cannot be used, else null: the catalog or the gateway is not there to ask. */
+/**
+ * Why the select cannot be used: the catalog or the gateway is not there to ask. Nothing is said
+ * for a missing gateway or catalog, or an older gateway; the card's other lines cover them.
+ */
 function blockedRow(ctx: ModelHintContext): ModelRowHint | null {
-  if (!ctx.reachable || ctx.catalog?.reachable === false) {
-    return { hint: "Can't be changed while the gateway is unreachable.", disabled: true };
-  }
-  if (ctx.catalog === undefined) {
-    return { hint: 'Asking the gateway…', disabled: true };
+  if (!ctx.reachable || ctx.catalog?.reachable === false || ctx.catalog === undefined) {
+    return { line: null, disabled: true };
   }
   if (ctx.catalog.policies === undefined) {
-    return { hint: 'Needs a newer local-decider gateway.', disabled: true };
+    return { line: null, disabled: true };
   }
-  return ctx.policyLoaded ? null : { hint: POLICY_NOT_LOADED_HINT, disabled: true };
+  return ctx.policyLoaded ? null : { line: null, disabled: true };
 }
 
 /** The facts the rules read; null when the select cannot be used (see `blockedRow`). */
@@ -493,38 +496,46 @@ function factsOf(kind: GatewayPolicy, ctx: ModelHintContext): Facts | null {
   };
 }
 
-function writingHint(label: string | null): string {
-  return label === null ? 'Switching to the default model…' : `Switching to ${label}…`;
-}
-
-/** The hint under a decision's Model select: the first row of the plan's table that applies. */
-export function modelRowHint(kind: GatewayPolicy, ctx: ModelHintContext): ModelRowHint {
-  if (ctx.writing !== null) {
-    return { hint: writingHint(ctx.writing.label), disabled: true };
-  }
-  const facts = factsOf(kind, ctx);
-  if (facts === null) {
-    return blockedRow(ctx) ?? { hint: 'Uses the default model.', disabled: false };
-  }
-  const rule = firstRule(facts);
-  return { hint: rule?.text(facts) ?? 'Uses the default model.', disabled: false };
+function writingLine(label: string | null): StatusLine {
+  const text = label === null ? 'Switching to the default model…' : `Switching to ${label}…`;
+  return { text, tone: 'muted' };
 }
 
 function firstRule(facts: Facts): Rule | undefined {
   return [...PROBLEM_RULES, ...OTHER_RULES].find((r) => r.applies(facts));
 }
 
-const OWN_OR_DEFAULT_ROWS: readonly RuleId[] = ['own-lazy', 'own-eager', 'default'];
+/** What shows under a decision's model: the first rule that applies, or nothing. */
+export function modelRowHint(kind: GatewayPolicy, ctx: ModelHintContext): ModelRowHint {
+  if (ctx.writing !== null) {
+    return { line: writingLine(ctx.writing.label), disabled: true };
+  }
+  const facts = factsOf(kind, ctx);
+  if (facts === null) {
+    return blockedRow(ctx) ?? { line: null, disabled: false };
+  }
+  const rule = firstRule(facts);
+  return {
+    line: rule === undefined ? null : { text: rule.text(facts), tone: rule.tone },
+    disabled: false,
+  };
+}
+
+const OWN_ROWS: readonly RuleId[] = ['own-lazy', 'own-eager'];
 
 /**
- * The hint of the Routing card when a routing variant (`routing-budget`, `routing-task-kind`) has
- * its own model in config.yaml, else null. It replaces rows 11 to 13 of the table only: a problem,
- * Off or a missing gateway still show their own hint.
+ * The line of the Routing card when a routing variant (`routing-budget`, `routing-task-kind`) has
+ * its own model in config.yaml, else null. It replaces the default-model and own-model lines only:
+ * a problem, Off or a missing gateway still show their own line.
  */
 export function routingVariantHint(ctx: ModelHintContext): string | null {
   const facts = ctx.writing === null ? factsOf('routing', ctx) : null;
   const rule = facts === null ? undefined : firstRule(facts);
-  if (facts === null || rule === undefined || !OWN_OR_DEFAULT_ROWS.includes(rule.id)) {
+  if (
+    facts === null ||
+    facts.mode === 'off' ||
+    (rule !== undefined && !OWN_ROWS.includes(rule.id))
+  ) {
     return null;
   }
   const variant = facts.catalog.policies?.find(
@@ -606,25 +617,7 @@ export function modelOutcome(
   return { tone: 'success', text: `${title} now uses ${label}. ${tail}` };
 }
 
-// ── Default model card ───────────────────────────────────────────────────────────────────────
-
-/**
- * The hint of the Default model row: the first of the plan's four cases that applies. No model
- * ("None") is checked before Automatic on purpose: an auto-selected engine with no model yet has
- * nothing to describe as chosen for this machine, so it gets the pick-one text.
- */
-export function defaultModelHint(catalog: EngineCatalog, now: number = Date.now()): string {
-  const fallback = fallbackLine(catalog.active, namesOf(catalog), now);
-  if (fallback !== null) {
-    return `${fallback} Decisions set to Default model use it until then.`;
-  }
-  if (!hasModel(catalog.active)) {
-    return 'Pick one under Engine and model, just below. Until then every decision is skipped.';
-  }
-  return catalog.active?.selectionMode === 'auto'
-    ? 'Chosen automatically for this machine. Used by every decision set to Default model. Change it under Engine and model, just below.'
-    : 'Used by every decision set to Default model. Change it under Engine and model, just below.';
-}
+// ── Default model ────────────────────────────────────────────────────────────────────────────
 
 /** Models that could be downloaded and run here but are not downloaded yet. */
 export function moreModelsCount(catalog: EngineCatalog): number {
@@ -641,48 +634,9 @@ export function allModelsTitle(catalog: EngineCatalog): string {
     : 'All engines and models';
 }
 
-/** What the Default model card shows. */
-export interface DefaultModelView {
-  /** The Default model row's value. */
-  readonly value: string;
-  readonly hint: string;
-  /** "{n} not downloaded" for the More models row; null when the row is not shown. */
-  readonly more: string | null;
-}
-
-/**
- * The Default model card for the engines query and the gateway status check: "Checking…" while the
- * catalog loads, "Unknown" when the gateway or its engines cannot be reached (`queryFailed`: the
- * engines query errored with no catalog to show), else the running model, or "None yet" when none
- * is chosen. The More models row needs `catalog.policies`: an older gateway renders the card
- * without it.
- */
-export function defaultModelView(
-  catalog: EngineCatalog | undefined,
-  gatewayUp: boolean,
-  queryFailed = false,
-  now: number = Date.now(),
-): DefaultModelView {
-  if (!gatewayUp) {
-    return { value: 'Unknown', hint: 'The gateway is unreachable.', more: null };
-  }
-  if (catalog?.reachable === false || (catalog === undefined && queryFailed)) {
-    return {
-      value: 'Unknown',
-      hint: 'The gateway is unreachable or has no /v1/engines.',
-      more: null,
-    };
-  }
-  if (catalog === undefined) {
-    return { value: 'Checking…', hint: 'Asking the gateway for its engines.', more: null };
-  }
-  const count = catalog.policies === undefined ? 0 : moreModelsCount(catalog);
-  return {
-    // A name without a model would contradict the "Pick one…" hint, so it reads as none.
-    value: (hasModel(catalog.active) ? runningName(catalog) : null) ?? 'None yet',
-    hint: defaultModelHint(catalog, now),
-    more: count > 0 ? `${String(count)} not downloaded` : null,
-  };
+/** The default model as the Status row names it; null when none is chosen. */
+export function defaultModelName(catalog: EngineCatalog): string | null {
+  return hasModel(catalog.active) ? runningName(catalog) : null;
 }
 
 // ── quick-status popover ─────────────────────────────────────────────────────────────────────

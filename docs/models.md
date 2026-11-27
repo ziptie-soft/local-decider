@@ -217,10 +217,10 @@ policies:
     selection: { engine: lmstudio, model: qwen3-4b-instruct-2507, fallback: open }
 ```
 
-In Paseo, each card under **Decisions** has a **Model** row next to Mode. It lists the models that
-are installed, fit this machine and have an available engine, fastest first, and **Default model**
-first of all. The **Default model** card above the decisions shows what that is, and links here.
-Choosing **Default model** clears the decision's own model.
+In Paseo, the **Decisions** table has a **Model** picker next to Mode on every row. It lists the
+models that are installed, fit this machine and have an available engine, fastest first, and
+**Default** first of all. The **Default model** row under **Status** shows what that is. Choosing
+**Default** clears the decision's own model.
 
 - `engine`, `model` and `device` are as in `engine use` ([engines.md](engines.md)); `device` is
   optional. `systemone-remote` cannot be an own model. The engine's options (`url`, `tokenEnv`,
