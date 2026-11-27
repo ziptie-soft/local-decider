@@ -103,13 +103,17 @@ export interface BenchmarkCard {
   } | null;
   readonly footer: readonly string[];
   readonly resultsExpanded: boolean;
+  /** Whether any row has a long-prompt measurement. */
+  readonly showLong: boolean;
+  /** Whether any row has a 256-token measurement. */
+  readonly show256: boolean;
   /** Whether any row has a 2,048-token measurement. */
   readonly showK2: boolean;
   readonly groups: readonly ResultGroup[];
 }
 
 const DESCRIPTION =
-  'Times every installed model on every runtime, one at a time, with short, typical and long prompts.';
+  'Times every installed model on every runtime, one at a time, with a typical prompt.';
 const BUSY_HINT = 'Available when this finishes.';
 const KEPT = 'Completed results are kept.';
 const MACHINE_ONLY = 'Results are from this machine only.';
@@ -839,6 +843,8 @@ export function benchmarkCard(view: BenchmarkView | null, catalog: EngineCatalog
     primary: actions.primary,
     secondary: actions.secondary,
     footer: footerOf(view, groups),
+    showLong: groups.some((g) => g.rows.some((r) => r.long !== null)),
+    show256: groups.some((g) => g.rows.some((r) => r.p256 !== null)),
     showK2: groups.some((g) => g.rows.some((r) => r.k2 !== null)),
     groups,
   };

@@ -476,6 +476,29 @@ describe('benchmark card: results', () => {
     assert.equal(manual.groups[0]?.useFastest, null);
   });
 
+  it('shows the Long and 256 columns only when some row has a value', () => {
+    const bare = { long: null, sizes: [] };
+    const none = benchmarkCard(
+      view(),
+      catalog(lite(measured(520, 555, bare), measured(460, 500, bare))),
+    );
+    assert.equal(none.showLong, false);
+    assert.equal(none.show256, false);
+    const longOnly = benchmarkCard(
+      view(),
+      catalog(lite(measured(520, 555, { sizes: [] }), measured(460, 500, bare))),
+    );
+    assert.equal(longOnly.showLong, true);
+    assert.equal(longOnly.show256, false);
+  });
+
+  it('describes a typical-prompt run', () => {
+    assert.equal(
+      benchmarkCard(view(), catalog()).description,
+      'Times every installed model on every runtime, one at a time, with a typical prompt.',
+    );
+  });
+
   it('shows a 2k column only when something was measured at 2,048 tokens', () => {
     const withK2 = lite(
       measured(520, 555, {

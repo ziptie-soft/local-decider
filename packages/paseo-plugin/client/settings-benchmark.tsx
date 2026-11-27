@@ -253,15 +253,21 @@ function Cell({
   );
 }
 
-function HeaderRow({ theme, showK2 }: { theme: Theme; showK2: boolean }): ReactNode {
+interface Columns {
+  readonly showLong: boolean;
+  readonly show256: boolean;
+  readonly showK2: boolean;
+}
+
+function HeaderRow({ theme, columns }: { theme: Theme; columns: Columns }): ReactNode {
   return (
     <View style={{ flexDirection: 'row', gap: 8 }}>
       <Cell theme={theme} text="Runtime" flex={FLEX.runtime} muted />
       <Cell theme={theme} text="Format" flex={FLEX.format} muted />
       <Cell theme={theme} text="Typical" flex={FLEX.number} muted />
-      <Cell theme={theme} text="Long" flex={FLEX.number} muted />
-      <Cell theme={theme} text="256" flex={FLEX.number} muted />
-      {showK2 ? <Cell theme={theme} text="2k" flex={FLEX.number} muted /> : null}
+      {columns.showLong ? <Cell theme={theme} text="Long" flex={FLEX.number} muted /> : null}
+      {columns.show256 ? <Cell theme={theme} text="256" flex={FLEX.number} muted /> : null}
+      {columns.showK2 ? <Cell theme={theme} text="2k" flex={FLEX.number} muted /> : null}
     </View>
   );
 }
@@ -282,17 +288,18 @@ function Badges({ theme, row }: { theme: Theme; row: ResultRow }): ReactNode {
 function Numbers({
   theme,
   row,
-  showK2,
+  columns,
 }: {
   theme: Theme;
   row: ResultRow;
-  showK2: boolean;
+  columns: Columns;
 }): ReactNode {
   if (row.text !== null) {
+    const shown = 1 + [columns.showLong, columns.show256, columns.showK2].filter(Boolean).length;
     return (
       <Text
         style={{
-          flex: FLEX.number * (showK2 ? 4 : 3),
+          flex: FLEX.number * shown,
           color: theme.colors.foregroundMuted,
           fontSize: 13,
         }}
@@ -304,9 +311,9 @@ function Numbers({
   return (
     <>
       <Cell theme={theme} text={row.typical} flex={FLEX.number} />
-      <Cell theme={theme} text={row.long} flex={FLEX.number} />
-      <Cell theme={theme} text={row.p256} flex={FLEX.number} />
-      {showK2 ? <Cell theme={theme} text={row.k2} flex={FLEX.number} /> : null}
+      {columns.showLong ? <Cell theme={theme} text={row.long} flex={FLEX.number} /> : null}
+      {columns.show256 ? <Cell theme={theme} text={row.p256} flex={FLEX.number} /> : null}
+      {columns.showK2 ? <Cell theme={theme} text={row.k2} flex={FLEX.number} /> : null}
     </>
   );
 }
@@ -314,13 +321,13 @@ function Numbers({
 function Row({
   theme,
   row,
-  showK2,
+  columns,
   busy,
   onPress,
 }: {
   theme: Theme;
   row: ResultRow;
-  showK2: boolean;
+  columns: Columns;
   busy: boolean;
   onPress: (a: BenchAction) => void;
 }): ReactNode {
@@ -336,7 +343,7 @@ function Row({
           <Badges theme={theme} row={row} />
         </View>
         <Cell theme={theme} text={row.format} flex={FLEX.format} muted />
-        <Numbers theme={theme} row={row} showK2={showK2} />
+        <Numbers theme={theme} row={row} columns={columns} />
       </View>
       {row.hint === null ? null : <Muted theme={theme}>{row.hint}</Muted>}
       {row.error === null ? null : <Muted theme={theme}>{row.error}</Muted>}
@@ -350,13 +357,13 @@ function Row({
 function Group({
   theme,
   group,
-  showK2,
+  columns,
   busy,
   onPress,
 }: {
   theme: Theme;
   group: ResultGroup;
-  showK2: boolean;
+  columns: Columns;
   busy: boolean;
   onPress: (a: BenchAction) => void;
 }): ReactNode {
@@ -380,9 +387,16 @@ function Group({
           <ActionButton theme={theme} action={group.useFastest} busy={busy} onPress={onPress} />
         )}
       </View>
-      <HeaderRow theme={theme} showK2={showK2} />
+      <HeaderRow theme={theme} columns={columns} />
       {group.rows.map((row) => (
-        <Row key={row.key} theme={theme} row={row} showK2={showK2} busy={busy} onPress={onPress} />
+        <Row
+          key={row.key}
+          theme={theme}
+          row={row}
+          columns={columns}
+          busy={busy}
+          onPress={onPress}
+        />
       ))}
     </View>
   );
@@ -419,7 +433,7 @@ function Results({
             key={g.family}
             theme={theme}
             group={g}
-            showK2={card.showK2}
+            columns={card}
             busy={busy}
             onPress={onPress}
           />
