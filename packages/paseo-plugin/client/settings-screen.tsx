@@ -80,7 +80,9 @@ function Message({ theme, text }: { theme: Theme; text: string }): ReactNode {
 
 /**
  * Sections run from what a user is most likely to change to what they rarely touch: health, how
- * each policy acts, routing and the model, how decisions show up, then connection details.
+ * each decision acts and the model that answers by default (the Engine and model section changes
+ * what Decisions shows, so it sits directly below), routing, how decisions show up, then connection
+ * details.
  */
 export function SettingsScreen({ theme, navigation }: PluginSurfaceProps): ReactNode {
   const settings = useSettings(deciderSettings);
@@ -111,6 +113,7 @@ export function SettingsScreen({ theme, navigation }: PluginSurfaceProps): React
       {settings.saveError === null ? null : <Message theme={theme} text={settings.saveError} />}
       <StatusSection theme={theme} gatewayUrl={values.gatewayUrl} />
       <DecisionsSection theme={theme} values={values} save={save} />
+      <EngineSection theme={theme} gatewayUrl={values.gatewayUrl} />
       <RoutingSection
         theme={theme}
         navigation={navigation}
@@ -118,7 +121,6 @@ export function SettingsScreen({ theme, navigation }: PluginSurfaceProps): React
         values={values}
         save={save}
       />
-      <EngineSection theme={theme} gatewayUrl={values.gatewayUrl} />
       <RowsSection values={values} save={save} />
       <SidebarSection values={values} save={save} />
       <GatewaySection values={values} save={save} />

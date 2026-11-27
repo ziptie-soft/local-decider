@@ -634,6 +634,50 @@ export function moreModelsCount(catalog: EngineCatalog): number {
   ).length;
 }
 
+/** What the Default model card shows. */
+export interface DefaultModelView {
+  /** The Default model row's value. */
+  readonly value: string;
+  readonly hint: string;
+  /** "{n} not downloaded" for the More models row; null when the row is not shown. */
+  readonly more: string | null;
+}
+
+/**
+ * The Default model card for the engines query and the gateway status check: "Checking…" while the
+ * catalog loads, "Unknown" when the gateway or its engines cannot be reached (`queryFailed`: the
+ * engines query errored with no catalog to show), else the running model, or "None yet" when none
+ * is chosen. The More models row needs `catalog.policies`: an older gateway renders the card
+ * without it.
+ */
+export function defaultModelView(
+  catalog: EngineCatalog | undefined,
+  gatewayUp: boolean,
+  queryFailed = false,
+  now: number = Date.now(),
+): DefaultModelView {
+  if (!gatewayUp) {
+    return { value: 'Unknown', hint: 'The gateway is unreachable.', more: null };
+  }
+  if (catalog?.reachable === false || (catalog === undefined && queryFailed)) {
+    return {
+      value: 'Unknown',
+      hint: 'The gateway is unreachable or has no /v1/engines.',
+      more: null,
+    };
+  }
+  if (catalog === undefined) {
+    return { value: 'Checking…', hint: 'Asking the gateway for its engines.', more: null };
+  }
+  const count = catalog.policies === undefined ? 0 : moreModelsCount(catalog);
+  return {
+    // A name without a model would contradict the "Pick one…" hint, so it reads as none.
+    value: (hasModel(catalog.active) ? runningName(catalog) : null) ?? 'None yet',
+    hint: defaultModelHint(catalog, now),
+    more: count > 0 ? `${String(count)} not downloaded` : null,
+  };
+}
+
 // ── quick-status popover ─────────────────────────────────────────────────────────────────────
 
 type PopoverCase =
