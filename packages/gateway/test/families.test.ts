@@ -53,6 +53,13 @@ describe('model families', () => {
     assert.equal(isKnownFamily('vllm-sr/d3-mini'), true);
     assert.equal(isKnownFamily('fastflowlm:d3:edge'), true);
     assert.equal(isKnownFamily('fastflowlm:missing'), false);
+    assert.equal(isKnownFamily('someone/unlisted'), false);
+  });
+
+  it('accepts every catalogue base model as a family, labelled or not', () => {
+    for (const model of allModels()) {
+      assert.equal(isKnownFamily(familyId(model)), true, familyId(model));
+    }
   });
 
   it('formats supported and unknown quant codes', () => {
