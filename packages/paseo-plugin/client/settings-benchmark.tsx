@@ -53,7 +53,7 @@ function startBody(a: BenchAction): Record<string, unknown> {
   return { scope: 'installed', ...(a.only === null ? {} : { only: a.only }) };
 }
 
-function useBenchmarkActions(runner: Runner, onShowResults: () => void): (a: BenchAction) => void {
+function useBenchmarkActions(runner: Runner): (a: BenchAction) => void {
   const start = useRpc(benchmarkStartRpc);
   const cancel = useRpc(benchmarkCancelRpc);
   const select = useRpc(selectEngineRpc);
@@ -97,8 +97,6 @@ function useBenchmarkActions(runner: Runner, onShowResults: () => void): (a: Ben
         return selectTarget(a, 'Switching. Decisions fail open until it is ready.');
       case 'restore':
         return selectTarget(a, 'Switching back. Decisions fail open until it is ready.');
-      case 'show-results':
-        return onShowResults();
       default:
         return startRun(a);
     }
@@ -439,7 +437,7 @@ export function BenchmarkCard({
   onResultsOpen,
 }: Props): ReactNode {
   const runner = useAction();
-  const perform = useBenchmarkActions(runner, () => onResultsOpen(true));
+  const perform = useBenchmarkActions(runner);
   if (view == null) {
     // No benchmark endpoint (older gateway), or not read yet.
     return null;

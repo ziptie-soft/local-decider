@@ -12,7 +12,6 @@ export type BenchActionKind =
   | 'cancel'
   | 'finish'
   | 'again'
-  | 'show-results'
   | 'restore'
   | 'auto'
   | 'measure'
@@ -735,9 +734,8 @@ interface Actions {
 function endActions(v: BenchmarkView | null): Actions {
   const again = runAction(v, 'Run again');
   const finish = action('finish', 'Finish benchmark', { only: 'missing' });
-  const show = action('show-results', 'Show results');
   if (v?.state === 'done') {
-    return { primary: again, secondary: [show] };
+    return { primary: again, secondary: [] };
   }
   if (v?.state === 'cancelled') {
     return v.cancelReason === 'user' || v.cancelReason === null

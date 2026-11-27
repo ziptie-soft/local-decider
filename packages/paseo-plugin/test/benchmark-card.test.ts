@@ -451,6 +451,13 @@ describe('benchmark card: results', () => {
     );
   });
 
+  it('offers only Run again once a run is done; the open results sit below', () => {
+    const card = benchmarkCard(view({ state: 'done' }), catalog());
+    assert.equal(card.primary.label, 'Run again');
+    assert.deepEqual(card.secondary, []);
+    assert.equal(card.resultsExpanded, true);
+  });
+
   it('offers Use fastest by mode, and Use for a single-runtime family', () => {
     const auto = benchmarkCard(view({ state: 'done' }), catalog());
     const mini = auto.groups.find((g) => g.family === 'f/mini');
