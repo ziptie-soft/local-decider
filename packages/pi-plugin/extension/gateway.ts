@@ -46,6 +46,7 @@ export interface Gateway {
     options: CallOptions,
   ): Promise<boolean>;
   health(options: CallOptions): Promise<boolean>;
+  healthStatus?(options: CallOptions): Promise<string | null>;
   systemOne(body: unknown, options: CallOptions): Promise<unknown>;
 }
 
@@ -150,6 +151,11 @@ export function createGateway(options: GatewayOptions): Gateway {
     }
   }
 
+  async function healthStatus(call: CallOptions): Promise<string | null> {
+    const res = await request('GET', '/health', undefined, call);
+    return isRecord(res) && typeof res['status'] === 'string' ? res['status'] : null;
+  }
+
   return {
     async decide(policy, req, call) {
       const budgetMs = req.budgetMs ?? budgetFor(call.timeoutMs);
@@ -166,9 +172,10 @@ export function createGateway(options: GatewayOptions): Gateway {
       );
       return res !== null;
     },
+    healthStatus,
     async health(call) {
-      const res = await request('GET', '/health', undefined, call);
-      return isRecord(res) && typeof res['status'] === 'string';
+      const status = await healthStatus(call);
+      return status !== null && status !== undefined && status !== 'down';
     },
     systemOne: async (body, call) => request('POST', '/v1/systemone', body, call),
   };

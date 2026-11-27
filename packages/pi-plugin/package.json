@@ -42,6 +42,9 @@
   "engines": {
     "node": ">=24.15"
   },
+  "localDecider": {
+    "gateway": "3.2.0"
+  },
   "pi": {
     "extensions": [
       "./extension/index.ts"

@@ -70,12 +70,12 @@ function fakeCtx(): Ui {
   return { ctx, notes, status };
 }
 
-function fetchStub(ok: boolean): { fetch: typeof fetch; calls: string[] } {
+function fetchStub(ok: boolean | 'down'): { fetch: typeof fetch; calls: string[] } {
   const calls: string[] = [];
   const stub = (async (url: string | URL | Request) => {
     calls.push(typeof url === 'string' ? url : url instanceof URL ? url.href : url.url);
-    if (!ok) throw new Error('down');
-    return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
+    if (ok === false) throw new Error('down');
+    return new Response(JSON.stringify({ status: ok === 'down' ? 'down' : 'ok' }), { status: 200 });
   }) as typeof fetch;
   return { fetch: stub, calls };
 }
@@ -86,13 +86,24 @@ interface Setup {
   fake: Fake;
   net: { fetch: typeof fetch; calls: string[] };
   ui: Ui;
+  launches: () => number;
 }
 
-function setup(env: Record<string, string> = {}, ok = true): Setup {
+function setup(env: Record<string, string> = {}, ok: boolean | 'down' = true): Setup {
   const fake = fakePi();
   const net = fetchStub(ok);
-  createExtension({ env, fetch: net.fetch, platform: 'linux', now: () => 0 })(fake.pi);
-  return { fake, net, ui: fakeCtx() };
+  let launches = 0;
+  createExtension({
+    env,
+    fetch: net.fetch,
+    platform: 'linux',
+    now: () => 0,
+    launch: async () => {
+      launches++;
+      return { ok: false, status: 'not-installed', message: 'gateway not installed' };
+    },
+  })(fake.pi);
+  return { fake, net, ui: fakeCtx(), launches: () => launches };
 }
 
 async function start(s: Setup): Promise<void> {
@@ -155,9 +166,28 @@ test('the flag is read at session_start', async () => {
 test('health failure sets ld: offline', async () => {
   const s = setup({}, false);
   await start(s);
-  assert.deepEqual(s.ui.status, ['ld: guard', 'ld: offline']);
+  assert.deepEqual(s.ui.status, ['ld: guard', 'ld: starting', 'ld: offline']);
+  assert.equal(s.launches(), 1);
   await run(s, '');
   assert.match(s.ui.notes.at(-1)?.message ?? '', /gateway offline/);
+});
+
+test('a reachable gateway with status down reports ld: down', async () => {
+  const s = setup({}, 'down');
+  await start(s);
+  assert.deepEqual(s.ui.status, ['ld: guard', 'ld: starting', 'ld: down']);
+  assert.equal(s.launches(), 1);
+});
+
+test('automatic launch is attempted at most once per pi process', async () => {
+  const s = setup({}, false);
+  await start(s);
+  await s.fake.handlers.get('session_shutdown')?.(
+    { type: 'session_shutdown', reason: 'new' },
+    s.ui.ctx,
+  );
+  await start(s);
+  assert.equal(s.launches(), 1);
 });
 
 test('command without args reports state and never the token', async () => {
@@ -184,6 +214,13 @@ test('command mode sets an override; invalid and unknown input notify', async ()
   assert.equal(s.ui.status.at(-1), 'ld: off');
   await run(s, 'frobnicate');
   assert.match(s.ui.notes.at(-1)?.message ?? '', /usage/);
+});
+
+test('/local-decider start retries the launcher and reports its result', async () => {
+  const s = setup();
+  await run(s, 'start');
+  assert.equal(s.launches(), 1);
+  assert.match(s.ui.notes.at(-1)?.message ?? '', /gateway not installed/);
 });
 
 test('session_shutdown clears the override', async () => {
