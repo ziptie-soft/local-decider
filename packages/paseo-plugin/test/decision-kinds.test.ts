@@ -5,7 +5,7 @@ import { PERMISSION_DEADLINE_MS } from '../server/permission.ts';
 import { ROUTING_BUDGET_MS } from '../server/routing.ts';
 import { DECIDE_TIMEOUT_MS } from '../server/turn.ts';
 import { GATEWAY_POLICIES, HOOK_POLICIES, PLUGIN_MODES } from '../shared/constants.ts';
-import { DECISION_KINDS, modeOptions } from '../shared/decision-kinds.ts';
+import { DECISION_KINDS, modeEffectLine, modeOptions } from '../shared/decision-kinds.ts';
 
 describe('DECISION_KINDS', () => {
   it('has exactly the gateway policies', () => {
@@ -57,5 +57,14 @@ describe('DECISION_KINDS', () => {
     assert.equal(DECISION_KINDS.permission.budgets.paseo, PERMISSION_DEADLINE_MS - 500);
     assert.equal(DECISION_KINDS.routing.budgets.paseo, ROUTING_BUDGET_MS - 500);
     assert.equal(DECISION_KINDS['turn-outcome'].budgets.paseo, DECIDE_TIMEOUT_MS - 500);
+  });
+});
+
+describe('modeEffectLine', () => {
+  it('names the mode and what it does for the kind', () => {
+    assert.equal(
+      modeEffectLine('permission', 'shadow'),
+      'Shadow: Records what it would approve; every request still waits for you.',
+    );
   });
 });
