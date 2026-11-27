@@ -10,6 +10,17 @@ import { thresholdText, type ThresholdSetting } from './policies.ts';
 const MAX_OPTIONS = 12;
 /** Below this confidence a shadow row counts as notable. */
 const LOW_CONFIDENCE = 0.7;
+
+const SHOW_HINTS: Readonly<Record<RowVisibility, string>> = {
+  all: "Every decision appears as a row in the agent's chat.",
+  notable: `Only decisions that changed something, need attention, failed, or were below ${String(Math.round(LOW_CONFIDENCE * 100))}% confidence in Shadow.`,
+  off: 'No rows. Decisions still run and the gateway logs them.',
+};
+
+/** The hint under the chat-row `Show` select: what the selected option does. */
+export function showHint(show: RowVisibility): string {
+  return `${SHOW_HINTS[show]} /decide results always show.`;
+}
 /** Below this confidence the summary says `unsure` instead of presenting the answer. */
 const UNSURE_CONFIDENCE = 0.5;
 
