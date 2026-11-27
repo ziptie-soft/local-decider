@@ -437,7 +437,9 @@ function ownModelText(f: Facts, lifecycle: string): string {
   const duration =
     f.target === null || model === undefined ? null : measuredDuration(model, f.target.device);
   const speed =
-    duration === null ? 'Speed not measured here.' : `About ${duration} per decision in the benchmark.`;
+    duration === null
+      ? 'Speed not measured here.'
+      : `About ${duration} per decision in the benchmark.`;
   return `Own model on ${where}${memoryClause(f)}. ${lifecycle} ${speed}`;
 }
 
@@ -599,6 +601,16 @@ const UNAVAILABLE_TAIL: Readonly<Record<Fallback, string>> = {
   open: 'These decisions are skipped.',
 };
 
+const CAP_REASON = /^too many decisions with their own model \(max (\d+)\)$/;
+
+/** The cap error with a way out; null for any other failure. */
+function capText(title: string, reason: string): string | null {
+  const max = CAP_REASON.exec(reason)?.[1];
+  return max === undefined
+    ? null
+    : `Couldn't give ${title} its own model: ${max} decisions already have one. Set one of them to Default or Off, then try again.`;
+}
+
 /**
  * The message shown on a card after a model write. `label` is the model that was set, null for
  * the default model; `fallback` is what a model that is not available falls back to.
@@ -612,7 +624,11 @@ export function modelOutcome(
 ): ModelOutcome {
   const { title } = DECISION_KINDS[kind];
   if (!res.ok) {
-    return { tone: 'error', text: `Couldn't switch ${title}: ${failureReason(res)}.` };
+    const reason = failureReason(res);
+    return {
+      tone: 'error',
+      text: capText(title, reason) ?? `Couldn't switch ${title}: ${reason}.`,
+    };
   }
   if (label === null) {
     return { tone: 'success', text: `${title} now uses the default model.` };

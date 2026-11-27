@@ -25,7 +25,8 @@ export function gatewayRow(status: StatusLike | undefined): { label: string; hin
     };
   }
   // The live p50, unrounded like the quick-status popover and the sidebar, so the three agree.
-  const typical = status.p50Ms === null ? '' : ` · recent decisions: typically ${formatMs(status.p50Ms)}`;
+  const typical =
+    status.p50Ms === null ? '' : ` · recent decisions: typically ${formatMs(status.p50Ms)}`;
   return { label: 'Gateway is running', hint: `Answering at ${status.gatewayUrl}${typical}` };
 }
 
