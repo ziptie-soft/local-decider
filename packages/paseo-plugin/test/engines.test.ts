@@ -11,6 +11,7 @@ import {
   selectEngine,
   setSelectionMode,
   setPath,
+  setPolicySelection,
   validateEngine,
 } from '../server/engines.ts';
 import { benchmarkStartInput } from '../shared/benchmark.ts';
@@ -23,6 +24,7 @@ import {
   ENGINES_POLL_MS,
   initialEngine,
   canRemoveModel,
+  engineCatalogSchema,
   modelRowState,
   modelRowView,
   parseEngineCatalog,
@@ -32,6 +34,7 @@ import {
   type ModelRowView,
   type ModelRowContext,
 } from '../shared/engines.ts';
+import { policySelectionInputSchema } from '../shared/policies.ts';
 import { deps, fakeGateway, settings } from './fakes.ts';
 
 const STRANDS = 'StrandsAgents/strands-decider-2B-qwen3.5-v1-2610';
@@ -527,6 +530,19 @@ describe('model row state', () => {
   });
 });
 
+/** A catalog that is otherwise idle, with the `command-risk` lane in `state`. */
+function withLane(state: string): EngineCatalog {
+  return parseEngineCatalog({
+    ...BODY,
+    active: { ...BODY.active, state: 'ready' },
+    downloads: [],
+    policies: [
+      { id: 'permission', state: 'ready' },
+      { id: 'command-risk', state },
+    ],
+  });
+}
+
 describe('engines polling', () => {
   const base: EngineCatalog = parseEngineCatalog(BODY);
 
@@ -543,6 +559,318 @@ describe('engines polling', () => {
   it('polls while the model loads', () => {
     const loading = { ...base, downloads: [], active: { ...base.active!, state: 'starting' } };
     assert.equal(enginesPollInterval(loading), ENGINES_POLL_MS);
+  });
+
+  it("polls while a decision's own model loads, and not once it is ready", () => {
+    const idle = { ...base, downloads: [], active: { ...base.active!, state: 'ready' } };
+    assert.equal(enginesPollInterval(idle), false);
+    assert.equal(enginesPollInterval(withLane('starting')), ENGINES_POLL_MS);
+    assert.equal(enginesPollInterval(withLane('ready')), false);
+    assert.equal(enginesPollInterval(withLane('failed')), false);
+  });
+});
+
+function policiesOf(policies: unknown): EngineCatalog['policies'] {
+  return parseEngineCatalog({ ...BODY, policies }).policies;
+}
+
+describe('policy models in the catalog', () => {
+  const OWN = { engine: 'llama-vulkan', model: 'd3-lite-q8_0', fallback: 'default' };
+
+  it('reads an override, an inherited policy, and a policy that is off', () => {
+    const policies = policiesOf([
+      {
+        id: 'command-risk',
+        selection: { ...OWN, device: 'cuda' },
+        status: 'active',
+        fallback: 'default',
+        engine: 'llama-vulkan',
+        model: 'd3-lite-q8_0',
+        label: 'Llama (Vulkan)',
+        state: 'ready',
+      },
+      {
+        id: 'routing',
+        selection: OWN,
+        status: 'active',
+        fallback: 'default',
+        engine: 'fastflowlm',
+        model: 'd3:nano',
+        label: 'FastFlowLM (AMD NPU)',
+        state: 'stopped',
+      },
+      { id: 'turn-outcome', selection: OWN, status: 'off', fallback: 'open', state: 'stopped' },
+    ]);
+    assert.deepEqual(
+      policies?.map((p) => [p.id, p.status, p.state]),
+      [
+        ['command-risk', 'active', 'ready'],
+        ['routing', 'active', 'stopped'],
+        ['turn-outcome', 'off', 'stopped'],
+      ],
+    );
+    assert.deepEqual(policies?.[0]?.selection, { ...OWN, device: 'cuda' });
+    assert.equal(policies?.[0]?.label, 'Llama (Vulkan)');
+    assert.equal(policies?.[1]?.model, 'd3:nano');
+    assert.equal(policies?.[2]?.fallback, 'open');
+  });
+
+  it('reads an unavailable policy with each fallback and its reason', () => {
+    const [skipped, covered] = policiesOf([
+      {
+        id: 'command-risk',
+        selection: { ...OWN, fallback: 'open' },
+        status: 'unavailable',
+        reason: 'llama-vulkan is not available',
+        fallback: 'open',
+        engine: 'llama-vulkan',
+        model: 'd3-lite-q8_0',
+        state: 'failed',
+      },
+      {
+        id: 'routing',
+        selection: OWN,
+        status: 'unavailable',
+        reason: 'does not fit with the default model',
+        fallback: 'default',
+        engine: 'fastflowlm',
+        model: 'd3:nano',
+        state: 'ready',
+      },
+    ])!;
+    assert.deepEqual(
+      [skipped?.status, skipped?.fallback, skipped?.selection?.fallback, skipped?.reason],
+      ['unavailable', 'open', 'open', 'llama-vulkan is not available'],
+    );
+    assert.deepEqual(
+      [covered?.status, covered?.fallback, covered?.reason],
+      ['unavailable', 'default', 'does not fit with the default model'],
+    );
+    // The fallback answers on the default model, so the lane reports that model.
+    assert.equal(covered?.model, 'd3:nano');
+  });
+
+  it('keeps an empty list, and leaves the field undefined for an older gateway', () => {
+    assert.deepEqual(policiesOf([]), []);
+    assert.equal(parseEngineCatalog(BODY).policies, undefined);
+    assert.equal(policiesOf(null), undefined);
+    assert.equal(policiesOf({ id: 'permission' }), undefined);
+    // What the RPC returns is what its output schema accepts, with or without the list.
+    for (const policies of [undefined, [], [{ id: 'routing', status: 'off' }]]) {
+      const catalog = parseEngineCatalog({ ...BODY, policies });
+      assert.deepEqual(engineCatalogSchema.parse(catalog).policies, catalog.policies);
+    }
+    // The rest of the catalog is unaffected either way.
+    assert.equal(parseEngineCatalog(BODY).models.length, 2);
+    assert.equal(parseEngineCatalog({ ...BODY, policies: 'x' }).models.length, 2);
+  });
+
+  it('drops a bad field or entry without dropping the catalog', () => {
+    const catalog = parseEngineCatalog({
+      ...BODY,
+      policies: [
+        'nope',
+        { status: 'active' },
+        {
+          id: 'command-risk',
+          selection: { engine: 'llama-vulkan' },
+          status: 'sleeping',
+          reason: 7,
+          fallback: 'closed',
+          engine: 3,
+          model: '',
+          label: null,
+          state: 'hibernating',
+        },
+        { id: 'routing', selection: { ...OWN, device: 4, fallback: 'maybe' }, status: 'active' },
+      ],
+    });
+    assert.equal(catalog.models.length, 2);
+    assert.deepEqual(
+      catalog.policies?.map((p) => p.id),
+      ['command-risk', 'routing'],
+    );
+    const [broken, odd] = catalog.policies;
+    assert.deepEqual(
+      [
+        broken?.selection,
+        broken?.status,
+        broken?.reason,
+        broken?.fallback,
+        broken?.engine,
+        broken?.model,
+        broken?.label,
+        broken?.state,
+      ],
+      Array.from({ length: 8 }, () => undefined),
+    );
+    assert.equal(odd?.status, 'active');
+    assert.equal(odd?.selection?.model, 'd3-lite-q8_0');
+    assert.equal(odd?.selection?.device, undefined);
+    assert.equal(odd?.selection?.fallback, undefined);
+  });
+});
+
+function accepted(input: unknown): boolean {
+  return policySelectionInputSchema.safeParse(input).success;
+}
+
+describe('policySelectionInputSchema', () => {
+  it('takes a model of its own or a clear, for a decision kind', () => {
+    const selection = { engine: 'llama-vulkan', model: 'd3-lite-q8_0' };
+    assert.equal(accepted({ policy: 'command-risk', selection }), true);
+    assert.equal(
+      accepted({ policy: 'command-risk', selection: { ...selection, device: 'cuda' } }),
+      true,
+    );
+    assert.equal(accepted({ policy: 'turn-outcome', selection: { clear: true } }), true);
+    for (const fallback of ['default', 'open']) {
+      assert.equal(accepted({ policy: 'routing', selection: { ...selection, fallback } }), true);
+    }
+  });
+
+  it('refuses an unknown decision, a half selection, and a clear with fields', () => {
+    const selection = { engine: 'llama-vulkan', model: 'm' };
+    assert.equal(accepted({ policy: 'nope', selection }), false);
+    assert.equal(accepted({ policy: 'routing', selection: { engine: 'llama-vulkan' } }), false);
+    assert.equal(accepted({ policy: 'routing', selection: { clear: false } }), false);
+    assert.equal(accepted({ policy: 'routing', selection: { ...selection, clear: true } }), false);
+    assert.equal(
+      accepted({ policy: 'routing', selection: { ...selection, fallback: 'closed' } }),
+      false,
+    );
+    assert.equal(
+      accepted({ policy: 'routing', selection: { clear: true, fallback: 'open' } }),
+      false,
+    );
+    assert.equal(
+      accepted({ policy: 'routing', selection: { ...selection, device: 'GPU 0' } }),
+      false,
+    );
+  });
+});
+
+/** A gateway whose selection route answers 200 with `body`. */
+function answering(body: unknown): ReturnType<typeof fakeGateway> {
+  return {
+    ...fakeGateway(() => null),
+    setPolicySelection: async () => ({ ok: true as const, body }),
+  };
+}
+
+describe('policy selection RPC handler', () => {
+  it('posts the selection, or a clear, for the decision', async () => {
+    const gw = {
+      ...fakeGateway(() => null),
+      setPolicySelection: async (policy: string, selection: unknown) => {
+        posted.push({ policy, selection });
+        return { ok: true as const, body: { ok: true, policy, status: 'active' } };
+      },
+    };
+    const posted: { policy: string; selection: unknown }[] = [];
+    const d = deps(settings(), gw);
+    assert.deepEqual(
+      await setPolicySelection(d, {
+        policy: 'command-risk',
+        selection: { engine: 'llama-vulkan', model: 'd3-lite-q8_0', device: 'cuda' },
+      }),
+      { ok: true, error: null, status: 'active' },
+    );
+    await setPolicySelection(d, { policy: 'command-risk', selection: { clear: true } });
+    assert.deepEqual(posted, [
+      {
+        policy: 'command-risk',
+        selection: { engine: 'llama-vulkan', model: 'd3-lite-q8_0', device: 'cuda' },
+      },
+      { policy: 'command-risk', selection: { clear: true } },
+    ]);
+    assert.deepEqual(d.logs, [
+      'policy command-risk model llama-vulkan d3-lite-q8_0 on cuda: accepted',
+      'policy command-risk model the default model: accepted',
+    ]);
+  });
+
+  it('forwards the fallback, so a model change keeps it', async () => {
+    const gw = fakeGateway(() => null);
+    const selection = { engine: 'llama-vulkan', model: 'm', fallback: 'open' as const };
+    await setPolicySelection(deps(settings(), gw), { policy: 'routing', selection });
+    assert.deepEqual(gw.posts, [
+      { name: 'setPolicySelection', input: { policy: 'routing', selection } },
+    ]);
+  });
+
+  it('returns the status and reason of an accepted model, and tolerates a bare 200', async () => {
+    const input = {
+      policy: 'routing' as const,
+      selection: { engine: 'llama-vulkan', model: 'm' },
+    };
+    const unavailable = { status: 'unavailable', reason: 'llama-vulkan is not available' };
+    assert.deepEqual(await setPolicySelection(deps(settings(), answering(unavailable)), input), {
+      ok: true,
+      error: null,
+      ...unavailable,
+    });
+    for (const body of [{}, null, 'ok', { status: 'asleep', reason: 4 }]) {
+      assert.deepEqual(await setPolicySelection(deps(settings(), answering(body)), input), {
+        ok: true,
+        error: null,
+      });
+    }
+  });
+
+  it('waits up to 30 s for the lane transition', async () => {
+    let timeoutMs: number | undefined;
+    const gw = {
+      ...fakeGateway(() => null),
+      setPolicySelection: async (_p: string, _s: unknown, options?: { timeoutMs?: number }) => {
+        timeoutMs = options?.timeoutMs;
+        return { ok: true as const, body: {} };
+      },
+    };
+    await setPolicySelection(deps(settings(), gw), {
+      policy: 'routing',
+      selection: { clear: true },
+    });
+    assert.equal(timeoutMs, 30_000);
+  });
+
+  it('keeps control characters of an engine or model out of the log', async () => {
+    const d = deps(
+      settings(),
+      fakeGateway(() => null),
+    );
+    await setPolicySelection(d, {
+      policy: 'routing',
+      selection: { engine: 'e\nFAKE: line', model: 'm\u001b[31m\r\nx' },
+    });
+    assert.equal(d.logs.length, 1);
+    assert.equal(/\p{Cc}/u.test(d.logs[0] ?? ''), false);
+    assert.match(d.logs[0] ?? '', /^policy routing model e FAKE: line m \[31m x: accepted$/);
+  });
+
+  it('maps a 409 body to ok: false with the gateway text', async () => {
+    const error = 'needs ~9 GB with the other models loaded; this machine allows ~6 GB';
+    const gw = {
+      ...fakeGateway(() => null),
+      setPolicySelection: async () => ({ ok: false as const, error }),
+    };
+    const d = deps(settings(), gw);
+    assert.deepEqual(
+      await setPolicySelection(d, {
+        policy: 'routing',
+        selection: { engine: 'llama-vulkan', model: 'big' },
+      }),
+      { ok: false, error },
+    );
+    assert.ok(d.logs.includes(`policy routing model llama-vulkan big: ${error}`));
+  });
+
+  it('reports a bad gateway URL', async () => {
+    const res = await setPolicySelection(deps(settings(), null), {
+      policy: 'routing',
+      selection: { clear: true },
+    });
+    assert.equal(res.ok, false);
   });
 });
 

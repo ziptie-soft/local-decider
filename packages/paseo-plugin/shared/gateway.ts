@@ -108,6 +108,15 @@ export interface Gateway {
   setLifecycle(lifecycle: Lifecycle, options?: CallOptions): Promise<PostResult>;
   /** `POST /v1/policies/:id/mode`: the gateway's run mode for a policy; persisted. */
   setPolicyMode(policy: string, mode: string, options?: CallOptions): Promise<PostResult>;
+  /**
+   * `POST /v1/policies/:id/selection`: the policy's own model, or `{clear: true}` for the default
+   * model; persisted. The gateway answers 409 when the model does not fit.
+   */
+  setPolicySelection(
+    policy: string,
+    selection: PolicySelectionBody,
+    options?: CallOptions,
+  ): Promise<PostResult>;
   /** `GET /v1/policies`: every policy with its routes, and for each base policy its variants. */
   policies(options?: CallOptions): Promise<unknown>;
   /** `POST /v1/policies/:id/variant`: which variant answers for a policy; persisted. */
@@ -163,6 +172,16 @@ export interface EngineSelection {
   readonly model: string;
   readonly device?: string;
 }
+
+/** The body of `POST /v1/policies/:id/selection`. */
+export type PolicySelectionBody =
+  | { readonly clear: true }
+  | {
+      readonly engine: string;
+      readonly model: string;
+      readonly device?: string | undefined;
+      readonly fallback?: 'default' | 'open' | undefined;
+    };
 
 /** An agent-tool read: the value, or a one-line error that is safe to show to the agent. */
 export type AgentResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -541,6 +560,8 @@ export function createGateway(options: GatewayOptions = {}): Gateway | null {
     setLifecycle: async (lifecycle, call) => post('/v1/engine/lifecycle', { ...lifecycle }, call),
     setPolicyMode: async (policy, mode, call) =>
       post(`/v1/policies/${encodeURIComponent(policy)}/mode`, { mode }, call),
+    setPolicySelection: async (policy, selection, call) =>
+      post(`/v1/policies/${encodeURIComponent(policy)}/selection`, { ...selection }, call),
     policies: async (call) => request('GET', '/v1/policies', undefined, call),
     setPolicyVariant: async (policy, variant, call) =>
       post(`/v1/policies/${encodeURIComponent(policy)}/variant`, { variant }, call),

@@ -13,10 +13,12 @@ import {
   policyModeInputSchema,
   policyModesSchema,
   policyPromptSchema,
+  policySelectionInputSchema,
   policyThresholdsSchema,
   policyVariantsSchema,
   routingSettingsSchema,
 } from './policies.ts';
+import { selectionResultSchema } from './policy-models.ts';
 import { reviewSummarySchema } from './review.ts';
 import { decisionRowSchema, LABEL_CHOICES } from './row.ts';
 import { policyStatsSchema } from './stats.ts';
@@ -185,6 +187,13 @@ export const policyModeRpc = defineRpc({
   name: 'policy-mode',
   input: policyModeInputSchema,
   output: z.object({ ok: z.boolean(), error: failure }),
+});
+
+/** Gives a decision its own model, or clears it (`POST /v1/policies/:id/selection`); persisted. */
+export const policySelectionRpc = defineRpc({
+  name: 'policy-selection',
+  input: policySelectionInputSchema,
+  output: selectionResultSchema,
 });
 
 /** A hook policy and the variants that can answer for it (`GET /v1/policies`). */
