@@ -1,12 +1,12 @@
+/**
+ * Hook entry point: `node dist/local-decider-hook.mjs <claude|codex> <Event>`. Reads the hook JSON from stdin,
+ * runs it, writes the harness answer to stdout and exits 0. Everything else lives in `run.ts`.
+ */
 import { launchGateway } from '@ziptie-soft/local-decider-launcher';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 import { gatewayConfig } from './gateway-config.ts';
-/**
- * Hook entry point: `node dist/local-decider-hook.mjs <claude|codex> <Event>`. Reads the hook JSON from stdin,
- * runs it, writes the harness answer to stdout and exits 0. Everything else lives in `run.ts`.
- */
 import { run, timeoutOf } from './run.ts';
 
 /** Up to this size a hook payload is handled normally. */
@@ -66,6 +66,7 @@ function startGatewayDetached(): void {
       env: process.env,
       windowsHide: true,
     });
+    child.on('error', () => {});
     child.unref();
   } catch {
     // SessionStart is fail-open if the detached kick cannot be created.
@@ -92,8 +93,10 @@ async function launchMode(): Promise<void> {
   const pinnedVersion = pinnedGatewayVersion();
   if (pinnedVersion === null) return;
   const env = process.env;
+  const gateway = gatewayConfig(env);
   await launchGateway({
-    url: gatewayConfig(env).url,
+    url: gateway.url,
+    defaultEndpoint: gateway.defaultEndpoint,
     env,
     pinnedVersion,
     guideUrl: 'https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md',

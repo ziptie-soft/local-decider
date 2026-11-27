@@ -1,7 +1,10 @@
 import { TOKEN_ENV, TOKEN_ORIGIN_ENV } from '../shared/constants.ts';
+import { DEFAULT_GATEWAY_URL } from '../shared/constants.ts';
 import { createGateway, type Gateway, type GatewayOptions } from '../shared/gateway.ts';
 import { bearerAllowed, loopbackUrl, originOf } from '../shared/url.ts';
 import { readLocalToken } from './deps.ts';
+import { gatewaySocketPathForEnv } from './launcher/socket-path.ts';
+import { socketFetch } from './launcher/transport.ts';
 
 export interface GatewaySourceOptions {
   readonly env?: NodeJS.ProcessEnv;
@@ -64,9 +67,14 @@ export function gatewaySource(options: GatewaySourceOptions): (url: string) => G
     const token = env[TOKEN_ENV] || undefined;
     const tokenOrigin = env[TOKEN_ORIGIN_ENV] || undefined;
     warnWithheld(url, token, tokenOrigin);
+    const defaultEndpoint =
+      url === DEFAULT_GATEWAY_URL && (env['LOCAL_DECIDER_URL']?.trim() ?? '') === '';
+    const socketPath = defaultEndpoint ? gatewaySocketPathForEnv(env) : null;
     const gatewayOptions: GatewayOptions = {
       baseUrl: url,
       token,
+      clientId: 'paseo/3.1.1',
+      ...(socketPath === null ? {} : { fetch: socketFetch(socketPath) }),
       tokenOrigin,
       reportToken: report,
       controlToken: control,

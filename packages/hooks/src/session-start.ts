@@ -2,8 +2,9 @@
  * Claude Code `SessionStart`: one gateway health check, so a session that starts without the
  * gateway says so once. Healthy → no output. Never prints the URL's userinfo, path or the token.
  */
-import { str, type GatewayHealth } from '@ziptie-soft/local-decider-core';
+import { str, type GatewayClient, type GatewayHealth } from '@ziptie-soft/local-decider-core';
 import { isLoopbackUrl } from '@ziptie-soft/local-decider-launcher';
+import { gatewaySocketPathForEnv } from '@ziptie-soft/local-decider-launcher/socket-path';
 
 import { gatewayClient, gatewayConfig, type Env } from './gateway-config.ts';
 import type { HookHarness } from './mapping.ts';
@@ -16,9 +17,52 @@ const HEALTH_TIMEOUT_MS = 1000;
 const MAX_DETAIL = 120;
 const MAX_STATUS = 20;
 
-export function healthFromEnv(env: Env, timeoutMs: number): Health {
-  const client = gatewayClient(env, Math.min(timeoutMs, HEALTH_TIMEOUT_MS));
-  return async () => client.health();
+export function healthFromEnv(
+  env: Env,
+  timeoutMs: number,
+  harness: HookHarness = 'claude',
+): Health {
+  const config = gatewayConfig(env);
+  const client = gatewayClient(env, Math.min(timeoutMs, HEALTH_TIMEOUT_MS), harness);
+  const socketPath = config.defaultEndpoint ? gatewaySocketPathForEnv(env) : null;
+  return () => socketAwareHealth(client, config.url, socketPath, harness);
+}
+
+async function socketAwareHealth(
+  client: GatewayClient,
+  url: string,
+  socketPath: string | null,
+  harness: HookHarness,
+): Promise<GatewayHealth | null> {
+  const health = await client.health();
+  if (health !== null || socketPath === null) return health;
+  return legacyHealth(url, harness);
+}
+
+async function legacyHealth(url: string, harness: HookHarness): Promise<GatewayHealth | null> {
+  try {
+    const response = await fetch(new URL('/health', url), {
+      method: 'GET',
+      redirect: 'error',
+      headers: { 'x-local-decider-client': `${harness}-hooks/1.0.0` },
+      signal: AbortSignal.timeout(250),
+    });
+    const value: unknown = await response.json();
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      typeof (value as Record<string, unknown>)['status'] !== 'string' ||
+      (value as Record<string, unknown>)['instance'] !== undefined
+    )
+      return null;
+    const port = new URL(url).port || '8765';
+    return {
+      status: 'down',
+      detail: `an older gateway runs on :${port} without a socket; run \`local-decider gateway restart\``,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Gateway text, reduced to printable ASCII on one line and at most `max` characters. */

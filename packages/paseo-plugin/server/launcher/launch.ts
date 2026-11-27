@@ -20,12 +20,17 @@ import {
   writeSync,
 } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
-import { delimiter, dirname, isAbsolute, join } from 'node:path';
+import { delimiter, dirname, extname, isAbsolute, join } from 'node:path';
+
+import { gatewaySocketPath } from './socket-path.ts';
+import { socketFetch } from './transport.ts';
 
 export interface EngineStatus {
   readonly status: string;
   readonly engineState: string | null;
   readonly detail: string | null;
+  readonly version?: string;
+  readonly instance?: string;
 }
 
 export type LaunchStatus =
@@ -34,6 +39,7 @@ export type LaunchStatus =
   | 'running'
   | 'started'
   | 'service-started'
+  | 'legacy'
   | 'port-busy'
   | 'mismatch'
   | 'stopped'
@@ -106,6 +112,8 @@ export interface LauncherDeps {
 
 export interface LaunchOptions {
   readonly url: string;
+  /** True only when no user URL setting selected this built-in local endpoint. */
+  readonly defaultEndpoint?: boolean;
   readonly env: NodeJS.ProcessEnv;
   readonly pinnedVersion: string;
   readonly guideUrl: string;
@@ -180,6 +188,8 @@ function engineStatus(value: Record<string, unknown>): EngineStatus {
     status: value['status'] as string,
     engineState: typeof value['engineState'] === 'string' ? value['engineState'] : null,
     detail: typeof value['detail'] === 'string' ? value['detail'] : null,
+    ...(typeof value['version'] === 'string' ? { version: value['version'] } : {}),
+    ...(typeof value['instance'] === 'string' ? { instance: value['instance'] } : {}),
   };
 }
 
@@ -200,6 +210,14 @@ export function isLoopbackUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isDefaultEndpoint(options: LaunchOptions): boolean {
+  return (
+    options.defaultEndpoint ??
+    ((options.env['LOCAL_DECIDER_URL']?.trim() ?? '') === '' &&
+      options.url === 'http://127.0.0.1:8765')
+  );
 }
 
 function dataDirectory(options: LaunchOptions, deps: LauncherDeps): string {
@@ -248,23 +266,21 @@ function absolutePath(value: string | undefined): value is string {
   return value !== undefined && value !== '' && isAbsolute(value);
 }
 
-function pathEntries(env: NodeJS.ProcessEnv, home: string): string[] {
+function pathEntries(env: NodeJS.ProcessEnv): string[] {
   const fromPath = (env['PATH'] ?? '')
     .split(delimiter)
     .filter((entry) => entry !== '' && isAbsolute(entry));
-  return [
-    ...fromPath,
-    join(home, '.local', 'share', 'mise', 'shims'),
-    '/opt/homebrew/bin',
-    '/usr/local/bin',
-  ];
+  return [...fromPath, '/opt/homebrew/bin', '/usr/local/bin'];
 }
 
 function readableFile(path: string, fs: LauncherFs): boolean {
   let fd: number | undefined;
   try {
     fd = fs.openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    return fs.fstatSync(fd).isFile();
+    if (!fs.fstatSync(fd).isFile()) return false;
+    if (['.js', '.mjs', '.cjs'].includes(extname(path))) return true;
+    const firstLine = fs.readFileSync(fd, 'utf8').split(/\r?\n/, 1)[0] ?? '';
+    return /^#!.*\bnode(?:\s|$)/i.test(firstLine);
   } catch {
     return false;
   } finally {
@@ -272,12 +288,7 @@ function readableFile(path: string, fs: LauncherFs): boolean {
   }
 }
 
-function findCli(
-  options: LaunchOptions,
-  data: string,
-  home: string,
-  fs: LauncherFs,
-): string | null {
+function findCli(options: LaunchOptions, data: string, fs: LauncherFs): string | null {
   const managed = join(
     data,
     'gateway',
@@ -291,15 +302,17 @@ function findCli(
   const candidates = [
     ...(absolutePath(options.env['LOCAL_DECIDER_BIN']) ? [options.env['LOCAL_DECIDER_BIN']] : []),
     managed,
-    ...pathEntries(options.env, home).map((entry) => join(entry, 'local-decider')),
+    ...pathEntries(options.env).map((entry) => join(entry, 'local-decider')),
   ];
   for (const candidate of candidates) {
-    if (!readableFile(candidate, fs)) continue;
+    let resolved: string;
     try {
-      return fs.realpathSync(candidate);
+      resolved = fs.realpathSync(candidate);
     } catch {
       // Keep searching; a dangling or unreadable executable is not an installation.
+      continue;
     }
+    if (readableFile(resolved, fs)) return resolved;
   }
   return null;
 }
@@ -347,7 +360,6 @@ function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 
 async function findNode(
   options: LaunchOptions,
-  home: string,
   cwd: string,
   run: ExecFile,
   deps: LauncherDeps,
@@ -358,7 +370,7 @@ async function findNode(
   const execPath = deps.execPath ?? process.execPath;
   if (runtimeIsNode && supportedNode(deps.nodeVersion ?? process.versions.node)) return execPath;
   const env = cleanEnv(options.env);
-  for (const dir of pathEntries(options.env, home)) {
+  for (const dir of pathEntries(options.env)) {
     const candidate = join(dir, 'node');
     if (!isAbsolute(candidate)) continue;
     const found = await checkNode(candidate, cwd, env, run);
@@ -503,6 +515,12 @@ async function executeNpmInstall(
     : result('failed', 'npm failed while installing the pinned gateway', null, options.guideUrl);
 }
 
+function discardInstallPrivateFiles(stage: string, fs: LauncherFs): void {
+  for (const path of ['home', 'tmp', 'cache', 'user.npmrc', 'global.npmrc']) {
+    fs.rmSync(join(stage, path), { recursive: true, force: true });
+  }
+}
+
 function promoteInstall(
   stage: string,
   destination: string,
@@ -567,6 +585,7 @@ async function installGateway(
     const destination = join(dirs.gateway, options.pinnedVersion);
     const installResult = await executeNpmInstall(options, stage, node, npm, now, run);
     if (installResult !== null) return installResult;
+    discardInstallPrivateFiles(stage, fs);
     return promoteInstall(stage, destination, options.pinnedVersion, fs, options.guideUrl);
   } catch (error) {
     return result(
@@ -580,11 +599,16 @@ async function installGateway(
   }
 }
 
-async function probe(url: string, fetcher: typeof fetch): Promise<EngineStatus | null> {
+async function probe(
+  url: string,
+  fetcher: typeof fetch,
+  clientId = 'launcher/1.0.0',
+): Promise<EngineStatus | null> {
   try {
     const response = await fetcher(new URL('/health', url), {
       method: 'GET',
       redirect: 'error',
+      headers: { 'x-local-decider-client': clientId },
       signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
     });
     const value: unknown = await response.json();
@@ -632,6 +656,7 @@ function fromEnsure(output: string, guideUrl: string): LaunchResult {
       'running',
       'started',
       'service-started',
+      'legacy',
       'remote',
       'port-busy',
       'mismatch',
@@ -692,10 +717,22 @@ async function quickOutcome(
   if (!isLoopbackUrl(options.url)) {
     return result('remote', 'gateway URL is not loopback; remote gateways are never started');
   }
-  const foundHealth = await probe(options.url, deps.fetch ?? globalThis.fetch);
-  return foundHealth === null
-    ? null
-    : result('running', 'gateway is answering /health', foundHealth);
+  const useSocket = isDefaultEndpoint(options);
+  const runDir = join(dataDirectory(options, deps), 'run');
+  const path = useSocket ? gatewaySocketPath(runDir) : null;
+  const fetcher = deps.fetch ?? (path === null ? globalThis.fetch : socketFetch(path));
+  const foundHealth = await probe(options.url, fetcher, 'launcher/1.0.0');
+  if (foundHealth !== null) return result('running', 'gateway is answering /health', foundHealth);
+  if (path === null || deps.fetch !== undefined) return null;
+  const tcpHealth = await probe(options.url, globalThis.fetch, 'launcher/1.0.0');
+  if (tcpHealth === null) return null;
+  if (tcpHealth.instance === undefined) {
+    return result(
+      'legacy',
+      `an older gateway runs on :${new URL(options.url).port || '8765'} without a socket; run \`local-decider gateway restart\``,
+    );
+  }
+  return result('failed', 'gateway answers TCP but its default Unix socket is unavailable');
 }
 
 interface PreparedGateway {
@@ -707,15 +744,14 @@ interface PreparedGateway {
 async function prepareGateway(
   options: LaunchOptions,
   paths: DataPaths,
-  home: string,
   fs: LauncherFs,
   deps: LauncherDeps,
   run: ExecFile,
 ): Promise<PreparedGateway | LaunchResult> {
-  let cli = findCli(options, paths.data, home, fs);
+  let cli = findCli(options, paths.data, fs);
   let node: string | null = null;
   if (cli === null && options.env['LOCAL_DECIDER_AUTOINSTALL'] === '1') {
-    node = await findNode(options, home, paths.run, run, deps);
+    node = await findNode(options, paths.run, run, deps);
     if (node === null) {
       return result(
         'failed',
@@ -726,10 +762,10 @@ async function prepareGateway(
     }
     const installed = await installGateway(options, paths, node, fs, run, deps);
     if (installed !== null) return installed;
-    cli = findCli(options, paths.data, home, fs);
+    cli = findCli(options, paths.data, fs);
   }
   if (cli === null) return manualInstall(options);
-  node ??= await findNode(options, home, paths.run, run, deps);
+  node ??= await findNode(options, paths.run, run, deps);
   if (node === null) {
     return result(
       'failed',
@@ -746,26 +782,25 @@ async function ensureGateway(
   prepared: PreparedGateway,
   run: ExecFile,
 ): Promise<LaunchResult> {
-  const url = ensureArgumentUrl(options.url);
-  if (url === null) {
+  const defaultEndpoint = isDefaultEndpoint(options);
+  const url = defaultEndpoint ? null : ensureArgumentUrl(options.url);
+  if (!defaultEndpoint && url === null)
     return result(
       'failed',
       'gateway URL cannot be passed safely to the gateway CLI',
       null,
       options.guideUrl,
     );
-  }
-  const executed = await run(
-    prepared.node,
-    [prepared.cli, 'gateway', 'ensure', '--url', url, '--json'],
-    {
-      cwd: prepared.runDir,
-      env: cleanEnv(options.env),
-      timeout: ENSURE_TIMEOUT_MS,
-      windowsHide: true,
-      maxBuffer: 64 * 1024,
-    },
-  );
+  const args = [prepared.cli, 'gateway', 'ensure'];
+  if (url !== null) args.push('--url', url);
+  args.push('--json');
+  const executed = await run(prepared.node, args, {
+    cwd: prepared.runDir,
+    env: cleanEnv(options.env),
+    timeout: ENSURE_TIMEOUT_MS,
+    windowsHide: true,
+    maxBuffer: 64 * 1024,
+  });
   if (executed.error?.killed === true) {
     return result(
       'failed',
@@ -807,9 +842,8 @@ async function performAttempt(
   try {
     const dirs = privateDirectories(data, fs, uid);
     logSafe = true;
-    const home = deps.home ?? homedir();
     const run = deps.execFile ?? execFile;
-    const prepared = await prepareGateway(options, dirs, home, fs, deps, run);
+    const prepared = await prepareGateway(options, dirs, fs, deps, run);
     if ('status' in prepared) return { result: prepared, data, logSafe };
     return { result: await ensureGateway(options, prepared, run), data, logSafe };
   } catch (error) {

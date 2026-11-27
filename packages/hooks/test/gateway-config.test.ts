@@ -11,12 +11,20 @@ const TOKEN_OPT = 'CLAUDE_PLUGIN_OPTION_GATEWAY_TOKEN';
 
 describe('gatewayConfig', () => {
   it('defaults to the local gateway with no token', () => {
-    assert.deepEqual(gatewayConfig({}), { url: 'http://127.0.0.1:8765', token: undefined });
+    assert.deepEqual(gatewayConfig({}), {
+      url: 'http://127.0.0.1:8765',
+      defaultEndpoint: true,
+      token: undefined,
+    });
   });
 
   it('uses the plugin options when the environment does not set them', () => {
     const env = { [URL_OPT]: 'https://gw.example.com', [TOKEN_OPT]: 'opt-token' };
-    assert.deepEqual(gatewayConfig(env), { url: 'https://gw.example.com', token: 'opt-token' });
+    assert.deepEqual(gatewayConfig(env), {
+      url: 'https://gw.example.com',
+      defaultEndpoint: false,
+      token: 'opt-token',
+    });
   });
 
   it('lets the environment win over the plugin options', () => {
@@ -26,22 +34,33 @@ describe('gatewayConfig', () => {
       [URL_OPT]: 'https://gw.example.com',
       [TOKEN_OPT]: 'opt-token',
     };
-    assert.deepEqual(gatewayConfig(env), { url: 'http://127.0.0.1:9000', token: 'env-token' });
+    assert.deepEqual(gatewayConfig(env), {
+      url: 'http://127.0.0.1:9000',
+      defaultEndpoint: false,
+      token: 'env-token',
+    });
   });
 
   it('pairs the token with the source of the URL', () => {
     const both = { LOCAL_DECIDER_TOKEN: 'env-token', [TOKEN_OPT]: 'opt-token' };
     assert.deepEqual(gatewayConfig({ ...both, LOCAL_DECIDER_URL: 'http://127.0.0.1:9000' }), {
       url: 'http://127.0.0.1:9000',
+      defaultEndpoint: false,
       token: 'env-token',
     });
     assert.deepEqual(gatewayConfig({ ...both, [URL_OPT]: 'https://gw.example.com' }), {
       url: 'https://gw.example.com',
+      defaultEndpoint: false,
       token: 'opt-token',
     });
-    assert.deepEqual(gatewayConfig(both), { url: 'http://127.0.0.1:8765', token: 'env-token' });
+    assert.deepEqual(gatewayConfig(both), {
+      url: 'http://127.0.0.1:8765',
+      defaultEndpoint: true,
+      token: 'env-token',
+    });
     assert.deepEqual(gatewayConfig({ [TOKEN_OPT]: 'opt-token' }), {
       url: 'http://127.0.0.1:8765',
+      defaultEndpoint: true,
       token: 'opt-token',
     });
   });
@@ -49,11 +68,11 @@ describe('gatewayConfig', () => {
   it('sends no token across sources', () => {
     assert.deepEqual(
       gatewayConfig({ LOCAL_DECIDER_URL: 'http://127.0.0.1:9000', [TOKEN_OPT]: 'opt-token' }),
-      { url: 'http://127.0.0.1:9000', token: undefined },
+      { url: 'http://127.0.0.1:9000', defaultEndpoint: false, token: undefined },
     );
     assert.deepEqual(
       gatewayConfig({ [URL_OPT]: 'https://gw.example.com', LOCAL_DECIDER_TOKEN: 'env-token' }),
-      { url: 'https://gw.example.com', token: undefined },
+      { url: 'https://gw.example.com', defaultEndpoint: false, token: undefined },
     );
   });
 
@@ -64,9 +83,14 @@ describe('gatewayConfig', () => {
       [URL_OPT]: 'https://gw.example.com',
       [TOKEN_OPT]: 'opt-token',
     };
-    assert.deepEqual(gatewayConfig(env), { url: 'https://gw.example.com', token: 'opt-token' });
+    assert.deepEqual(gatewayConfig(env), {
+      url: 'https://gw.example.com',
+      defaultEndpoint: false,
+      token: 'opt-token',
+    });
     assert.deepEqual(gatewayConfig({ [URL_OPT]: '', [TOKEN_OPT]: '' }), {
       url: 'http://127.0.0.1:8765',
+      defaultEndpoint: true,
       token: undefined,
     });
   });
@@ -112,6 +136,7 @@ describe('hook runner with plugin options', () => {
     assert.deepEqual(res, { stdout: '', exitCode: 0 });
     assert.equal(seen[0]?.url, `${base}/v1/decide/command-risk`);
     assert.equal(seen[0]?.headers['authorization'], 'Bearer opt-token');
+    assert.equal(seen[0]?.headers['x-local-decider-client'], 'claude-hooks/1.0.0');
   });
 
   it('never sends LOCAL_DECIDER_TOKEN to the option URL', async () => {

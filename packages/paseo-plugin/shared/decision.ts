@@ -138,6 +138,8 @@ export interface PrecedentTally {
 
 export interface GatewayHealth {
   readonly status: 'ok' | 'degraded' | 'down';
+  readonly version?: string;
+  readonly instance?: string;
   readonly engine?: string;
   /** Short engine name from the gateway, e.g. `NPU`. */
   readonly engineTag?: string;

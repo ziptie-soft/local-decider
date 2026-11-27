@@ -30,6 +30,8 @@ export interface GatewayOptions {
   /** Called after any 401; never receives a token. */
   readonly onUnauthorised?: (() => void) | undefined;
   readonly fetch?: typeof fetch;
+  /** Informational identity for requests received by the local gateway. */
+  readonly clientId?: string;
 }
 
 export interface CallOptions {
@@ -384,6 +386,7 @@ export function createGateway(options: GatewayOptions = {}): Gateway | null {
 
   function headersFor(body: unknown, path: string): Record<string, string> {
     const headers: Record<string, string> = { accept: 'application/json' };
+    if (options.clientId !== undefined) headers['x-local-decider-client'] = options.clientId;
     if (body !== undefined) {
       headers['content-type'] = 'application/json';
     }

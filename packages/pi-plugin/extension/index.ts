@@ -89,6 +89,8 @@ function createState(pi: PiAPI, opts: ExtensionOptions): State {
   const getGateway = (): Gateway => {
     gateway ??= createGateway({
       url: getResolved().config.url,
+      defaultEndpoint: getResolved().config.defaultEndpoint === true,
+      env: { ...(opts.env ?? process.env) },
       token: getResolved().config.token,
       ...(opts.fetch === undefined ? {} : { fetch: opts.fetch }),
     });
@@ -196,6 +198,7 @@ async function runLaunch(state: State, opts: ExtensionOptions): Promise<LaunchRe
   }
   return (opts.launch ?? launchGateway)({
     url: state.getConfig().url,
+    defaultEndpoint: resolveConfig(opts.env ?? process.env, {}).config.defaultEndpoint === true,
     env: { ...(opts.env ?? process.env) },
     pinnedVersion: version,
     guideUrl: 'https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md',
