@@ -7,10 +7,12 @@ import {
   SettingsAction,
   SettingsCard,
   SettingsInput,
+  SettingsRow,
   SettingsSection,
   SettingsSelect,
 } from '@getpaseo/plugin/client/ui';
 import { useState, type ReactNode } from 'react';
+import { View } from 'react-native';
 
 import type { ActiveEngine } from '../shared/engines.ts';
 import {
@@ -28,7 +30,7 @@ import { engineLoadRpc, lifecycleRpc } from '../shared/rpc.ts';
 import { defaultModelRow, gatewayRow } from '../shared/status-card.ts';
 import { outcomeOf, useAction, useEngines, useGatewayStatus, useServiceInfo } from './hooks.ts';
 import { useServiceRun } from './service.tsx';
-import { InlineMessage, type Theme } from './ui.tsx';
+import { Button, InlineMessage, type Theme } from './ui.tsx';
 
 type Action = ReturnType<typeof useAction>;
 
@@ -176,28 +178,46 @@ function GuideRow({ url }: { url: string | undefined }): ReactNode {
 }
 
 /**
- * Restart the gateway's user service (Start while it is down), e.g. after installing a tool it
- * discovers at startup. Hidden when no service is installed; the Details page has stop too.
+ * The gateway row: Refresh, and Restart (Start while it is down) when its user service is
+ * installed, e.g. after installing a tool the gateway finds at startup. Details has Stop too.
  */
-function RestartRow({ theme, up }: { theme: Theme; up: boolean }): ReactNode {
+function GatewayStatusRow({ theme }: { theme: Theme }): ReactNode {
+  const { data, isFetching, refetch } = useGatewayStatus();
   const info = useServiceInfo();
   const svc = useServiceRun();
+  const row = gatewayRow(data);
   const commands = info.data?.commands ?? null;
-  if (commands === null) return null;
-  const action = up ? 'restart' : 'start';
-  const idle = up ? 'Restart' : 'Start';
+  const action = data?.up === false ? 'start' : 'restart';
+  const idle = action === 'start' ? 'Start' : 'Restart';
   return (
     <>
-      <SettingsAction
-        label={up ? 'Restart gateway' : 'Start gateway'}
-        hint={`Runs: ${commands[action]}`}
-        actionLabel={svc.busy === null ? idle : `${idle}ing…`}
-        disabled={svc.busy !== null}
-        onPress={() => void svc.start(action)}
-      />
+      <SettingsRow label={row.label} hint={row.hint}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Button
+            theme={theme}
+            variant="secondary"
+            icon="RefreshCw"
+            label={isFetching ? 'Checking…' : 'Refresh'}
+            disabled={isFetching}
+            onPress={() => void refetch()}
+          />
+          {commands === null ? null : (
+            <Button
+              theme={theme}
+              variant="secondary"
+              icon={action === 'start' ? 'Play' : 'RotateCw'}
+              label={svc.busy === null ? idle : `${idle}ing…`}
+              hint={`Runs: ${commands[action]}`}
+              disabled={svc.busy !== null}
+              onPress={() => void svc.start(action)}
+            />
+          )}
+        </View>
+      </SettingsRow>
       {svc.outcome === null ? null : (
         <InlineMessage theme={theme} tone={svc.outcome.tone} text={svc.outcome.text} />
       )}
+      <GuideRow url={row.guideUrl} />
     </>
   );
 }
@@ -210,26 +230,12 @@ export function StatusSection({
   theme: Theme;
   gatewayUrl: string;
 }): ReactNode {
-  const { data, isFetching, refetch } = useGatewayStatus();
-  const row = gatewayRow(data);
   return (
     <SettingsSection title="Status">
       <EngineControls
         theme={theme}
         gatewayUrl={gatewayUrl}
-        lead={
-          <>
-            <SettingsAction
-              label={row.label}
-              hint={row.hint}
-              actionLabel={isFetching ? 'Checking…' : 'Refresh'}
-              disabled={isFetching}
-              onPress={() => void refetch()}
-            />
-            <GuideRow url={row.guideUrl} />
-            <RestartRow theme={theme} up={data?.up !== false} />
-          </>
-        }
+        lead={<GatewayStatusRow theme={theme} />}
       />
     </SettingsSection>
   );
