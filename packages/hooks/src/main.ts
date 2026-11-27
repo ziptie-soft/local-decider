@@ -1,3 +1,8 @@
+import { launchGateway } from '@ziptie-soft/local-decider-launcher';
+import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+
+import { gatewayConfig } from './gateway-config.ts';
 /**
  * Hook entry point: `node dist/local-decider-hook.mjs <claude|codex> <Event>`. Reads the hook JSON from stdin,
  * runs it, writes the harness answer to stdout and exits 0. Everything else lives in `run.ts`.
@@ -50,14 +55,70 @@ function finish(stdout: string): void {
   process.stdout.write(stdout, () => process.exit(0));
 }
 
+function startGatewayDetached(): void {
+  if (pinnedGatewayVersion() === null) return;
+  const bundle = process.argv[1];
+  if (bundle === undefined) return;
+  try {
+    const child = spawn(process.execPath, [bundle, '--launch-gateway'], {
+      detached: true,
+      stdio: 'ignore',
+      env: process.env,
+      windowsHide: true,
+    });
+    child.unref();
+  } catch {
+    // SessionStart is fail-open if the detached kick cannot be created.
+  }
+}
+
+function pinnedGatewayVersion(): string | null {
+  try {
+    const manifest: unknown = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    );
+    if (typeof manifest !== 'object' || manifest === null || Array.isArray(manifest)) return null;
+    const localDecider = (manifest as Record<string, unknown>)['localDecider'];
+    if (typeof localDecider !== 'object' || localDecider === null || Array.isArray(localDecider))
+      return null;
+    const version = (localDecider as Record<string, unknown>)['gateway'];
+    return typeof version === 'string' ? version : null;
+  } catch {
+    return null;
+  }
+}
+
+async function launchMode(): Promise<void> {
+  const pinnedVersion = pinnedGatewayVersion();
+  if (pinnedVersion === null) return;
+  const env = process.env;
+  await launchGateway({
+    url: gatewayConfig(env).url,
+    env,
+    pinnedVersion,
+    guideUrl: 'https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md',
+  });
+}
+
 async function main(): Promise<void> {
+  if (process.argv[2] === '--launch-gateway') {
+    try {
+      await launchMode();
+    } catch {
+      // Fail open and keep the detached hook silent.
+    }
+    process.exit(0);
+  }
   const env = process.env;
   // Last-resort fail-open: never outlive the gateway budget by much, whatever hangs.
   setTimeout(() => process.exit(0), timeoutOf(env) + 1000).unref();
   const [harness = '', event = ''] = process.argv.slice(2);
   const input = await readStdin();
   const deps = input.oversize === undefined ? {} : { oversize: input.oversize };
-  const result = await run(harness, event, input.text, env, deps);
+  const result = await run(harness, event, input.text, env, {
+    ...deps,
+    startGateway: startGatewayDetached,
+  });
   finish(result.stdout);
 }
 

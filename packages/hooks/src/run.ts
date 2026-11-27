@@ -46,6 +46,8 @@ export interface RunDeps {
   readonly decide?: Decide;
   /** Gateway health for `SessionStart`; defaults to a `GatewayClient` configured from `env`. */
   readonly health?: Health;
+  /** Detached launcher kick, supplied by the hook entry point only. */
+  readonly startGateway?: () => void;
   readonly readTranscript?: ReadTranscript;
   /** Pending-prompt store and outcome reporting; defaults derive from `env`. */
   readonly outcomes?: OutcomeDeps;
@@ -244,7 +246,12 @@ async function lifecycle(ctx: LifecycleContext): Promise<string> {
     return '';
   }
   purgePending(env, deps.outcomes, log);
-  return sessionStart(harness, env, deps.health ?? healthFromEnv(env, timeoutOf(env)));
+  return sessionStart(
+    harness,
+    env,
+    deps.health ?? healthFromEnv(env, timeoutOf(env)),
+    deps.startGateway,
+  );
 }
 
 function logger(env: Env, deps: RunDeps): (msg: string) => void {

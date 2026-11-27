@@ -217,6 +217,9 @@ importers:
       '@ziptie-soft/local-decider-core':
         specifier: workspace:*
         version: link:../core
+      '@ziptie-soft/local-decider-launcher':
+        specifier: workspace:*
+        version: link:../launcher
       esbuild:
         specifier: ^0.28.0
         version: 0.28.2
@@ -256,6 +259,8 @@ importers:
       '@ziptie-soft/local-decider-core':
         specifier: workspace:*
         version: link:../core
+
+  packages/launcher: {}
 
   plugins/local-decider: {}
 
