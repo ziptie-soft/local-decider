@@ -2,8 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { buildState, CHARS_PER_TOKEN, cutText } from '../src/index.ts';
-
-const LINEAR_BOUND_MS = 5000;
+import { LINEAR_BOUND_MS, cpuMs } from './cpu-time.ts';
 
 describe('cutText', () => {
   const text = 'a'.repeat(50) + 'b'.repeat(50);
@@ -64,13 +63,14 @@ describe('cutText', () => {
 
   it('cuts a 3 MiB string in linear time', () => {
     const big = '😀x'.repeat(1_048_576);
-    const start = performance.now();
-    for (const keep of ['head', 'tail', 'ends'] as const) {
-      const out = cutText(big, 4000, keep);
-      assert.ok(out.length <= 4000);
-      assert.equal(out, out.toWellFormed());
-    }
-    assert.ok(performance.now() - start < LINEAR_BOUND_MS);
+    const ms = cpuMs(() => {
+      for (const keep of ['head', 'tail', 'ends'] as const) {
+        const out = cutText(big, 4000, keep);
+        assert.ok(out.length <= 4000);
+        assert.equal(out, out.toWellFormed());
+      }
+    });
+    assert.ok(ms < LINEAR_BOUND_MS, `took ${ms} ms`);
   });
 
   it('never splits a surrogate pair', () => {

@@ -2,8 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { patchTargets } from '../src/patch.ts';
-
-const LINEAR_BOUND_MS = 5000;
+import { LINEAR_BOUND_MS, cpuMs } from './cpu-time.ts';
 
 describe('patchTargets', () => {
   it('reads the four markers in order', () => {
@@ -44,16 +43,16 @@ describe('patchTargets', () => {
 
   it('is linear on one 4 MiB line', () => {
     const text = `*** Add File: ${'a'.repeat(4 * 1024 * 1024)}`;
-    const t = performance.now();
-    assert.equal(patchTargets(text)?.length, 1);
-    assert.ok(performance.now() - t < LINEAR_BOUND_MS);
+    const ms = cpuMs(() => assert.equal(patchTargets(text)?.length, 1));
+    assert.ok(ms < LINEAR_BOUND_MS, `took ${ms} ms`);
   });
 
   it('is linear on 100k marker lines', () => {
     const text = '*** Add File: a\n'.repeat(100_000);
-    const t = performance.now();
-    assert.equal(patchTargets(text), null);
-    assert.equal(patchTargets(text, 200_000)?.length, 100_000);
-    assert.ok(performance.now() - t < LINEAR_BOUND_MS);
+    const ms = cpuMs(() => {
+      assert.equal(patchTargets(text), null);
+      assert.equal(patchTargets(text, 200_000)?.length, 100_000);
+    });
+    assert.ok(ms < LINEAR_BOUND_MS, `took ${ms} ms`);
   });
 });

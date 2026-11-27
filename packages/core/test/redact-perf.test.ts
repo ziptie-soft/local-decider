@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { redactDeep, redactSecrets } from '../src/index.ts';
+import { cpuMs } from './cpu-time.ts';
 
 const KIB = 1024;
 
 // Budgets catch quadratic blowups, which cost seconds, not small constant factors. Shared CI
-// runners (with coverage on) are 2-4x slower than a dev machine, so give them headroom.
+// runners (with coverage on) are 2-4x slower than a dev machine, so give them headroom. CPU
+// time, not wall time, so a busy machine does not fail them.
 const SLACK = process.env['CI'] ? 4 : 1;
 const fitsBudget = (budgetMs: number, runs: number, fn: () => void): boolean =>
   bestOf(runs, fn) <= budgetMs * SLACK;
@@ -15,9 +17,7 @@ function bestOf(runs: number, fn: () => void): number {
   for (let i = 0; i < 3; i++) fn();
   let best = Infinity;
   for (let i = 0; i < runs; i++) {
-    const t0 = performance.now();
-    fn();
-    best = Math.min(best, performance.now() - t0);
+    best = Math.min(best, cpuMs(fn));
   }
   return best;
 }
