@@ -7,6 +7,7 @@ import { asRecord } from './subject.ts';
 
 export const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:8765';
 export const CONTROL_HEADER = 'x-local-decider-control';
+export const CLIENT_HEADER = 'x-local-decider-client';
 
 /** `value` without trailing `/`. A loop, not `/\/+$/`, which backtracks quadratically on long runs. */
 export function trimTrailingSlashes(value: string): string {
@@ -25,10 +26,14 @@ export interface ClientOptions {
   /** Local control token. Sent only when `baseUrl` points to loopback. */
   readonly controlToken?: string | undefined;
   readonly fetch?: typeof fetch;
+  /** Informational client identity, such as `claude-hooks/1.0.0`. */
+  readonly clientId?: string;
 }
 
 export interface GatewayHealth {
   readonly status: 'ok' | 'degraded' | 'down';
+  readonly version?: string;
+  readonly instance?: string;
   readonly engine?: string;
   readonly model?: string;
   /** `stopped|starting|ready|failed`; `detail` says why it is not ready. */
@@ -259,6 +264,7 @@ export class GatewayClient {
   readonly #token: string | undefined;
   readonly #controlToken: string | undefined;
   readonly #fetch: typeof fetch;
+  readonly #clientId: string | undefined;
 
   constructor(options: ClientOptions = {}) {
     this.#baseUrl = trimTrailingSlashes(options.baseUrl ?? DEFAULT_GATEWAY_URL);
@@ -268,6 +274,7 @@ export class GatewayClient {
     this.#controlToken =
       loopbackUrl(this.#baseUrl) && options.controlToken !== '' ? options.controlToken : undefined;
     this.#fetch = options.fetch ?? globalThis.fetch;
+    this.#clientId = options.clientId;
   }
 
   /** Run a policy. `null` when the gateway is unreachable, slow, or answers with an error. */
@@ -331,6 +338,7 @@ export class GatewayClient {
     body?: unknown,
   ): Promise<GatewayRequestResult | null> {
     const headers: Record<string, string> = { accept: 'application/json' };
+    if (this.#clientId !== undefined) headers[CLIENT_HEADER] = this.#clientId;
     if (body !== undefined) {
       headers['content-type'] = 'application/json';
     }

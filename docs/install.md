@@ -307,6 +307,12 @@ local-decider gateway ensure --timeout 30
 local-decider gateway ensure --json
 ```
 
+On POSIX, default local clients connect through `~/.local/share/local-decider/run/gateway.sock`
+(or the directory selected by `LOCAL_DECIDER_HOME` / `XDG_DATA_HOME`). The gateway keeps its TCP
+listener for explicit URLs, `curl`, and remote clients. Windows uses TCP only. `GET /v1/status`
+includes the gateway version, its per-run instance id, and the bounded `clients` map of harness
+versions and request counts.
+
 - `gateway start` writes `~/.config/systemd/user/local-decider.service` or
   `~/Library/LaunchAgents/dev.local-decider.gateway.plist` and starts it. It is a no-op when the
   gateway already runs. Without systemd it starts a detached process with a pid file.

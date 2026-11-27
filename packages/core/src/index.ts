@@ -3,6 +3,7 @@ export { callFacts, FACT_GROUPS, FACTS_MAX_CHARS, SHIPPED_FACTS, type FactGroup 
 export { canonicalJson, sortKeysDeep } from './canonical.ts';
 export {
   DEFAULT_GATEWAY_URL,
+  CLIENT_HEADER,
   CONTROL_HEADER,
   GatewayClient,
   isDecideResponse,

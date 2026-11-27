@@ -13,7 +13,7 @@ import {
   type SystemOneRequest,
   type UsageRecord,
 } from '@ziptie-soft/local-decider-core';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { totalmem } from 'node:os';
 
@@ -46,6 +46,7 @@ import type { Pricing } from './savings.ts';
 import { settingsHandler } from './settings-routes.ts';
 import { parseDays } from './stats-job.ts';
 import { StatsFailedError, StatsService, StatsTimeoutError } from './stats-service.ts';
+import { GATEWAY_VERSION } from './version.ts';
 
 const MAX_BODY_BYTES = 256 * 1024;
 
@@ -70,7 +71,56 @@ export interface ServerOptions {
   readonly report?: ((line: string) => void) | undefined;
   /** The decision deadline; the HTTP timeouts are derived from it. Default: the config default. */
   readonly decisionTimeoutMs?: number | undefined;
+  readonly version?: string | undefined;
+  readonly instance?: string | undefined;
 }
+
+interface ClientInfo {
+  readonly version: string;
+  readonly firstSeen: number;
+  readonly lastSeen: number;
+  readonly requests: number;
+}
+
+class ClientRegistry {
+  readonly #entries = new Map<string, ClientInfo>();
+
+  note(raw: string | string[] | undefined): void {
+    if (typeof raw !== 'string') return;
+    const parsed = /^([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/.exec(raw);
+    if (raw.length > 64 || parsed === null) return;
+    const harness = parsed[1];
+    const version = parsed[2];
+    if (harness === undefined || version === undefined) return;
+    const now = Date.now();
+    const previous = this.#entries.get(harness);
+    if (previous === undefined && this.#entries.size >= 32) this.#evictOldest();
+    this.#entries.set(harness, {
+      version,
+      firstSeen: previous?.firstSeen ?? now,
+      lastSeen: now,
+      requests: (previous?.requests ?? 0) + 1,
+    });
+  }
+
+  snapshot(): Readonly<Record<string, ClientInfo>> {
+    return Object.fromEntries(this.#entries);
+  }
+
+  #evictOldest(): void {
+    let oldest: string | undefined;
+    let timestamp = Number.POSITIVE_INFINITY;
+    for (const [harness, entry] of this.#entries) {
+      if (entry.lastSeen < timestamp) {
+        oldest = harness;
+        timestamp = entry.lastSeen;
+      }
+    }
+    if (oldest !== undefined) this.#entries.delete(oldest);
+  }
+}
+
+const clientRegistries = new WeakMap<ServerOptions, ClientRegistry>();
 
 const DEFAULT_DECISION_TIMEOUT_MS = 30_000;
 /** Slack over the decision deadline for a slow client sending the request, and for the reply. */
@@ -389,7 +439,12 @@ function requestSignal(res: ServerResponse): AbortSignal {
   return controller.signal;
 }
 
-function health(decider: Decider, engineControl?: EngineControl): Record<string, unknown> {
+function health(
+  decider: Decider,
+  engineControl?: EngineControl,
+  version = GATEWAY_VERSION,
+  instance = 'unknown',
+): Record<string, unknown> {
   const engine = engineControl?.activeHealth() ?? decider.engine.health();
   // A lazily unloaded engine is healthy: it loads on the next decision.
   const status =
@@ -399,6 +454,8 @@ function health(decider: Decider, engineControl?: EngineControl): Record<string,
         ? 'degraded'
         : 'down';
   return {
+    version,
+    instance,
     status,
     engine: decider.engine.id,
     engineTag: engineControl?.activeTag() ?? decider.engine.id,
@@ -749,12 +806,30 @@ const policiesHandler: Handler = async (req, res, { decider, engineControl }) =>
   );
 };
 
+function identityRoute(key: string): Handler | undefined {
+  if (key === 'GET /health' || key === 'GET /ping') {
+    return async (_req, res, options) =>
+      send(
+        res,
+        200,
+        health(options.decider, options.engineControl, options.version, options.instance),
+      );
+  }
+  if (key === 'GET /v1/status') {
+    return async (_req, res, options) =>
+      send(res, 200, {
+        version: options.version ?? GATEWAY_VERSION,
+        instance: options.instance ?? 'unknown',
+        clients: clientRegistries.get(options)?.snapshot() ?? {},
+      });
+  }
+  return undefined;
+}
+
 function route(method: string, path: string): Handler | undefined {
   const key = `${method} ${path}`;
-  if (key === 'GET /health' || key === 'GET /ping') {
-    return async (_req, res, { decider, engineControl }) =>
-      send(res, 200, health(decider, engineControl));
-  }
+  const identity = identityRoute(key);
+  if (identity !== undefined) return identity;
   if (key === 'GET /models') {
     return async (_req, res, { decider, engineControl }) =>
       send(res, 200, {
@@ -991,19 +1066,33 @@ function sendInternalError(
   send(res, 500, { error: 'internal error' });
 }
 
+export function createGatewayHandler(
+  options: ServerOptions,
+): (req: IncomingMessage, res: ServerResponse) => void {
+  const prepared = Object.create(options) as ServerOptions;
+  const clients = new ClientRegistry();
+  Object.defineProperties(prepared, {
+    version: { value: options.version ?? GATEWAY_VERSION },
+    instance: { value: options.instance ?? randomUUID() },
+  });
+  clientRegistries.set(prepared, clients);
+  return (req, res) => {
+    clients.note(req.headers['x-local-decider-client']);
+    try {
+      dispatch(req, res, prepared);
+    } catch (error) {
+      try {
+        sendInternalError(res, error, prepared.report);
+      } catch {
+        res.destroy();
+      }
+    }
+  };
+}
+
 export function createGatewayServer(options: ServerOptions): Server {
   return createServer(
     serverTimeouts(options.decisionTimeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS),
-    (req, res) => {
-      try {
-        dispatch(req, res, options);
-      } catch (error) {
-        try {
-          sendInternalError(res, error, options.report);
-        } catch {
-          res.destroy();
-        }
-      }
-    },
+    createGatewayHandler(options),
   );
 }

@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
 import { fchmodSync, openSync, closeSync } from 'node:fs';
-import { createConnection } from 'node:net';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import type { GatewayConfig } from './config.ts';
+import { probeConnection } from './connection-probe.ts';
 import {
   acquireOwnerLock,
   OwnerLockBusyError,
@@ -21,11 +21,15 @@ import {
   startInstalledService,
   type ServiceManager,
 } from './service.ts';
+import { gatewaySocketPath } from './socket-path.ts';
+import { socketFetch } from './socket-transport.ts';
+import { GATEWAY_VERSION } from './version.ts';
 
 export type EnsureListener =
   | 'running'
   | 'started'
   | 'service-started'
+  | 'legacy'
   | 'remote'
   | 'port-busy'
   | 'mismatch'
@@ -62,6 +66,21 @@ interface Probe {
   readonly health: Record<string, unknown> | null;
 }
 
+interface EndpointContext {
+  readonly url: URL;
+  readonly paths: Paths;
+  readonly deps: EnsureDeps;
+  readonly useSocket: boolean;
+}
+
+interface EnsureContext extends EndpointContext {
+  readonly timeoutMs: number;
+}
+
+interface WaitContext extends EnsureContext {
+  readonly signal?: AbortSignal;
+}
+
 type StartupFailure =
   | { readonly kind: 'error'; readonly message: string }
   | { readonly kind: 'exit'; readonly code: number | null; readonly signal: NodeJS.Signals | null };
@@ -84,6 +103,7 @@ async function probe(url: URL, fetcher: typeof fetch, signal?: AbortSignal): Pro
     const response = await fetcher(new URL('/health', url), {
       method: 'GET',
       redirect: 'error',
+      headers: { 'x-local-decider-client': `cli/${GATEWAY_VERSION}` },
       signal:
         signal === undefined
           ? AbortSignal.timeout(1000)
@@ -98,8 +118,62 @@ async function probe(url: URL, fetcher: typeof fetch, signal?: AbortSignal): Pro
   }
 }
 
+interface EndpointProbe extends Probe {
+  readonly legacy: boolean;
+  readonly modernTcpOnly: boolean;
+}
+
+async function endpointProbe(
+  context: EndpointContext,
+  signal?: AbortSignal,
+): Promise<EndpointProbe> {
+  const { url, paths, deps, useSocket } = context;
+  const tcp = deps.fetch ?? globalThis.fetch;
+  const socketPath = useSocket ? gatewaySocketPath(paths.run) : null;
+  if (socketPath === null)
+    return { ...(await probe(url, tcp, signal)), legacy: false, modernTcpOnly: false };
+  if (deps.fetch !== undefined) {
+    return { ...(await probe(url, deps.fetch, signal)), legacy: false, modernTcpOnly: false };
+  }
+  const socket = socketFetch(socketPath);
+  const local = await probe(url, socket, signal);
+  if (local.health !== null) return { ...local, legacy: false, modernTcpOnly: false };
+  const old = await probe(url, tcp, signal);
+  if (old.health !== null && old.health['instance'] === undefined) {
+    return { ...old, legacy: true, modernTcpOnly: false };
+  }
+  return {
+    health: null,
+    legacy: false,
+    modernTcpOnly: old.health !== null,
+  };
+}
+
+function legacyResult(url: URL): EnsureResult {
+  const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+  return result(
+    'legacy',
+    `an older gateway runs on :${port} without a socket; run \`local-decider gateway restart\``,
+  );
+}
+
+function isLegacyHealth(
+  health: Record<string, unknown> | null,
+  paths: Paths,
+  deps: EnsureDeps,
+  useSocket: boolean,
+): boolean {
+  return (
+    useSocket &&
+    deps.fetch === undefined &&
+    gatewaySocketPath(paths.run) !== null &&
+    health !== null &&
+    health['instance'] === undefined
+  );
+}
+
 export function configuredGatewayUrl(config: GatewayConfig, override?: string): string {
-  if (override !== undefined) return override;
+  if (override?.trim()) return override;
   const host = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
   const formattedHost = host.includes(':') ? `[${host}]` : host;
   return `http://${formattedHost}:${String(config.port)}`;
@@ -141,19 +215,12 @@ function result(
 }
 
 async function isPortOpen(url: URL): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = createConnection({
-      host: normalizeHost(url.hostname),
-      port: Number(effectivePort(url)),
-    });
-    const done = (open: boolean): void => {
-      socket.destroy();
-      resolve(open);
-    };
-    socket.setTimeout(250, () => done(false));
-    socket.once('connect', () => done(true));
-    socket.once('error', () => done(false));
-  });
+  return (
+    (await probeConnection(
+      { host: normalizeHost(url.hostname), port: Number(effectivePort(url)) },
+      250,
+    )) === 'connected'
+  );
 }
 
 function childArgs(deps: EnsureDeps): string[] {
@@ -192,16 +259,11 @@ function spawnGateway(paths: Paths, deps: EnsureDeps): Promise<StartupFailure> {
   }
 }
 
-async function waitForHealth(
-  url: URL,
-  timeoutMs: number,
-  deps: EnsureDeps,
-  signal?: AbortSignal,
-): Promise<Record<string, unknown> | null> {
-  const fetcher = deps.fetch ?? globalThis.fetch;
+async function waitForHealth(context: WaitContext): Promise<Record<string, unknown> | null> {
+  const { deps, timeoutMs, signal } = context;
   const end = (deps.now ?? Date.now)() + timeoutMs;
   while ((deps.now ?? Date.now)() < end) {
-    const found = await probe(url, fetcher, signal);
+    const found = await endpointProbe(context, signal);
     if (signal?.aborted) return null;
     if (found.health !== null) return found.health;
     await (deps.sleep ?? ((ms) => sleep(ms)))(
@@ -209,17 +271,15 @@ async function waitForHealth(
     );
     if (signal?.aborted) return null;
   }
-  return (await probe(url, fetcher, signal)).health;
+  return (await endpointProbe(context, signal)).health;
 }
 
 async function waitForStartup(
-  url: URL,
-  timeoutMs: number,
-  deps: EnsureDeps,
+  context: EnsureContext,
   startupFailure: Promise<StartupFailure>,
 ): Promise<StartupResult> {
   const controller = new AbortController();
-  const health = waitForHealth(url, timeoutMs, deps, controller.signal).then((value) => ({
+  const health = waitForHealth({ ...context, signal: controller.signal }).then((value) => ({
     kind: 'health' as const,
     health: value,
   }));
@@ -257,20 +317,16 @@ function stopped(paths: Paths, force: boolean): EnsureResult | undefined {
   return undefined;
 }
 
-async function ensureLocked(
-  url: URL,
-  paths: Paths,
-  timeoutMs: number,
-  deps: EnsureDeps,
-): Promise<EnsureResult> {
+async function ensureLocked(context: EnsureContext): Promise<EnsureResult> {
+  const { paths } = context;
   let lock: OwnerLock | undefined;
   try {
     lock = acquireOwnerLock(join(paths.run, 'launch.lock'));
   } catch (error) {
-    return await failedLockAcquire(url, timeoutMs, deps, error);
+    return await failedLockAcquire(context, error);
   }
   try {
-    return await startWithLock(url, paths, timeoutMs, deps);
+    return await startWithLock(context);
   } catch (error) {
     return result('failed', error instanceof Error ? error.message : String(error));
   } finally {
@@ -278,15 +334,16 @@ async function ensureLocked(
   }
 }
 
-async function failedLockAcquire(
-  url: URL,
-  timeoutMs: number,
-  deps: EnsureDeps,
-  error: unknown,
-): Promise<EnsureResult> {
+async function failedLockAcquire(context: EnsureContext, error: unknown): Promise<EnsureResult> {
+  const { url, paths, deps, useSocket } = context;
   if (!(error instanceof OwnerLockBusyError))
     return result('failed', error instanceof Error ? error.message : String(error));
-  const health = await waitForHealth(url, timeoutMs, deps);
+  const found = await endpointProbe(context);
+  if (found.legacy) return legacyResult(url);
+  if (found.modernTcpOnly)
+    return result('failed', 'gateway answers TCP but its default Unix socket is unavailable');
+  const health = found.health ?? (await waitForHealth(context));
+  if (isLegacyHealth(health, paths, deps, useSocket)) return legacyResult(url);
   if (health !== null)
     return result('running', 'gateway became ready while another launcher held the lock', health);
   if (await (deps.portOpen ?? isPortOpen)(url))
@@ -297,20 +354,26 @@ async function failedLockAcquire(
   );
 }
 
-async function startWithLock(
-  url: URL,
-  paths: Paths,
-  timeoutMs: number,
-  deps: EnsureDeps,
-): Promise<EnsureResult> {
-  const before = await probe(url, deps.fetch ?? globalThis.fetch);
+async function alreadyRunning(context: EnsureContext): Promise<EnsureResult | undefined> {
+  const before = await endpointProbe(context);
+  if (before.legacy) return legacyResult(context.url);
   if (before.health !== null)
     return result('running', 'gateway is already answering /health', before.health);
+  if (before.modernTcpOnly)
+    return result('failed', 'gateway answers TCP but its default Unix socket is unavailable');
+  return undefined;
+}
+
+async function startWithLock(context: EnsureContext): Promise<EnsureResult> {
+  const { url, paths, deps, useSocket } = context;
+  const ready = await alreadyRunning(context);
+  if (ready !== undefined) return ready;
   if (await (deps.portOpen ?? isPortOpen)(url))
     return result('port-busy', 'the configured port is open but /health did not answer');
-  const startup = await waitForStartup(url, timeoutMs, deps, spawnGateway(paths, deps));
+  const startup = await waitForStartup(context, spawnGateway(paths, deps));
   if (startup.kind === 'failure') return startupFailureResult(paths, startup.failure);
   const health = startup.health;
+  if (isLegacyHealth(health, paths, deps, useSocket)) return legacyResult(url);
   if (health !== null) return result('started', 'gateway started and is answering /health', health);
   if (await (deps.portOpen ?? isPortOpen)(url))
     return result('port-busy', 'the configured port is open but /health did not answer');
@@ -336,32 +399,27 @@ function localEndpoint(config: GatewayConfig, requested?: string): EndpointResul
   return { url };
 }
 
-async function ensureAtEndpoint(
-  url: URL,
-  paths: Paths,
-  timeoutMs: number,
-  deps: EnsureDeps,
-  force: boolean,
-): Promise<EnsureResult> {
-  const initial = await probe(url, deps.fetch ?? globalThis.fetch);
+async function ensureAtEndpoint(context: EnsureContext, force: boolean): Promise<EnsureResult> {
+  const { url, paths, deps } = context;
+  const initial = await endpointProbe(context);
+  if (initial.legacy) return legacyResult(url);
   if (initial.health !== null)
     return result('running', 'gateway is already answering /health', initial.health);
+  if (initial.modernTcpOnly)
+    return result('failed', 'gateway answers TCP but its default Unix socket is unavailable');
   const stopResult = stopped(paths, force);
   if (stopResult !== undefined) return stopResult;
   const manager = deps.manager ?? detectManager();
   const installed = (deps.installed ?? ((value) => installedService(value)))(manager);
-  if (installed && manager !== 'pidfile')
-    return startInstalledGateway(manager, url, paths, timeoutMs, deps);
-  return ensureLocked(url, paths, timeoutMs, deps);
+  if (installed && manager !== 'pidfile') return startInstalledGateway(manager, context);
+  return ensureLocked(context);
 }
 
 async function startInstalledGateway(
   manager: Exclude<ServiceManager, 'pidfile'>,
-  url: URL,
-  paths: Paths,
-  timeoutMs: number,
-  deps: EnsureDeps,
+  context: EnsureContext,
 ): Promise<EnsureResult> {
+  const { url, paths, deps, useSocket } = context;
   clearGatewayStopped(paths);
   try {
     (deps.startService ?? ((value) => startInstalledService(value)))(manager);
@@ -369,7 +427,8 @@ async function startInstalledGateway(
     const detail = error instanceof Error ? error.message : String(error);
     return result('failed', `could not start the installed service: ${detail}`);
   }
-  const health = await waitForHealth(url, timeoutMs, deps);
+  const health = await waitForHealth(context);
+  if (isLegacyHealth(health, paths, deps, useSocket)) return legacyResult(url);
   if (health === null) {
     return result(
       'failed',
@@ -394,7 +453,16 @@ export async function ensureGateway(options: {
   const safety = safePaths(paths);
   if (safety !== undefined) return safety;
   const timeoutMs = Math.max(0, (options.timeoutSeconds ?? 30) * 1000);
-  return ensureAtEndpoint(endpoint.url, paths, timeoutMs, deps, options.force === true);
+  return ensureAtEndpoint(
+    {
+      url: endpoint.url,
+      paths,
+      timeoutMs,
+      deps,
+      useSocket: options.url === undefined,
+    },
+    options.force === true,
+  );
 }
 
 export function ensureExitCode(outcome: EnsureResult): number {
@@ -407,6 +475,7 @@ export function ensureExitCode(outcome: EnsureResult): number {
   if (
     outcome.listener === 'remote' ||
     outcome.listener === 'mismatch' ||
+    outcome.listener === 'legacy' ||
     outcome.listener === 'unsafe-path'
   )
     return 2;

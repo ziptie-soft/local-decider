@@ -1,9 +1,12 @@
-import type { Server } from 'node:http';
+import { randomUUID } from 'node:crypto';
+import { chmodSync, lstatSync, renameSync, unlinkSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
 
 import { ConfigFile, MemoryConfigStore, type ConfigStore } from './config-file.ts';
 import { isLoopback, type GatewayConfig } from './config.ts';
+import { probeConnection } from './connection-probe.ts';
 import { Decider } from './decider.ts';
 import { EngineControl } from './engine-control.ts';
 import type { Engine } from './engines/types.ts';
@@ -12,12 +15,15 @@ import type { Paths } from './paths.ts';
 import { loadPolicies, policyDirs, type LoadedPolicy } from './policies.ts';
 import { ensureControlToken, ensureReportToken } from './report-token.ts';
 import { writeSchemas } from './schemas.ts';
-import { createGatewayServer, type ServerOptions } from './server.ts';
+import { createGatewayHandler, serverTimeouts, type ServerOptions } from './server.ts';
+import { gatewaySocketPath } from './socket-path.ts';
 import { openLogStore } from './sqlite-log.ts';
 import { StatsService } from './stats-service.ts';
+import { GATEWAY_VERSION } from './version.ts';
 
 export interface Gateway {
   readonly server: Server;
+  readonly socketServer?: Server;
   readonly decider: Decider;
   readonly url: string;
   /** Write queued log records now (the synchronous exit hook). */
@@ -65,6 +71,35 @@ function startEngine(engine: Engine, engineControl: EngineControl | undefined): 
  * the model loads, so adapters can skip decisions instead of waiting minutes.
  */
 export async function startGateway(options: StartOptions): Promise<Gateway> {
+  const state = prepareGateway(options);
+  const listeners = await listenGatewayServers(
+    state.log,
+    state.config.host,
+    state.config.port,
+    gatewayServerOptions(state),
+    state.socketPath,
+  );
+  return exposeGateway(state, listeners);
+}
+
+interface GatewayState {
+  readonly config: GatewayConfig;
+  readonly paths: Paths;
+  readonly report: (line: string) => void;
+  readonly store: ConfigStore;
+  readonly engine: Engine;
+  readonly engineControl: EngineControl | undefined;
+  readonly log: LogStore;
+  readonly decider: Decider;
+  readonly stats: StatsService;
+  readonly socketPath: string | null;
+  readonly hasToken: boolean;
+  readonly token: string | undefined;
+  readonly reportToken: string;
+  readonly instance: string;
+}
+
+function prepareGateway(options: StartOptions): GatewayState {
   const { config, paths } = options;
   const env = options.env ?? process.env;
   const report = options.log ?? NOOP;
@@ -91,43 +126,91 @@ export async function startGateway(options: StartOptions): Promise<Gateway> {
   decider.rebuildPrecedent();
   engineControl?.bind(decider);
   const stats = statsService(options, log);
-  const server = await listenGatewayServer(log, config.host, config.port, {
+  const instance = randomUUID();
+  const socketPath = gatewaySocketPath(paths.run);
+  reportSocketFallback(paths, socketPath, report);
+  return {
+    config,
+    paths,
     report,
-    decider,
-    log,
-    token: hasToken ? token : undefined,
-    reportToken,
-    controlToken: ensureControlToken(paths),
+    store,
+    engine,
     engineControl,
-    pricing: config.pricing,
-    decisionTimeoutMs: config.decisionTimeoutMs,
+    log,
+    decider,
     stats,
-    settings: () => engineControl?.settings ?? store.current,
-  });
-  startEngine(engine, engineControl);
+    socketPath,
+    hasToken,
+    token,
+    reportToken,
+    instance,
+  };
+}
+
+function reportSocketFallback(
+  paths: Paths,
+  socketPath: string | null,
+  report: (line: string) => void,
+): void {
+  if (socketPath === null && process.platform !== 'win32') {
+    reportOnce(
+      paths.run,
+      report,
+      `gateway socket path exceeds 100 bytes; using TCP at ${paths.run}`,
+    );
+  }
+}
+
+function gatewayServerOptions(state: GatewayState): ServerOptions {
+  return {
+    report: state.report,
+    decider: state.decider,
+    log: state.log,
+    token: state.hasToken ? state.token : undefined,
+    reportToken: state.reportToken,
+    controlToken: ensureControlToken(state.paths),
+    engineControl: state.engineControl,
+    pricing: state.config.pricing,
+    decisionTimeoutMs: state.config.decisionTimeoutMs,
+    stats: state.stats,
+    settings: () => state.engineControl?.settings ?? state.store.current,
+    version: GATEWAY_VERSION,
+    instance: state.instance,
+  };
+}
+
+function exposeGateway(state: GatewayState, listeners: ListenerSet): Gateway {
+  const { server, socketServer } = listeners;
+  startEngine(state.engine, state.engineControl);
   const unwatch =
-    store instanceof ConfigFile && engineControl !== undefined
-      ? watchSettings(store, engineControl, report)
+    state.store instanceof ConfigFile && state.engineControl !== undefined
+      ? watchSettings(state.store, state.engineControl, state.report)
       : NOOP;
-  const stopPruning = scheduleLogPruning(log, store, report);
-  void pruneLogs(log, config.logs.retainDays, report);
+  const stopPruning = scheduleLogPruning(state.log, state.store, state.report);
+  void pruneLogs(state.log, state.config.logs.retainDays, state.report);
   const { port } = server.address() as AddressInfo;
-  const host = config.host.includes(':') ? `[${config.host}]` : config.host;
+  const host = state.config.host.includes(':') ? `[${state.config.host}]` : state.config.host;
   return {
     server,
-    decider,
+    decider: state.decider,
     url: `http://${host}:${String(port)}`,
-    flushLog: () => log.flush(),
+    ...(socketServer === undefined ? {} : { socketServer }),
+    flushLog: () => state.log.flush(),
     async close() {
       unwatch();
       stopPruning();
-      await cancelBenchmark(engineControl);
-      await engineControl?.idle();
-      await decider.stopAll();
-      stats.close();
-      closeLogStore(log);
+      await cancelBenchmark(state.engineControl);
+      await state.engineControl?.idle();
+      await state.decider.stopAll();
+      state.stats.close();
+      closeLogStore(state.log);
       server.closeAllConnections();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      socketServer?.closeAllConnections();
+      await closeServer(server);
+      if (socketServer !== undefined) {
+        await closeServer(socketServer);
+        removeOwnedSocket(listeners.socketPath, listeners.socketIdentity);
+      }
     },
   };
 }
@@ -179,23 +262,138 @@ function closeLogStore(log: LogStore): void {
   log.close();
 }
 
-async function listenGatewayServer(
+interface ListenerSet {
+  readonly server: Server;
+  readonly socketServer?: Server;
+  readonly socketPath?: string;
+  readonly socketIdentity?: { readonly dev: number; readonly ino: number };
+}
+
+async function listenGatewayServers(
   log: LogStore,
   host: string,
   port: number,
   options: ServerOptions,
-): Promise<Server> {
+  socketPath: string | null,
+): Promise<ListenerSet> {
+  const handler = createGatewayHandler(options);
+  const timeouts = serverTimeouts(options.decisionTimeoutMs ?? 30_000);
+  const server = createServer(timeouts, handler);
+  let socketServer: Server | undefined;
+  let identity: { readonly dev: number; readonly ino: number } | undefined;
   try {
-    const server = createGatewayServer(options);
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(port, host, resolve);
     });
-    return server;
+    if (socketPath !== null) {
+      socketServer = createServer(timeouts, handler);
+      identity = await listenSocket(socketServer, socketPath);
+    }
+    return {
+      server,
+      ...(socketServer === undefined ? {} : { socketServer }),
+      ...(socketPath === null || socketServer === undefined ? {} : { socketPath }),
+      ...(identity === undefined ? {} : { socketIdentity: identity }),
+    };
   } catch (error) {
+    server.closeAllConnections();
+    await closeServerIfListening(server);
+    if (socketServer !== undefined) {
+      socketServer.closeAllConnections();
+      await closeServerIfListening(socketServer);
+      removeOwnedSocket(socketPath ?? undefined, identity);
+    }
     closeLogStore(log);
     throw error;
   }
+}
+
+async function closeServerIfListening(server: Server): Promise<void> {
+  if (!server.listening) return;
+  await closeServer(server);
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve) => server.close(() => resolve()));
+}
+
+async function moveStaleSocket(path: string): Promise<boolean> {
+  const displaced = join(dirname(path), `.gateway.sock.stale-${randomUUID()}`);
+  try {
+    renameSync(path, displaced);
+  } catch {
+    return false;
+  }
+  const state = await probeConnection({ path: displaced }, 400);
+  if (state === 'refused') {
+    unlinkSync(displaced);
+    return true;
+  }
+  try {
+    renameSync(displaced, path);
+  } catch (error) {
+    throw new Error(`could not restore the gateway socket at ${path}`, { cause: error });
+  }
+  return false;
+}
+
+async function listenSocket(
+  server: Server,
+  path: string,
+): Promise<{ readonly dev: number; readonly ino: number }> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(path, resolve);
+      });
+      chmodSync(path, 0o600);
+      const stat = lstatSync(path);
+      const identity = { dev: stat.dev, ino: stat.ino };
+      return identity;
+    } catch (error) {
+      if (
+        attempt !== 0 ||
+        (error as NodeJS.ErrnoException).code !== 'EADDRINUSE' ||
+        (await probeConnection({ path }, 400)) !== 'refused' ||
+        !(await moveStaleSocket(path))
+      )
+        throw error;
+    }
+  }
+  throw new Error(`could not listen on gateway socket ${path}`);
+}
+
+function removeOwnedSocket(
+  path: string | undefined,
+  identity: { readonly dev: number; readonly ino: number } | undefined,
+): void {
+  if (path === undefined || identity === undefined) return;
+  const displaced = join(dirname(path), `.gateway.sock.close-${randomUUID()}`);
+  try {
+    renameSync(path, displaced);
+  } catch {
+    return;
+  }
+  try {
+    const current = lstatSync(displaced);
+    if (current.dev === identity.dev && current.ino === identity.ino) {
+      unlinkSync(displaced);
+      return;
+    }
+    renameSync(displaced, path);
+  } catch {
+    // The socket was replaced; leave the displaced entry in place rather than unlinking another owner.
+  }
+}
+
+const reportedSocketPaths = new Set<string>();
+
+function reportOnce(runDir: string, report: (line: string) => void, message: string): void {
+  if (reportedSocketPaths.has(runDir)) return;
+  reportedSocketPaths.add(runDir);
+  report(message);
 }
 
 function NOOP(): void {}

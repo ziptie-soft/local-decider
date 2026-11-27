@@ -150,6 +150,22 @@ describe('decision response validation', () => {
   });
 });
 
+describe('client identity header', () => {
+  it('sends the configured client id on every gateway request', async () => {
+    const values: string[] = [];
+    const client = new GatewayClient({
+      clientId: 'pi/1.0.0',
+      fetch: async (_input, init) => {
+        values.push(new Headers(init?.headers).get('x-local-decider-client') ?? '');
+        return Response.json({ status: 'ok' });
+      },
+    });
+    await client.health();
+    await client.engines();
+    assert.deepEqual(values, ['pi/1.0.0', 'pi/1.0.0']);
+  });
+});
+
 describe('trimTrailingSlashes', () => {
   it('drops every trailing slash and nothing else', () => {
     assert.equal(trimTrailingSlashes('http://h:1/v1///'), 'http://h:1/v1');

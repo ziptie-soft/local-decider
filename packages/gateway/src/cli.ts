@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import {
   GatewayClient,
+  CLIENT_HEADER,
   SCOPES,
   CONTROL_HEADER,
   loopbackUrl,
@@ -90,6 +91,8 @@ import {
   uninstallService,
 } from './service.ts';
 import { installShutdown } from './shutdown.ts';
+import { gatewaySocketPath } from './socket-path.ts';
+import { socketFetch } from './socket-transport.ts';
 import { parseDays, runStatsFromFile } from './stats-job.ts';
 import { formatStats } from './stats.ts';
 import { probe, toolchain } from './toolchain.ts';
@@ -143,7 +146,7 @@ LOCAL_DECIDER_HOME, LOCAL_DECIDER_CONFIG_DIR. Control commands read the control-
 to config.yaml.
 
 gateway ensure exit codes: 0 running/started/service-started, 1 stopped or failed,
-2 remote URL/mismatch/unsafe path, 3 configured port is busy.`;
+2 remote URL/mismatch/unsafe path/legacy gateway, 3 configured port is busy.`;
 
 interface Context {
   readonly paths: Paths;
@@ -154,9 +157,12 @@ interface Context {
 function client(ctx: Context, timeoutMs: number): GatewayClient {
   const token = process.env['LOCAL_DECIDER_TOKEN'];
   const controlToken = readControlToken(ctx.paths);
+  const socketPath = localSocketPath(ctx);
   return new GatewayClient({
     baseUrl: configuredGatewayUrl(ctx.config, process.env['LOCAL_DECIDER_URL']),
     timeoutMs,
+    clientId: `cli/${GATEWAY_VERSION}`,
+    ...(socketPath === null ? {} : { fetch: socketFetch(socketPath) }),
     ...(token === undefined ? {} : { token }),
     ...(controlToken === undefined ? {} : { controlToken }),
   });
@@ -178,19 +184,27 @@ function gatewayHeaders(ctx: Context, url: string): Record<string, string> {
 function gatewayFetch(
   ctx: Context,
   path: string,
-  init: { method?: string; body?: string; timeoutMs: number },
+  init: { method?: string; body?: string; timeoutMs: number; clientId?: string },
 ): Promise<Response> {
   const url = `${configuredGatewayUrl(ctx.config, process.env['LOCAL_DECIDER_URL'])}${path}`;
-  return fetch(url, {
+  const socketPath = localSocketPath(ctx);
+  const fetcher = socketPath === null ? fetch : socketFetch(socketPath);
+  return fetcher(url, {
     method: init.method ?? 'GET',
     headers: {
       ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
       ...gatewayHeaders(ctx, url),
+      [CLIENT_HEADER]: init.clientId ?? `cli/${GATEWAY_VERSION}`,
     },
     ...(init.body === undefined ? {} : { body: init.body }),
     redirect: 'error',
     signal: AbortSignal.timeout(init.timeoutMs),
   });
+}
+
+function localSocketPath(ctx: Context): string | null {
+  if ((process.env['LOCAL_DECIDER_URL']?.trim() ?? '') !== '') return null;
+  return gatewaySocketPath(ctx.paths.run);
 }
 
 function refusedMessage(ctx: Context): string {
@@ -267,6 +281,10 @@ async function gatewayService(ctx: Context, action: string): Promise<void> {
   console.log(
     `gateway ${configuredGatewayUrl(ctx.config, process.env['LOCAL_DECIDER_URL'])}: ${health === null ? 'unreachable' : JSON.stringify(health)}`,
   );
+  if (health !== null) {
+    const status = await gatewayFetch(ctx, '/v1/status', { timeoutMs: 2000 });
+    if (status.ok) console.log(`gateway status: ${JSON.stringify(await status.json())}`);
+  }
   const stale = staleServiceExec(manager);
   if (stale !== undefined) console.log(stale);
 }
@@ -342,10 +360,11 @@ async function gatewayEnsure(ctx: Context): Promise<void> {
   if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 0) {
     throw new UsageError('gateway ensure --timeout must be a non-negative number of seconds');
   }
+  const endpointOverride = values.url ?? process.env['LOCAL_DECIDER_URL']?.trim();
   const outcome = await ensureGateway({
     paths: ctx.paths,
     config: ctx.config,
-    url: values.url ?? configuredGatewayUrl(ctx.config, process.env['LOCAL_DECIDER_URL']),
+    ...(endpointOverride === undefined || endpointOverride === '' ? {} : { url: endpointOverride }),
     timeoutSeconds,
     ...(values.force === undefined ? {} : { force: values.force }),
   });
@@ -812,7 +831,7 @@ async function mcp(ctx: Context): Promise<void> {
   const backend: McpBackend = {
     decide: (policy, request) =>
       fetchAgentDecision(
-        (path, init) => gatewayFetch(ctx, path, init),
+        (path, init) => gatewayFetch(ctx, path, { ...init, clientId: `mcp/${GATEWAY_VERSION}` }),
         policy,
         request,
         ctx.config.decisionTimeoutMs,
