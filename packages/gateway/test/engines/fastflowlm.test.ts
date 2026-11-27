@@ -79,6 +79,16 @@ describe('FastFlowLM descriptor', () => {
     assert.match(result.summary, /NPU platform: aie2p/);
   });
 
+  it('answers a full listing after a one-model check with every model', async () => {
+    const paths = tempPaths();
+    const status = new CatalogStatus(context(paths.data, fakeFlm(join(paths.data, 'bin', 'flm'))));
+    const nano = fastflowlmEngine.models.filter((entry) => entry.id === 'd3:nano');
+    assert.deepEqual([...(await status.installed(nano))], [['d3:nano', true]]);
+    const installed = await status.installed(fastflowlmEngine.models);
+    assert.equal(installed.size, fastflowlmEngine.models.length);
+    assert.equal(installed.get('d3:edge'), false);
+  });
+
   it('returns absent models and failed validation when FLM is not installed', async () => {
     const paths = tempPaths();
     const status = new CatalogStatus(context(paths.data));
