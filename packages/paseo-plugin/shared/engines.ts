@@ -593,11 +593,19 @@ export function modelRowView(
     /** The device the speed is measured on, from `deviceFor`; null when it cannot be told. */
     readonly speedDevice: string | null;
     readonly totalMemoryGb: number | null;
+    /**
+     * The machine recommendation's best engine and model. When set, only that row is tagged
+     * Recommended and the static flag is ignored; null or absent keeps the static flag.
+     */
+    readonly machineBest?: { readonly engine: string; readonly model: string } | null;
   },
 ): ModelRowView {
   const note = stateNote(state, model, options.totalMemoryGb);
+  const best = options.machineBest ?? null;
+  const tagged =
+    best === null ? model.recommended : best.engine === model.engine && best.model === model.id;
   return {
-    label: model.recommended ? `${model.label} · Recommended` : model.label,
+    label: tagged ? `${model.label} · Recommended` : model.label,
     hint: [...facts(model, options.speedDevice), ...(note === null ? [] : [note])].join(' · '),
     ...actionFor(state, model, options.device),
   };

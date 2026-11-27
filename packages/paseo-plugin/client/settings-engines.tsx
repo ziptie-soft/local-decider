@@ -123,6 +123,7 @@ function ModelRow({ theme, model, catalog, engine, device, action }: RowProps): 
     device,
     speedDevice: deviceFor(catalog, model.engine, device),
     totalMemoryGb: catalog.totalMemoryGb,
+    machineBest: catalog.recommendation?.machine?.best ?? null,
   });
   if (state.kind === 'downloading') {
     const pct =
