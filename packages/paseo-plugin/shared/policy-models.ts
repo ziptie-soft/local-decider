@@ -40,7 +40,7 @@ export const policyModelSchema = z.object({
 });
 
 export type PolicyModel = z.output<typeof policyModelSchema>;
-type PolicySelection = NonNullable<PolicyModel['selection']>;
+export type PolicySelection = NonNullable<PolicyModel['selection']>;
 
 /** A non-empty, bounded text field; one that is not is left out. */
 const text = z.string().min(1).max(MAX_TEXT).optional().catch(undefined);

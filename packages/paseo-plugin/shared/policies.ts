@@ -217,6 +217,9 @@ export interface ModeRowState {
   busy: boolean;
 }
 
+/** The hint of a decision the gateway has not loaded: its Mode and Model rows are disabled. */
+export const POLICY_NOT_LOADED_HINT = 'The gateway has not loaded this policy, so it never runs.';
+
 /** The hint under a card's Mode select: the first row of the plan's table that applies. */
 export function modeRowHint(
   policy: GatewayPolicy,
@@ -233,7 +236,7 @@ export function modeRowHint(
     return { hint: 'Asking the gateway…', disabled: true };
   }
   if (gatewayOnly && state.modesLoaded && state.gatewayMode === undefined) {
-    return { hint: 'The gateway has not loaded this policy, so it never runs.', disabled: true };
+    return { hint: POLICY_NOT_LOADED_HINT, disabled: true };
   }
   const warning = modeHint(policy, state.pluginMode, state.gatewayMode);
   const mode = gatewayOnly ? (state.gatewayMode ?? state.pluginMode) : state.pluginMode;
@@ -247,7 +250,7 @@ export interface ModeWriteResult {
   unreachable?: boolean | undefined;
 }
 
-function failureReason(res: ModeWriteResult): string {
+export function failureReason(res: ModeWriteResult): string {
   if (res.unreachable === true) {
     return 'the gateway is unreachable';
   }
