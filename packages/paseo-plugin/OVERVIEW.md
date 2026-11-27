@@ -78,12 +78,14 @@ checks still run, since Paseo has no equivalent.
 
 ## Settings
 
-- **Status:** three rows. Whether the gateway is up and where it answers, with the typical time
+- **Status:** up to four rows. Whether the gateway is up and where it answers, with the typical time
   of its recent decisions ("recent decisions: typically 92 ms"). When it does not answer, the
   title is "Cannot reach the gateway" and the hint says how to start it, or to press Start under
   Details › Gateway service. It also says what auto-start is doing ("Starting it in the
-  background…") or why it failed, and a "Set up the gateway" row opens the install guide. The
-  default model, named by its catalog label and runtime ("D3 Lite
+  background…") or why it failed, and a "Set up the gateway" row opens the install guide. When
+  the gateway's user service is installed, a Restart gateway row (Start gateway while it is down)
+  runs the service command shown in its hint, e.g. after installing uv or another tool the gateway
+  finds at startup. The default model, named by its catalog label and runtime ("D3 Lite
   Q8_0 on GPU (Vulkan)"), with its state (loaded, not loaded and loading on the next decision,
   loading, failed and why, or "Benchmarking (3 of 6)" while a benchmark runs) and one Load now or
   Unload button that acts at once. When any decision has its own model the button reads "Unload
