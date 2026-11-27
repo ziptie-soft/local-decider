@@ -78,33 +78,49 @@ checks still run, since Paseo has no equivalent.
 
 ## Settings
 
-- **Status:** three rows. Whether the gateway is up and where it answers. The default model with
-  its state (loaded, not loaded and loading on the next decision, loading, failed and why, or
-  "Benchmarking (3 of 6)" while a benchmark runs) and one Load now or Unload button that acts at
-  once. Unload when idle (after 5 minutes to 4 hours, or never) once the gateway reports its
-  lifecycle.
+- **Status:** three rows. Whether the gateway is up and where it answers, with the typical time
+  of its recent decisions ("recent decisions: typically 92 ms"). When it does not answer, the
+  title is "Cannot reach the gateway" and the hint says how to start it, or to press Start under
+  Details › Gateway service. The default model, named by its catalog label and runtime ("D3 Lite
+  Q8_0 on GPU (Vulkan)"), with its state (loaded, not loaded and loading on the next decision,
+  loading, failed and why, or "Benchmarking (3 of 6)" while a benchmark runs) and one Load now or
+  Unload button that acts at once. When any decision has its own model the button reads "Unload
+  all" and the hint says it also unloads those models; each loads again on its next decision.
+  Unload when idle (after 5 minutes to 4 hours, or never, or Custom…) once the gateway reports
+  its lifecycle. Custom… shows a minutes field with Save; the value is kept between 1 and 1440.
 - **Decisions:** one table, a row per decision with a Mode picker (`off`, `shadow`, `act`) and a
-  Model picker (the default model or an own one). Lines under a row say when the gateway runs
-  another mode than Paseo, with a button to align it, and what the chosen model costs.
-- **Routing:** which routing policy the gateway runs, a table mapping each of its presets to an
+  Model picker (the default model or an own one). A muted line under each row says what the
+  selected mode does for that decision ("Shadow: records what it would approve; every request
+  still waits for you"); it gives way to a warning when the gateway runs another mode than
+  Paseo, with a button to align it. Other lines say what the chosen model costs. The table
+  footer names the default ("Default: D3 Lite Q8_0.") and says that a decision with its own model
+  loads it next to the default, needs extra memory, and that at most 3 can do so at once. If you
+  go over that, the error says which step to take: set one of them to Default or Off. While the
+  gateway cannot be reached the Mode pickers are disabled.
+- **Routing:** (shows "Unavailable while the gateway is not running." while it cannot be
+  reached) which routing policy the gateway runs, a table mapping each of its presets to an
   agent profile or a model, with effort (thinking level) and mode, a reload for policy files, and
   "Write with an agent", which starts an agent that interviews you and writes a routing policy
   for your models.
 - **Models** has three blocks, top to bottom. Everything comes from the gateway, so a
-  gateway that knows another engine or model shows it here without a plugin update.
+  gateway that knows another engine or model shows it here without a plugin update. While the
+  gateway cannot be reached the section says "Unavailable while the gateway is not running."; if
+  it answers but is too old to list its models it says so. A model that is not downloaded is
+  named by its catalog label, and the hint points to Models › All engines and models.
   - **Recommended for this machine:** the model family you are using, on the runtime that is
-    fastest here, in plain words (for example "d3 lite on NPU"), with its typical and long
-    latency, why it was picked, and what is running now. It shows one state at a time: nothing
-    to do, a download or install to finish, a backup engine after a failure, or a manual choice
-    that is slower than the recommendation. Badges say when a measurement is out of date, comes
-    from few runs, is noisy, or leaves other runtimes unmeasured. A single button acts on it:
-    Use, Download, Show install steps, Use automatic or Run benchmark. Switching to a specific
-    runtime while Automatic is on says "(turns off automatic)" and offers to turn it back on.
+    fastest here, in plain words (for example "D3 Lite Q8_0 on NPU"), with its typical and long
+    latency from the benchmark ("350 ms in the benchmark"), why it was picked, and what is
+    running now. It shows one state at a time: nothing to do, a download or install to finish, a
+    backup engine after a failure, or a manual choice that is slower than the recommendation.
+    Badges say when a measurement is out of date, comes from few runs, is noisy, or leaves other
+    runtimes unmeasured. A single button acts on it: Use, Download, Show install steps, Use
+    automatic or Run benchmark. Switching to a specific runtime while Automatic is on says
+    "(turns off automatic)" and offers to turn it back on.
   - **Benchmark this machine:** times every installed model on every runtime, one at a time, with
     short, typical and long prompts. See Benchmarks below.
   - **All engines and models** (collapsed): the engine, device and model pickers with
-    download size, memory and speed (measured here, or the catalog's figure labelled as a
-    reference), Download with progress, Use, the connection form
+    download size, memory and speed (from the benchmark here, or the catalog's figure labelled
+    as a reference), Download with progress, Use, the connection form
     for OpenAI-compatible servers, and the engine check (FastFlowLM) with a Re-validate button.
     A model too big for the machine is disabled. An engine this machine cannot run is hidden
     unless it is the active one, and an uninstalled engine says how to install it; the plugin
@@ -183,12 +199,14 @@ does not switch for you. In the results, Use fastest acts per family.
 
 ## Status and statistics
 
-- The **status screen** shows the gateway, the engine, and the service controls.
+- The **status screen** shows the gateway, the model by its catalog label and the runtime ("GPU
+  (Vulkan)", with the raw ids as hints), and the service controls.
 - The **statistics screen** shows, per policy, decisions, actions, latency, agreement with your
   answers, calibration, routing savings and the time you spent on prompts the policy would have
   allowed.
-- The sidebar **quick status** popover has Refresh, Details and Settings buttons. Paseo 0.15.3
-  gives plugin screens no way to open other screens, so Details shows the settings inline.
+- The sidebar **quick status** popover names the model and runtime the same way as Status.
+  It has Refresh, Details and Settings buttons. Paseo 0.15.3 gives plugin screens no way to open
+  other screens, so Details shows the settings inline.
 
 ## Decision rows
 
