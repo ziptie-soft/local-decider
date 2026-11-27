@@ -478,6 +478,11 @@ describe('modeRowHint', () => {
     }
   });
 
+  it('disables a hook kind too while the gateway is unreachable', () => {
+    const row = modeRowHint(HOOK_KIND, { ...base, reachable: false });
+    assert.deepEqual(row, { line: null, disabled: true });
+  });
+
   it('says nothing about a hook kind while the gateway is unknown', () => {
     const row = modeRowHint(HOOK_KIND, {
       ...base,

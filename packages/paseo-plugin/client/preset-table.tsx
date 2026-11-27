@@ -255,6 +255,7 @@ function PresetRow(props: RowProps): ReactNode {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Remove route:${preset}`}
+            hitSlop={8}
             onPress={() => write({})}
           >
             <Icon name="X" size={REMOVE_SLOT} color={theme.colors.foregroundMuted} />

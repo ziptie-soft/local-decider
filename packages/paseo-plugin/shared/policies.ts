@@ -259,10 +259,13 @@ export function modeRowHint(
   if (state.modesLoaded && state.gatewayMode === undefined) {
     return {
       line: { text: POLICY_NOT_LOADED_HINT, tone: 'warning' },
-      disabled: gatewayOnly,
+      disabled: gatewayOnly || !state.reachable,
     };
   }
-  return { line: modeMismatchLine(policy, state.pluginMode, state.gatewayMode), disabled: false };
+  return {
+    line: modeMismatchLine(policy, state.pluginMode, state.gatewayMode),
+    disabled: !state.reachable,
+  };
 }
 
 /** What the gateway answered to a mode write; `unreachable` when the call itself failed. */
