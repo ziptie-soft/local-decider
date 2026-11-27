@@ -1,6 +1,6 @@
 import type { SidebarLabel } from './constants.ts';
 import { engineTag } from './engines.ts';
-import { compactModel, shortModel } from './models.ts';
+import { compactModel } from './models.ts';
 
 /** Status polling cadence: steady while the gateway is up, exponential backoff while it is down. */
 
@@ -78,33 +78,6 @@ function labelParts(
     tag: withModel ? engineTag(status.engine ?? null, status.engineTag ?? null) : null,
     latency: withLatency && status.p50Ms !== null ? compactMs(status.p50Ms) : null,
   };
-}
-
-export interface StatusSummaryLike extends StatusLike {
-  readonly engineState: string | null;
-  readonly detail: string | null;
-  readonly gatewayUrl: string;
-}
-
-/** One line for the settings screen: state, model, latency, and why it is not ready. */
-export function statusSummary(status: StatusSummaryLike | undefined): string {
-  if (status === undefined) {
-    return 'Checking…';
-  }
-  if (!status.up) {
-    return `Unreachable at ${status.gatewayUrl}. Start it with \`local-decider gateway start\` on the daemon machine.`;
-  }
-  const parts = [status.engineState ?? status.status ?? 'ok'];
-  if (status.model !== null && status.model !== '') {
-    parts.push(shortModel(status.model));
-  }
-  if (status.p50Ms !== null) {
-    parts.push(`p50 ${Math.round(status.p50Ms)} ms`);
-  }
-  if (status.detail !== null) {
-    parts.push(status.detail);
-  }
-  return parts.join(' · ');
 }
 
 /** `just now`, `42 s ago`, `5 min ago`; '—' for a missing or bad timestamp. */

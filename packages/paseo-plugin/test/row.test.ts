@@ -11,7 +11,6 @@ import {
   compactMs,
   ellipsis,
   statusLabel,
-  statusSummary,
 } from '../shared/poll.ts';
 import {
   choicesFor,
@@ -215,21 +214,6 @@ describe('polling', () => {
     assert.equal(compactMs(12_400), '12s');
     assert.equal(ellipsis('abcdef', 4), 'abc…');
     assert.equal(ellipsis('abc', 4), 'abc');
-  });
-
-  it('summarises the status for settings', () => {
-    const base = { gatewayUrl: 'http://127.0.0.1:8765', detail: null, p50Ms: null, model: null };
-    assert.match(statusSummary({ ...base, up: false, engineState: null }), /Unreachable at/);
-    assert.equal(
-      statusSummary({
-        ...base,
-        up: true,
-        engineState: 'starting',
-        model: 'StrandsAgents/strands-decider-2B-hobson-v21',
-        detail: 'restart 1',
-      }),
-      'starting · 2B-hobson-v21 · restart 1',
-    );
   });
 });
 

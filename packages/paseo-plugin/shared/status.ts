@@ -31,3 +31,5 @@ export const statusSchema = z.object({
     })
     .nullable(),
 });
+
+export type Status = z.output<typeof statusSchema>;
