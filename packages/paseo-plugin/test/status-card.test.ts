@@ -55,6 +55,11 @@ function catalog(active: Record<string, unknown> | null = {}): EngineCatalog {
 
 const NAME = 'D3 Nano on NPU';
 
+const GUIDE = 'https://github.com/ziptie-soft/local-decider/blob/master/docs/install-paseo.ai.md';
+const launch = (extra: Record<string, unknown>): Record<string, unknown> => ({
+  launch: { ok: false, status: 'not-installed', message: 'no gateway CLI found.', ...extra },
+});
+
 describe('gatewayRow', () => {
   it('checks before the first answer', () => {
     assert.deepEqual(gatewayRow(undefined), { label: 'Gateway', hint: 'Checking…' });
@@ -88,6 +93,30 @@ describe('gatewayRow', () => {
       `No answer from ${URL}. Start it with: local-decider gateway start (on the computer that runs the Paseo daemon). Or press Start under Details › Gateway service.`,
     );
     assert.equal(row.hint.includes('`'), false);
+    assert.equal(row.guideUrl, undefined);
+  });
+
+  it('says why auto-start failed and offers its install guide', () => {
+    const row = gatewayRow(status({ up: false, ...launch({ guideUrl: GUIDE }) }));
+    assert.match(
+      row.hint,
+      new RegExp(`^No answer from ${URL}\\. Auto-start: no gateway CLI found\\. Start it`),
+    );
+    assert.equal(row.guideUrl, GUIDE);
+  });
+
+  it('says a background start is running', () => {
+    const row = gatewayRow(
+      status({ up: false, ...launch({ ok: true, status: 'starting', message: 'x' }) }),
+    );
+    assert.match(row.hint, /Starting it in the background…/);
+    assert.doesNotMatch(row.hint, /Auto-start:/);
+  });
+
+  it('offers only an https guide, and none while the gateway answers', () => {
+    const bad = gatewayRow(status({ up: false, ...launch({ guideUrl: 'javascript:alert(1)' }) }));
+    assert.equal(bad.guideUrl, undefined);
+    assert.equal(gatewayRow(status(launch({ guideUrl: GUIDE }))).guideUrl, undefined);
   });
 });
 

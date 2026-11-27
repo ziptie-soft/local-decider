@@ -2,7 +2,7 @@
  * The default model's state and its one Load now / Unload button, and when to unload it while
  * idle. Shared by the settings and status screens.
  */
-import { useRpc } from '@getpaseo/plugin/client';
+import { openExternalUrl, useRpc } from '@getpaseo/plugin/client';
 import {
   SettingsAction,
   SettingsCard,
@@ -161,6 +161,19 @@ export function EngineControls({
   );
 }
 
+/** The install guide link, shown while the gateway cannot be reached and auto-start gave one. */
+function GuideRow({ url }: { url: string | undefined }): ReactNode {
+  if (url === undefined) return null;
+  return (
+    <SettingsAction
+      label="Set up the gateway"
+      hint="Step-by-step install guide for local-decider with Paseo."
+      actionLabel="Install guide"
+      onPress={() => void openExternalUrl(url)}
+    />
+  );
+}
+
 /** Settings: the gateway, the default model and when it unloads, in one card. */
 export function StatusSection({
   theme,
@@ -177,13 +190,16 @@ export function StatusSection({
         theme={theme}
         gatewayUrl={gatewayUrl}
         lead={
-          <SettingsAction
-            label={row.label}
-            hint={row.hint}
-            actionLabel={isFetching ? 'Checking…' : 'Refresh'}
-            disabled={isFetching}
-            onPress={() => void refetch()}
-          />
+          <>
+            <SettingsAction
+              label={row.label}
+              hint={row.hint}
+              actionLabel={isFetching ? 'Checking…' : 'Refresh'}
+              disabled={isFetching}
+              onPress={() => void refetch()}
+            />
+            <GuideRow url={row.guideUrl} />
+          </>
         }
       />
     </SettingsSection>

@@ -11,7 +11,7 @@ import type { Status } from './status.ts';
 type StatusLike = Pick<
   Status,
   'up' | 'gatewayUrl' | 'p50Ms' | 'engineState' | 'detail' | 'benchmark' | 'engine' | 'engineTag'
->;
+> & { readonly launch?: Status['launch'] };
 
 /** What a section that needs the gateway says while Status cannot reach it. */
 export const GATEWAY_UNAVAILABLE = 'Unavailable while the gateway is not running.';
@@ -23,15 +23,38 @@ export function modelsUnavailableHint(gatewayDown: boolean): string {
     : 'The gateway is running but too old to list its models.';
 }
 
+export interface GatewayRow {
+  readonly label: string;
+  readonly hint: string;
+  /** The install guide to offer while the gateway cannot be reached; https only. */
+  readonly guideUrl?: string;
+}
+
+/** What auto-start said, as a sentence for the down row; empty when it has nothing to add. */
+function launchSentence(launch: Status['launch'] | undefined): string {
+  if (launch == null) return '';
+  if (launch.status === 'starting') return ' Starting it in the background…';
+  if (launch.ok) return '';
+  const message = launch.message.trim().replace(/\.$/, '');
+  return message === '' ? '' : ` Auto-start: ${message}.`;
+}
+
+/** The launcher's guide link, when it gave one and it is an https URL. */
+function guideOf(launch: Status['launch'] | undefined): { readonly guideUrl?: string } {
+  const url = launch?.guideUrl;
+  return url !== undefined && url.startsWith('https://') ? { guideUrl: url } : {};
+}
+
 /** `Gateway is running` and where it answers; `Checking…` before the first answer. */
-export function gatewayRow(status: StatusLike | undefined): { label: string; hint: string } {
+export function gatewayRow(status: StatusLike | undefined): GatewayRow {
   if (status === undefined) {
     return { label: 'Gateway', hint: 'Checking…' };
   }
   if (!status.up) {
     return {
       label: 'Cannot reach the gateway',
-      hint: `No answer from ${status.gatewayUrl}. Start it with: local-decider gateway start (on the computer that runs the Paseo daemon). Or press Start under Details › Gateway service.`,
+      hint: `No answer from ${status.gatewayUrl}.${launchSentence(status.launch)} Start it with: local-decider gateway start (on the computer that runs the Paseo daemon). Or press Start under Details › Gateway service.`,
+      ...guideOf(status.launch),
     };
   }
   // The live p50, unrounded like the quick-status popover and the sidebar, so the three agree.
