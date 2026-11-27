@@ -82,3 +82,23 @@ describe('extension/core', () => {
     });
   }
 });
+
+describe('extension/launcher', () => {
+  const vendored = readdirSync(join(root, 'extension/launcher'));
+
+  it('vendors launcher sources', () => {
+    assert.ok(vendored.length > 0);
+  });
+
+  for (const file of vendored) {
+    it(`${file} is a verbatim copy of packages/launcher/src/${file}`, () => {
+      const copy = readFileSync(join(root, 'extension/launcher', file), 'utf8');
+      const original = readFileSync(join(root, '../launcher/src', file), 'utf8');
+      assert.equal(
+        copy,
+        original,
+        `run: cp packages/launcher/src/${file} packages/pi-plugin/extension/launcher/`,
+      );
+    });
+  }
+});

@@ -1,0 +1,20 @@
+{
+  "name": "@ziptie-soft/local-decider-launcher",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/launch.ts",
+      "types": "./src/launch.ts",
+      "default": "./src/launch.ts"
+    }
+  },
+  "scripts": {
+    "test": "node --test --conditions=source 'test/**/*.test.ts'",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "engines": {
+    "node": ">=24.15"
+  }
+}
