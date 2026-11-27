@@ -60,7 +60,7 @@ import {
   type PolicyRoute,
 } from './engine-lane.ts';
 import { DRAIN_TIMEOUT_MS, type ManagedEngine } from './engines/lazy.ts';
-import { ENGINE_BUSY_ERROR, isEngineBusy, type Engine } from './engines/types.ts';
+import { ENGINE_BUSY_ERROR, isEngineBusy, type Engine, type EngineState } from './engines/types.ts';
 import type { LogStore } from './log-store.ts';
 import type { LoadedPolicy } from './policies.ts';
 import { PrecedentStore } from './precedent.ts';
@@ -183,6 +183,14 @@ interface Served {
 
 /** What answers for a policy: the engine and model, where they came from and why not, if so. */
 export type ServedModel = Omit<Served, 'lane'>;
+
+/** {@link ServedModel} with the state and queue depth of the lane that answers it. */
+export interface ServingModel extends ServedModel {
+  /** `stopped` when no lane answers. */
+  readonly state: EngineState;
+  /** Decisions waiting for or holding the answering lane (the primary's when it answers). */
+  readonly queueDepth: number;
+}
 
 /** Nothing answers: the policy's configured model, with why it is not running. */
 function unavailable(route: PolicyRoute, reason: string): Served {
@@ -640,6 +648,22 @@ export class Decider {
     }
     const { engine, model, source, reason } = this.#routeFor(id, this.activeVariant(id));
     return { engine, model, source, ...(reason === undefined ? {} : { reason }) };
+  }
+
+  /** What answers for policy `id` now, with its lane's state and depth; undefined if unknown. */
+  servingOf(id: string): ServingModel | undefined {
+    if (!this.#policies.has(id)) {
+      return undefined;
+    }
+    const { lane, engine, model, source, reason } = this.#routeFor(id, this.activeVariant(id));
+    return {
+      engine,
+      model,
+      source,
+      ...(reason === undefined ? {} : { reason }),
+      state: lane === null ? 'stopped' : lane.engine.health().state,
+      queueDepth: lane === null ? 0 : laneDepth(lane),
+    };
   }
 
   /**

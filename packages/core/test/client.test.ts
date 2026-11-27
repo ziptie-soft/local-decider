@@ -271,6 +271,49 @@ describe('GatewayClient', () => {
     assert.equal(headers.get('x-local-decider-control'), null);
   });
 
+  it('sets and clears a policy model through the selection route', async () => {
+    const calls: {
+      url: string;
+      method: string | undefined;
+      body: unknown;
+      control: string | null;
+    }[] = [];
+    const client = new GatewayClient({
+      baseUrl: 'http://127.0.0.1:8765',
+      controlToken: 'control',
+      fetch: async (input, init) => {
+        const raw = init?.body;
+        calls.push({
+          url: typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+          method: init?.method,
+          body: typeof raw === 'string' ? JSON.parse(raw) : undefined,
+          control: new Headers(init?.headers).get('x-local-decider-control'),
+        });
+        return Response.json({ error: 'nope' }, { status: 409 });
+      },
+    });
+    const selection = { engine: 'llama-vulkan', model: 'm', fallback: 'open' } as const;
+    assert.deepEqual(await client.setPolicySelection('command-risk', selection), {
+      status: 409,
+      body: { error: 'nope' },
+    });
+    await client.clearPolicySelection('a b');
+    assert.deepEqual(calls, [
+      {
+        url: 'http://127.0.0.1:8765/v1/policies/command-risk/selection',
+        method: 'POST',
+        body: selection,
+        control: 'control',
+      },
+      {
+        url: 'http://127.0.0.1:8765/v1/policies/a%20b/selection',
+        method: 'POST',
+        body: { clear: true },
+        control: 'control',
+      },
+    ]);
+  });
+
   it('refuses redirects without contacting a second loopback server', async () => {
     const client = new GatewayClient({ baseUrl: url });
     redirected = 0;

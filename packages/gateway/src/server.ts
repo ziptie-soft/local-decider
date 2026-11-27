@@ -18,7 +18,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { totalmem } from 'node:os';
 
 import { BenchmarkError, parseBenchmarkRequest } from './benchmark-job.ts';
-import type { GatewayConfig } from './config.ts';
+import { policySelectionSchema, type GatewayConfig, type PolicySelection } from './config.ts';
 import { UnknownPolicyError, type Decider } from './decider.ts';
 import { decisionsResponse } from './decisions-api.ts';
 import { DownloadError } from './downloads.ts';
@@ -39,6 +39,7 @@ import { TokenBucket, UNVERIFIED_BURST, UNVERIFIED_PER_MINUTE, validOutcome } fr
 import type { LogStore } from './log-store.ts';
 import { agentProjection, closedToAgents, handleMcpHttp, policyInfo } from './mcp.ts';
 import { modelFits } from './models.ts';
+import { DEFAULT_CHOICE, healthPolicies, policyListFields } from './policy-models.ts';
 import { reviewResponse } from './review-api.ts';
 import { withConfiguredRoutes, withRoute } from './routing.ts';
 import type { Pricing } from './savings.ts';
@@ -411,6 +412,7 @@ function health(decider: Decider, engineControl?: EngineControl): Record<string,
     errorP95Ms: decider.errorLatency(95),
     counters: decider.counters(),
     queueDepth: decider.queueDepth,
+    policyEngines: healthPolicies(engineControl?.policyModels() ?? []),
     benchmark: engineControl?.benchmark.progress() ?? null,
   };
 }
@@ -422,7 +424,8 @@ type ControlHandler = (
   decider: Decider,
 ) => Promise<[number, unknown]>;
 
-const policyRoute = /^\/v1\/policies\/([a-z][a-z0-9_-]{0,63})\/(mode|variant|thresholds)$/;
+const policyRoute =
+  /^\/v1\/policies\/([a-z][a-z0-9_-]{0,63})\/(mode|variant|thresholds|selection)$/;
 
 /** Engine, model, lifecycle, download, validation, path and policy routes. */
 const CONTROL_ROUTES: Readonly<Record<string, ControlHandler>> = {
@@ -475,8 +478,52 @@ const CONTROL_ROUTES: Readonly<Record<string, ControlHandler>> = {
   'POST /v1/policies/reload': async (_req, c) => [200, { policies: c.reloadPolicies() }],
 };
 
-/** `POST /v1/policies/:id/mode`, `/variant` and `/thresholds`. */
+/** The body of `POST /v1/policies/:id/selection`: `{clear: true}` or a selection of its own. */
+function selectionBody(body: unknown): { clear: true } | { selection: PolicySelection } {
+  if (isRecord(body) && body['clear'] !== undefined) {
+    if (body['clear'] !== true || Object.keys(body).length !== 1) {
+      throw new EngineSwitchError(400, 'expected {clear: true} on its own');
+    }
+    return { clear: true };
+  }
+  const parsed = policySelectionSchema.safeParse(body);
+  if (parsed.success) {
+    return { selection: parsed.data };
+  }
+  const [issue] = parsed.error.issues;
+  const field = issue === undefined || issue.path.length === 0 ? '' : `${issue.path.join('.')}: `;
+  throw new EngineSwitchError(
+    400,
+    `expected {engine, model, device?, fallback?} or {clear: true}; ${field}${issue?.message ?? 'invalid'}`,
+  );
+}
+
+/** `POST /v1/policies/:id/selection`: its own model, or `{clear: true}` for the default model. */
+function selectionHandler(id: string): ControlHandler {
+  return async (req, c) => {
+    const body = selectionBody(await readJson(req));
+    const choice =
+      'clear' in body
+        ? await c.clearPolicySelection(id)
+        : await c.setPolicySelection(id, body.selection);
+    return [
+      200,
+      {
+        ok: true,
+        policy: id,
+        selection: choice.selection,
+        status: choice.status,
+        ...(choice.reason === undefined ? {} : { reason: choice.reason }),
+      },
+    ];
+  };
+}
+
+/** `POST /v1/policies/:id/mode`, `/variant`, `/thresholds` and `/selection`. */
 function policyHandler(id: string, field: string): ControlHandler {
+  if (field === 'selection') {
+    return selectionHandler(id);
+  }
   if (field === 'thresholds') {
     return async (req, c) => {
       const thresholds = c.setPolicyThresholds(id, parseThresholds(await readJson(req)));
@@ -670,7 +717,7 @@ function agentPolicyList(decider: Decider): unknown[] {
 }
 
 /** `GET /v1/policies[?view=agent]`: the full list, or the agent-safe one for `view=agent`. */
-const policiesHandler: Handler = async (req, res, { decider }) => {
+const policiesHandler: Handler = async (req, res, { decider, engineControl }) => {
   if (agentViewParam(req)) {
     send(res, 200, agentPolicyList(decider));
     return;
@@ -681,6 +728,14 @@ const policiesHandler: Handler = async (req, res, { decider }) => {
     [...decider.policies.values()].map(({ policy, mode }) => ({
       id: policy.id,
       mode,
+      ...policyListFields(
+        decider.engineOf(policy.id) ?? {
+          engine: decider.engine.id,
+          model: decider.engine.model,
+          source: 'default',
+        },
+        engineControl?.policyChoice(policy.id) ?? DEFAULT_CHOICE,
+      ),
       description: policy.description,
       mcp: mcpOpen(policy),
       questions: policyInfo(policy).questions,

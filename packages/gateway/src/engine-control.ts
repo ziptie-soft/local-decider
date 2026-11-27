@@ -34,9 +34,10 @@ import {
   type Device,
   type EngineConfig,
   type GatewayConfig,
+  type PolicySelection,
   type PresetTarget,
 } from './config.ts';
-import type { Decider } from './decider.ts';
+import { UnknownPolicyError, type Decider } from './decider.ts';
 import { DownloadError, Downloads, type Download } from './downloads.ts';
 import { engineConnectionConfigPath, type EngineConnection } from './engine-connection.ts';
 import {
@@ -91,6 +92,7 @@ import {
   type LanePlanDeps,
   type LanePlanInput,
   type PlanSelection,
+  type PolicySelectionStatus,
 } from './policy-engines.ts';
 import {
   degradedPlan,
@@ -98,7 +100,15 @@ import {
   PolicyLanes,
   policiesUsing,
   suspendedRoutes,
+  suspendedStatus,
 } from './policy-lanes.ts';
+import {
+  DEFAULT_CHOICE,
+  enginePolicies,
+  modelRow,
+  type PolicyChoice,
+  type PolicyModelRow,
+} from './policy-models.ts';
 import { StampCache, stampKey } from './stamp-cache.ts';
 import {
   checkPath,
@@ -114,6 +124,9 @@ import {
 } from './toolchain.ts';
 
 const SWITCHABLE_ENGINES: readonly EngineId[] = SELECTABLE_IDS;
+
+/** Why an override cannot run on a gateway whose default model is fixed by config.yaml. */
+const NOT_SWITCHABLE_REASON = 'the default model cannot switch';
 
 /** The listed keys of `entry` that are set, so absent ones stay out of the response. */
 function optionalFields(
@@ -579,6 +592,8 @@ export class EngineControl implements BenchmarkHost {
   #lanesSuspended = false;
   /** The lanes need a plan: they were suspended, or a reconcile asked for one while they were. */
   #reconcileDirty = false;
+  /** How each override fared in the last plan; a policy without an override is not listed. */
+  #policyStatus: ReadonlyMap<string, PolicySelectionStatus> = new Map();
   /** Engines built for a benchmark: they never feed fallback accounting. */
   readonly #leasedEngines = new WeakSet<ManagedEngine>();
   readonly #preemptCapMs: number;
@@ -705,11 +720,12 @@ export class EngineControl implements BenchmarkHost {
       return;
     }
     await this.#lanes.retire(decider, this.#lanes.keys());
-    decider.setPolicyRoutes(
-      suspendedRoutes(
-        laneSelections(this.#config.policies, (id) => decider.policies.has(id)),
-        'benchmark running',
-      ),
+    const selections = laneSelections(this.#config.policies, (id) => decider.policies.has(id));
+    decider.setPolicyRoutes(suspendedRoutes(selections, 'benchmark running'));
+    this.#policyStatus = suspendedStatus(
+      selections,
+      (id) => decider.effectiveMode(id) === 'off',
+      'benchmark running',
     );
   }
 
@@ -795,7 +811,6 @@ export class EngineControl implements BenchmarkHost {
   async benchmarkInventory(): Promise<BenchmarkInventory> {
     const { models, installed, ranking } = await this.#inventorySources();
     const device = this.#deviceResolution();
-    const memoryDevice = device?.resolved ?? this.#selected?.device;
     return buildInventory({
       engines: this.#engines().map((e) => ({
         id: String(e['id']),
@@ -806,7 +821,13 @@ export class EngineControl implements BenchmarkHost {
       })),
       models,
       installed,
-      fits: (m) => modelFits(m.id, this.#memory, memoryDevice, m.engine as EngineId),
+      fits: (m) =>
+        modelFits(
+          m.id,
+          this.#memory,
+          this.#deviceOfEngine(m.engine as EngineId),
+          m.engine as EngineId,
+        ),
       candidates: ranking.candidates,
       current:
         this.#selected === null
@@ -830,16 +851,24 @@ export class EngineControl implements BenchmarkHost {
     const next: EngineSelection = { ...target, engine: target.engine };
     try {
       await this.#checkSelectable(next);
-      const { ranking } = await this.#inventorySources();
-      const eligible = ranking.candidates.filter((c) => c.engine === next.engine && c.eligible);
-      if (next.engine === 'strands-decider' && !eligible.some((c) => c.device === next.device)) {
-        throw new EngineSwitchError(409, `device ${next.device ?? 'auto'} is not available here`);
-      }
+      await this.#checkDevice(next);
     } catch (error) {
       if (error instanceof EngineSwitchError) {
         throw new BenchmarkError(409, `${name}: ${error.message}`);
       }
       throw error;
+    }
+  }
+
+  /** A strands-decider device this machine cannot run (no CUDA, say) is a 409. */
+  async #checkDevice(next: EngineSelection): Promise<void> {
+    if (next.engine !== 'strands-decider') {
+      return;
+    }
+    const { ranking } = await this.#inventorySources();
+    const eligible = ranking.candidates.filter((c) => c.engine === next.engine && c.eligible);
+    if (!eligible.some((c) => c.device === next.device)) {
+      throw new EngineSwitchError(409, `device ${next.device ?? 'auto'} is not available here`);
     }
   }
 
@@ -1072,6 +1101,116 @@ export class EngineControl implements BenchmarkHost {
     this.#save([{ path: ['policies', id, 'mode'], value: mode }]);
     this.#applied = { ...this.#applied, policies: this.#config.policies };
     void this.#queueLanes();
+  }
+
+  /**
+   * Give policy `id` its own model, checked strictly first, as if the policy were on: the model
+   * must be selectable and its device available here, and the plan with it placed last must keep it
+   * (cap, memory, one fastflowlm model). Nothing is saved unless it can run. Persisted, then the
+   * lanes change in one transition; returns how the policy's own model stands afterwards, never a
+   * verdict from before the transition.
+   */
+  async setPolicySelection(id: string, selection: PolicySelection): Promise<PolicyChoice> {
+    this.#guardBenchmark();
+    return this.#enqueue(async () => {
+      this.#guardBenchmark();
+      const decider = this.#knownPolicy(id);
+      const primary = this.#requireSwitchable();
+      const next = this.#asSelection(selection);
+      await this.#checkSelectable(next);
+      await this.#checkDevice(next);
+      const plan = await PolicyEngines.plan(
+        this.#laneInput(decider, primary, { id, selection }),
+        this.#planDeps(),
+      );
+      const planned = plan.status.get(id) ?? { status: 'unavailable' as const };
+      if (planned.status === 'unavailable') {
+        throw new EngineSwitchError(409, planned.reason ?? 'its model cannot run');
+      }
+      this.#saveSelection(id, selection);
+      return { selection, ...(await this.#reconciled(id)) };
+    });
+  }
+
+  /**
+   * Reconcile the lanes after a selection was saved, and say how policy `id` stands: the verdict of
+   * this transition. When the transition planned nothing or failed, the answer is `unavailable`,
+   * never a verdict left from before.
+   */
+  async #reconciled(id: string): Promise<PolicySelectionStatus> {
+    const before = this.#policyStatus;
+    let failure = 'its model could not be planned';
+    try {
+      await this.#transition(undefined);
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error);
+      console.warn(`local-decider: reconciling policy models failed: ${failure}`);
+    }
+    const verdict = this.#policyStatus === before ? undefined : this.#policyStatus.get(id);
+    return verdict ?? { status: 'unavailable', reason: failure };
+  }
+
+  /** Put policy `id` back on the default model; persisted, and its lane is retired. */
+  async clearPolicySelection(id: string): Promise<PolicyChoice> {
+    return this.#enqueue(async () => {
+      this.#knownPolicy(id);
+      if (this.#selectionOf(id) !== null) {
+        this.#saveSelection(id, undefined);
+      }
+      await this.#transition(undefined);
+      return DEFAULT_CHOICE;
+    });
+  }
+
+  /** Writes policy `id`'s own model (undefined removes it) so a file reload sees no change. */
+  #saveSelection(id: string, selection: PolicySelection | undefined): void {
+    this.#save([{ path: ['policies', id, 'selection'], value: selection }]);
+    this.#applied = { ...this.#applied, policies: this.#config.policies };
+  }
+
+  /** The decider, when it has policy `id`; else the 404 of an unknown policy. */
+  #knownPolicy(id: string): Decider {
+    const decider = this.#decider;
+    if (decider?.policies.has(id) !== true) {
+      throw new UnknownPolicyError(`unknown policy "${id}"`);
+    }
+    return decider;
+  }
+
+  /** Policy `id`'s own model in the settings, or null for the default model. */
+  #selectionOf(id: string): PolicySelection | null {
+    const { policies } = this.#config;
+    return (Object.hasOwn(policies, id) ? policies[id]?.selection : undefined) ?? null;
+  }
+
+  /** How policy `id`'s own model stands: `default` without one, else the last plan's verdict. */
+  policyChoice(id: string): PolicyChoice {
+    const selection = this.#selectionOf(id);
+    if (selection === null) {
+      return DEFAULT_CHOICE;
+    }
+    const planned = this.#policyStatus.get(id) ?? {
+      status: 'unavailable' as const,
+      reason: 'its model is not planned yet',
+    };
+    return { selection, ...planned };
+  }
+
+  /** Every policy with its own model, and the lane that answers for it. */
+  policyModels(): PolicyModelRow[] {
+    const decider = this.#decider;
+    if (decider === undefined) {
+      return [];
+    }
+    return [...decider.policies.keys()].flatMap((id) => {
+      const choice = this.policyChoice(id);
+      const serving = decider.servingOf(id);
+      if (choice.selection === null || serving === undefined) {
+        return [];
+      }
+      const label = catalogModel(serving.model, serving.engine as EngineId)?.label ?? serving.model;
+      return [modelRow(id, choice.selection, choice, serving, label)];
+    });
   }
 
   /** Answer policy `id` with policy `variant` (`id` itself = the default); persisted. */
@@ -1440,7 +1579,6 @@ export class EngineControl implements BenchmarkHost {
     const health = this.activeHealth();
     const life = this.#engine.lifecycle;
     const device = this.#deviceResolution();
-    const memoryDevice = device?.resolved ?? this.#selected?.device;
     const ranking = this.#recommendation(presenceByEngine(models, installed));
     const details = measurementDetailsFor(
       this.#benchmarkStore.records(),
@@ -1452,7 +1590,8 @@ export class EngineControl implements BenchmarkHost {
       switchable: this.switchable,
       totalMemoryGb: Math.round(this.#memory / 1e9),
       engines: this.#engines(),
-      models: this.#modelStatuses(models, installed, memoryDevice, details),
+      models: this.#modelStatuses(models, installed, details),
+      policies: enginePolicies(this.policyModels()),
       recommendation: ranking,
       downloads: this.#downloads.list(),
       paths: resolveAll(this.#config, this.#paths, this.#env, this.#host),
@@ -1499,21 +1638,37 @@ export class EngineControl implements BenchmarkHost {
     };
   }
 
+  /**
+   * The device a model's memory is counted on: its own engine's, which is the default model's
+   * device only when the default model runs on that engine. Another engine's models are counted on
+   * that engine's own default device (strands: `auto`), whatever the default model runs on.
+   */
+  #deviceOfEngine(engine: EngineId): string | undefined {
+    const primary = this.#selected;
+    const device = primary?.engine === engine ? primary.device : null;
+    return this.#resolvedDevice({ engine, model: '', device });
+  }
+
   #modelStatuses(
     models: readonly ModelDescriptor<EngineId>[],
     installed: ReadonlyMap<string, boolean>,
-    memoryDevice: Device | null | undefined,
     details: ReadonlyMap<string, MeasurementDetails>,
   ): Record<string, unknown>[] {
+    const devices = new Map<EngineId, string | undefined>(
+      [...new Set(models.map((m) => m.engine))].map((engine) => [
+        engine,
+        this.#deviceOfEngine(engine),
+      ]),
+    );
     return models.map((m) => ({
       id: m.id,
       engine: m.engine,
       label: m.label,
       downloadGb: m.downloadGb,
-      memoryGb: modelMemoryGb(m, memoryDevice),
+      memoryGb: modelMemoryGb(m, devices.get(m.engine)),
       cpuMemoryGb: m.memoryGb,
       gpuMemoryGb: m.gpuMemoryGb ?? null,
-      fits: modelFits(m.id, this.#memory, memoryDevice, m.engine),
+      fits: modelFits(m.id, this.#memory, devices.get(m.engine), m.engine),
       quality: m.quality ?? null,
       source: m.source ?? null,
       installed: installed.get(m.id) ?? false,
@@ -2096,24 +2251,56 @@ export class EngineControl implements BenchmarkHost {
       this.#build(this.#asSelection(selection)),
     );
     decider.setPolicyRoutes(plan.routes);
+    this.#policyStatus = plan.status;
     return engines;
   }
 
-  /** What the lanes should be, for `target` as the default model; undefined when it cannot switch. */
+  /**
+   * What the planner works from, for `primary` as the default model. `candidate` is a selection not
+   * saved yet: it replaces the policy's own and is placed last, so a refusal lands on it.
+   */
+  #laneInput(
+    decider: Decider,
+    primary: PlanSelection,
+    candidate?: { readonly id: string; readonly selection: PolicySelection },
+  ): LanePlanInput {
+    const selections = laneSelections(this.#config.policies, (id) => decider.policies.has(id));
+    const modes = new Map(
+      [...decider.policies.keys()].map((id) => [id, decider.effectiveMode(id)] as const),
+    );
+    if (candidate !== undefined) {
+      selections.set(candidate.id, candidate.selection);
+      // An off policy keeps its place without loading; setting it must pass as if it were on.
+      if (modes.get(candidate.id) === 'off') {
+        modes.set(candidate.id, 'shadow');
+      }
+    }
+    return {
+      primary,
+      selections,
+      ...(candidate === undefined ? {} : { last: candidate.id }),
+      modes,
+      loaded: this.#lanes.healthyKeys(),
+    };
+  }
+
+  /**
+   * What the lanes should be, for `target` as the default model. A gateway whose default model
+   * cannot switch has no lanes: every override is unavailable and answers as its `fallback` says.
+   */
   async #planLanes(
     decider: Decider | undefined,
     target: EngineSelection | null,
     switching: boolean,
   ): Promise<LanePlan | undefined> {
-    if (decider === undefined || target === null) {
+    if (decider === undefined) {
       return undefined;
     }
-    const input: LanePlanInput = {
-      primary: target,
-      selections: laneSelections(this.#config.policies, (id) => decider.policies.has(id)),
-      modes: new Map([...decider.policies.keys()].map((id) => [id, decider.effectiveMode(id)])),
-      loaded: this.#lanes.healthyKeys(),
-    };
+    if (target === null) {
+      const primary = { engine: this.#engine.id, model: this.#engine.model };
+      return degradedPlan(this.#laneInput(decider, primary), NOT_SWITCHABLE_REASON);
+    }
+    const input = this.#laneInput(decider, target);
     try {
       return await PolicyEngines.plan(input, this.#planDeps());
     } catch (error) {

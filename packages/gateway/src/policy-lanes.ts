@@ -2,7 +2,12 @@ import type { GatewayConfig, PolicySelection } from './config.ts';
 import type { Decider } from './decider.ts';
 import { PRIMARY_LANE, type PolicyRoute } from './engine-lane.ts';
 import type { LifecycleOptions, ManagedEngine } from './engines/lazy.ts';
-import type { LanePlan, LanePlanInput, LaneStart } from './policy-engines.ts';
+import type {
+  LanePlan,
+  LanePlanInput,
+  LaneStart,
+  PolicySelectionStatus,
+} from './policy-engines.ts';
 
 /** Why a lane that is going away fails open for the decisions it still holds. */
 const LANE_RETIRE_REASON = 'engine switching';
@@ -42,6 +47,20 @@ export function suspendedRoutes(
         configured: { engine: selection.engine, model: selection.model },
         reason,
       },
+    ]),
+  );
+}
+
+/** What each override reports while a benchmark owns the machine: unavailable, or off. */
+export function suspendedStatus(
+  selections: ReadonlyMap<string, PolicySelection>,
+  isOff: (id: string) => boolean,
+  reason: string,
+): Map<string, PolicySelectionStatus> {
+  return new Map(
+    [...selections.keys()].map((id) => [
+      id,
+      isOff(id) ? { status: 'off' } : { status: 'unavailable', reason },
     ]),
   );
 }
