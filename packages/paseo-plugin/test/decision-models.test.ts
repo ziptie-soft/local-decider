@@ -5,9 +5,11 @@ import { GATEWAY_POLICIES, type GatewayPolicy, type PluginMode } from '../shared
 import { DECISION_KINDS } from '../shared/decision-kinds.ts';
 import {
   allModelsTitle,
+  defaultModelLabel,
   defaultModelName,
   effectiveP50,
   headerBadge,
+  modelNote,
   modelOptions,
   modelOutcome,
   modelRowHint,
@@ -1033,5 +1035,23 @@ describe('popoverModel', () => {
       popoverRowLabelWith('Routing: Off.', popoverModel(engines, 'routing')),
       'Routing: Off.',
     );
+  });
+});
+
+describe('modelNote', () => {
+  it('names the default model by its catalog label', () => {
+    const catalog = world();
+    assert.equal(defaultModelLabel(catalog), 'D3 Nano');
+    assert.equal(
+      modelNote(catalog),
+      'Default: D3 Nano. A decision with its own model loads it next to the default and needs extra memory; at most 3 at once.',
+    );
+  });
+
+  it('falls back to a generic lead without a default model', () => {
+    const catalog = world({ active: { model: null } });
+    assert.equal(defaultModelLabel(catalog), null);
+    assert.ok(modelNote(catalog).startsWith('Default: the default model.'));
+    assert.ok(modelNote(undefined).startsWith('Default: the default model.'));
   });
 });

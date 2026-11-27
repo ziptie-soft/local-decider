@@ -47,6 +47,22 @@ export function runningName(catalog: EngineCatalog): string | null {
   return `${model.family.label} on ${where}${format}`;
 }
 
+/** The default model's catalog label (`D3 Lite Q8_0`), its id when unlisted; null when none. */
+export function defaultModelLabel(catalog: EngineCatalog | undefined): string | null {
+  const active = catalog?.active ?? null;
+  if (catalog === undefined || !hasModel(active)) {
+    return null;
+  }
+  return findModel(catalog, active.engine, active.model)?.label ?? active.model;
+}
+
+/** The footnote of the decisions table: which model Default is and what an own model costs. */
+export function modelNote(catalog: EngineCatalog | undefined): string {
+  const label = defaultModelLabel(catalog);
+  const lead = label === null ? 'Default: the default model.' : `Default: ${label}.`;
+  return `${lead} A decision with its own model loads it next to the default and needs extra memory; at most 3 at once.`;
+}
+
 /** A gateway reason as the middle of a sentence: without its closing full stop. */
 function sentence(text: string): string {
   return text.endsWith('.') ? text.slice(0, -1) : text;
