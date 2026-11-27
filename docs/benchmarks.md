@@ -158,6 +158,46 @@ Ranges come from interleaved runs (Vulkan, NPU, Vulkan, NPU) under the same load
   torch now comes from `engine install --flavor rocm`, which an explicit config picks on its own on
   an AMD GPU host.
 
+## Kev 0.8B on llama.cpp (Vulkan)
+
+Kev 0.8B Q8_0 (`ggml-org/Kev-0.8B-GGUF`, `kev-0.8b-q8_0`) against d3-lite Q8_0 on the same
+`llama-server`. Hardware: AMD Ryzen AI 9 365 with Radeon 880M (Vulkan). Build: llama.cpp b12110
+(`0.9.0-dev`, commit cd959bae9).
+
+Conditions: a second gateway from source on port 8766, while the live gateway sat idle with
+Strands 2B resident on the same iGPU. The numbers may be pessimistic. 5 runs per size.
+
+| Model | Tokens (state) | p50 | p95 |
+|---|---|---|---|
+| Kev 0.8B Q8_0 | 256 | 156 ms | 185 ms |
+| Kev 0.8B Q8_0 | 1,024 | 435 ms | 541 ms |
+| d3-lite Q8_0 | 256 | 135 ms | 137 ms |
+| d3-lite Q8_0 | 1,024 | 352 ms | 354 ms |
+
+Both load in 1.1 s. Kev's engine token counts are 298 and 906, d3-lite's 370 and 978.
+
+**Memory.** The `llama-server` resident set was 312 MB with Kev loaded. On Vulkan the weights
+live in GPU-mapped memory, so RSS undercounts the footprint (the file is 774 MB). `memoryGb`
+therefore stays at 1.5: the file (0.81 GB) plus the KV cache at ctx 4096. The iGPU's GTT use
+cannot be attributed to Kev here, because Strands was resident too.
+
+**Quality.** The reference is Strands 2B (`strands-decider-2B-qwen3.5-v1-2610`, ROCm) through the
+same second gateway, with `mise run eval -- --out`. Kev's probabilities are close to flat, so its
+answers often fall below the policy thresholds, and its actions are `ask` or the policy default.
+"Agree" is the share of cases where Kev's action equals the reference's action.
+
+| Policy | Agree with reference | Kev's gate |
+|---|---|---|
+| command-risk | 23/44 | fail: dangerous 0/11, safe 0/14 |
+| permission | 75/89 | fail: allow 0/33, deny 0/13 |
+| routing | 14/30 | fail: fast 2/10, standard 0/10, deep 0/10 |
+| routing-budget | 17/30 | fail: cheap 0/10, premium 0/10 |
+| routing-task-kind | 17/25 | fail: code 3/5, debug 2/5, plan 3/5 |
+| turn-outcome | 18/36 | fail: needs_input 0/10, stuck 1/11, failed 1/5 |
+
+The reference passed every gate. Kev fails every policy, so it is not recommended for any decision
+kind. Its permission agreement is high only because both models mostly ask.
+
 ## Other paths
 
 - **macOS (MLX):** not measured yet. Upstream reports 113 ms at 222 tokens for the 2B v19 model
