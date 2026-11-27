@@ -2,7 +2,7 @@
  * Settings: pick an engine, then a model for it. Rows download and remove models, switch the
  * gateway to one (the gateway persists it) and show an engine's validation result when it has one.
  */
-import { useRpc } from '@getpaseo/plugin/client';
+import { openExternalUrl, useRpc } from '@getpaseo/plugin/client';
 import {
   SettingsAction,
   SettingsCard,
@@ -15,6 +15,7 @@ import { View } from 'react-native';
 
 import type { BenchmarkView } from '../shared/benchmark.ts';
 import type { DiscoveredServer, Seed } from '../shared/connection.ts';
+import { MODELS_DOCS_URL } from '../shared/constants.ts';
 import {
   canRemoveModel,
   deviceOptions,
@@ -500,6 +501,14 @@ function EnginePicker({
           <ValidationCard theme={theme} engine={engine} />
         ) : null}
       </Disclosure>
+      <SettingsCard>
+        <SettingsAction
+          label="What are these models?"
+          hint="Size, speed and which decisions each model suits."
+          actionLabel="Open docs"
+          onPress={() => void openExternalUrl(MODELS_DOCS_URL)}
+        />
+      </SettingsCard>
     </>
   );
 }

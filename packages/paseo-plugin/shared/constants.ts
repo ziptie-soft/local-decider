@@ -10,6 +10,10 @@ export const CONTROL_HEADER = 'x-local-decider-control';
 /** Name of the injected MCP server and prefix of every timeline row id. */
 export const MCP_SERVER_NAME = 'local-decider';
 
+/** The decider models page that the engine settings link to. */
+export const MODELS_DOCS_URL =
+  'https://github.com/ziptie-soft/local-decider/blob/master/docs/models.md';
+
 /** Title of the agent "Write with an agent" starts; routing never rewrites it. */
 export const POLICY_WRITER_TITLE = 'Write a routing policy';
 /** Label on that agent, visible in Paseo. */
