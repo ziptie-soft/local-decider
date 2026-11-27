@@ -17,4 +17,12 @@ the training row format that `local-decider labels export --format strands` writ
   Strands Decider authors.
 
 No Strands Decider source files are copied into this repository. The gateway installs and runs
-the published package as a separate process. Policy wording under `policies/` is original.
+the published package as a separate process. Policy wording under `policies/` is original, except
+as noted below.
+
+The `command-risk-binary` policy (`policies/command-risk-binary.yaml`) follows the single yes/no
+`risky` question and the "ask above 0.2" threshold of pi-automode-classifier, and its two
+`criteria` lines adapt that project's default risky and safe criteria:
+
+- pi-automode-classifier, https://github.com/deepu105/pi-automode-classifier, MIT License,
+  Copyright (c) 2026 Deepu K Sasidharan. No source files from it are copied into this repository.

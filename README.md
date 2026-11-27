@@ -412,7 +412,9 @@ showing 70% fewer tokens and about 98% lower cost per call against Claude Sonnet
 [SystemOne](https://github.com/iksnerd/SystemOne), [viz-dec](https://github.com/tomyak/viz-dec),
 [building-with-decision-models](https://github.com/aaddrick/building-with-decision-models),
 [destructive_command_guard](https://github.com/Dicklesworthstone/destructive_command_guard),
-[codex-policy-hooks](https://github.com/jakubc78/codex-policy-hooks).
+[codex-policy-hooks](https://github.com/jakubc78/codex-policy-hooks),
+[pi-automode-classifier](https://github.com/deepu105/pi-automode-classifier) (the yes/no
+command-risk question and criteria behind `command-risk-binary`, MIT; see [NOTICE](NOTICE)).
 
 ## Contributing
 
