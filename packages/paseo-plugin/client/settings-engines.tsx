@@ -539,11 +539,11 @@ export function EngineSection({
       ) : (
         <SettingsCard>
           <SettingsAction
-            label={data === undefined ? 'Checking…' : 'Engines unavailable'}
+            label={data === undefined ? 'Checking…' : 'Models unavailable'}
             hint={
               data === undefined
-                ? 'Asking the gateway for its engines.'
-                : 'The gateway is unreachable or has no /v1/engines.'
+                ? 'Asking the gateway for its models.'
+                : 'The gateway is not running, or it is too old to list its models.'
             }
             actionLabel={isFetching ? 'Checking…' : 'Refresh'}
             disabled={isFetching}

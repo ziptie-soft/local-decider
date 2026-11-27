@@ -154,7 +154,7 @@ function familyLabel(c: Ctx): string {
 
 function headlineOf(c: Ctx): string {
   if (c.machine === null) {
-    return c.active?.engine == null ? 'Engine and model' : `Running on ${runningWord(c)}`;
+    return c.active?.engine == null ? 'No model chosen yet' : `Running on ${runningWord(c)}`;
   }
   return c.best === null ? c.machine.familyLabel : `${c.machine.familyLabel} on ${bestWord(c)}`;
 }

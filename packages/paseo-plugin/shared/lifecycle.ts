@@ -14,8 +14,35 @@ export interface EngineStateLike {
   readonly benchmark?: { readonly completed: number; readonly total: number } | null;
 }
 
+/** The engine states in the words Status and the Models card both use. */
+const STATE_WORDS = {
+  ready: 'Loaded',
+  starting: 'Loading',
+  stopped: 'Not loaded',
+  failed: 'Failed',
+} as const;
+
+const STATE_TONES = {
+  ready: 'success',
+  starting: 'info',
+  stopped: 'info',
+  failed: 'error',
+} as const;
+
+/** The badge for an engine state (`Loaded`, `Not loaded`, `Loading`, `Failed`); null when unknown. */
+export function stateBadge(
+  state: string | null,
+): { readonly text: string; readonly tone: 'success' | 'error' | 'info' } | null {
+  return state !== null && state in STATE_WORDS
+    ? {
+        text: STATE_WORDS[state as keyof typeof STATE_WORDS],
+        tone: STATE_TONES[state as keyof typeof STATE_TONES],
+      }
+    : null;
+}
+
 function loadedNote(s: EngineStateLike): string {
-  const parts = ['Loaded'];
+  const parts: string[] = [STATE_WORDS.ready];
   if (s.model !== null && s.model !== '') {
     parts.push(shortModel(s.model));
   }
@@ -70,17 +97,17 @@ export function engineStateSentence(s: EngineStateLike | undefined): string {
   const state = s?.state ?? null;
   switch (state) {
     case 'ready':
-      return 'Loaded.';
+      return `${STATE_WORDS.ready}.`;
     case 'starting':
-      return 'Loading…';
+      return `${STATE_WORDS.starting}…`;
     case 'failed': {
       const detail = s?.detail ?? 'no detail from the gateway';
-      return `Failed: ${detail}${detail.endsWith('.') ? '' : '.'}`;
+      return `${STATE_WORDS.failed}: ${detail}${detail.endsWith('.') ? '' : '.'}`;
     }
     case 'stopped':
       return s?.lifecycle === 'eager'
-        ? 'Not loaded; press Load now.'
-        : 'Not loaded; loads on the next decision.';
+        ? `${STATE_WORDS.stopped}; press Load now.`
+        : `${STATE_WORDS.stopped}; loads on the next decision.`;
     case null:
       return 'State unknown.';
     default:

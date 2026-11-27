@@ -61,7 +61,7 @@ function RunningNow({ theme, catalog }: { theme: Theme; catalog: EngineCatalog }
   }
   return (
     <>
-      <SettingsRow label="Running now" hint={fallback ?? ''}>
+      <SettingsRow label="Default model" hint={fallback ?? ''}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 }}>
           <Value theme={theme}>{name}</Value>
           {fallback === null ? null : <Badge theme={theme} tone="warning" text="Backup" />}
@@ -316,7 +316,7 @@ function LegacyCard({
 }): ReactNode {
   return (
     <SettingsCard>
-      <SettingsRow label="Engine and model">
+      <SettingsRow label="Current model">
         {card.mode === null ? null : <Badge theme={theme} text={card.mode} />}
       </SettingsRow>
       <RunningNow theme={theme} catalog={catalog} />

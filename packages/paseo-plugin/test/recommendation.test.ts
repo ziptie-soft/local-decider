@@ -147,7 +147,7 @@ describe('current engine', () => {
     assert.deepEqual(runningView(active(), NAMES), {
       value: 'Strands Decider · GPU (MLX)',
       hint: 'strands-decider 2B · ~66 ms',
-      state: { text: 'Ready', tone: 'success' },
+      state: { text: 'Loaded', tone: 'success' },
     });
   });
 
@@ -181,6 +181,7 @@ describe('current engine', () => {
 
   it('maps engine states to badges', () => {
     assert.equal(runningView(active({ state: 'starting' }), NAMES)?.state?.text, 'Loading');
+    assert.equal(runningView(active({ state: 'stopped' }), NAMES)?.state?.text, 'Not loaded');
     assert.equal(runningView(active({ state: 'failed' }), NAMES)?.state?.tone, 'error');
     assert.equal(runningView(active({ state: 'weird' }), NAMES)?.state, null);
     assert.equal(runningView(null, NAMES), null);
