@@ -546,8 +546,9 @@ describe('modelRowHint', () => {
   it('8: says an own model has an unknown speed, and where to measure it', () => {
     for (const id of ['bare', 'stale']) {
       const text = hint(entry('command-risk', selectionOf('llama-vulkan', id)));
-      assert.match(text, /^Own model on GPU \(Vulkan\), speed not measured here\. /);
-      assert.ok(text.endsWith(' Benchmark it under Models.'));
+      assert.match(text, /^Own model on GPU \(Vulkan\)/);
+      assert.ok(text.endsWith(' Speed not measured here.'));
+      assert.equal(text.includes('Benchmark'), false);
     }
   });
 
@@ -595,16 +596,16 @@ describe('modelRowHint', () => {
     const line = modelRowHint('command-risk', ctxFor(entry('command-risk'))).line;
     assert.equal(
       line?.text,
-      'Own model on GPU (Vulkan), ~460 ms here. Loads on its first decision and unloads when idle. Needs about 3.5 GB on top of the default model.',
+      'Own model on GPU (Vulkan), about 3.5 GB of extra memory. Loads on its first decision. About 460 ms per decision here.',
     );
     assert.equal(line?.tone, 'muted');
   });
 
-  it('11: drops the memory sentence when it is unknown', () => {
+  it('11: drops the memory clause when it is unknown', () => {
     const row = entry('command-risk', selectionOf('llama-vulkan', 'edge1000'));
     assert.equal(
       hint(row),
-      'Own model on GPU (Vulkan), ~1.0 s here. Loads on its first decision and unloads when idle.',
+      'Own model on GPU (Vulkan). Loads on its first decision. About 1.0 s per decision here.',
     );
   });
 
@@ -612,10 +613,25 @@ describe('modelRowHint', () => {
     const w = { active: { lifecycle: 'eager' } };
     assert.equal(
       hint(entry('command-risk'), 'shadow', w),
-      'Own model on GPU (Vulkan), ~460 ms here. Kept loaded. Needs about 3.5 GB on top of the default model.',
+      'Own model on GPU (Vulkan), about 3.5 GB of extra memory. Stays loaded. About 460 ms per decision here.',
     );
     const row = entry('command-risk', selectionOf('llama-vulkan', 'edge1000'));
-    assert.equal(hint(row, 'shadow', w), 'Own model on GPU (Vulkan), ~1.0 s here. Kept loaded.');
+    assert.equal(
+      hint(row, 'shadow', w),
+      'Own model on GPU (Vulkan). Stays loaded. About 1.0 s per decision here.',
+    );
+  });
+
+  it('4: tells where to download a model that is not downloaded', () => {
+    const row = {
+      ...entry('command-risk'),
+      status: 'unavailable',
+      reason: 'd3-lite is not downloaded yet.',
+    } as const;
+    assert.equal(
+      hint(row),
+      'Unavailable: d3-lite is not downloaded yet. The default model answers instead. Download it under Models.',
+    );
   });
 
   it('13: says nothing when the default model is used', () => {

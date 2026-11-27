@@ -33,6 +33,7 @@ import {
 } from '../shared/policies.ts';
 import { policyModeRpc, policySelectionRpc } from '../shared/rpc.ts';
 import type { DeciderSettings } from '../shared/settings.ts';
+import { TABLE, tableStacked } from '../shared/table-layout.ts';
 import { ChipPicker } from './chip-picker.tsx';
 import { useAction, useEngines, useGatewayStatus, type Outcome } from './hooks.ts';
 import { useGatewayModesState } from './policy-modes.ts';
@@ -169,8 +170,6 @@ function useDecisionWrites(values: DeciderSettings, save: Save): Writes {
   };
 }
 
-const COLUMNS = { mode: 110, model: 220 } as const;
-
 const MODEL_NOTE =
   'Default follows the default model. An own model loads next to it and needs extra memory; at most 3 own models run at once.';
 const MODES_LEGEND =
@@ -190,18 +189,26 @@ function Cell({
   children: ReactNode;
 }): ReactNode {
   if (grow) {
-    return <View style={{ flexGrow: 1, flexBasis: 260, minWidth: 0 }}>{children}</View>;
+    return (
+      <View style={{ flexGrow: 1, flexBasis: TABLE.description, minWidth: 0 }}>{children}</View>
+    );
   }
   return <View style={{ width }}>{children}</View>;
+}
+
+function Controls({ children }: { children: ReactNode }): ReactNode {
+  return <View style={{ flexDirection: 'row', gap: TABLE.gap }}>{children}</View>;
 }
 
 function Header({ theme }: { theme: Theme }): ReactNode {
   const head = (text: string): ReactNode => <Head theme={theme} text={text} />;
   return (
-    <HeaderRow wrap>
+    <HeaderRow>
       <Cell grow>{head('Decision')}</Cell>
-      <Cell width={COLUMNS.mode}>{head('Mode')}</Cell>
-      <Cell width={COLUMNS.model}>{head('Model')}</Cell>
+      <Controls>
+        <Cell width={TABLE.mode}>{head('Mode')}</Cell>
+        <Cell width={TABLE.model}>{head('Model')}</Cell>
+      </Controls>
     </HeaderRow>
   );
 }
@@ -253,7 +260,14 @@ function ModelCell({
   onChange: (option: ModelOption) => void;
 }): ReactNode {
   if (view.unsupported) {
-    return <Text style={{ color: theme.colors.foregroundMuted, fontSize: 13 }}>Default</Text>;
+    return (
+      <Text
+        accessibilityLabel={`${title} model: Default`}
+        style={{ color: theme.colors.foregroundMuted, fontSize: 13 }}
+      >
+        Default
+      </Text>
+    );
   }
   return (
     <ChipPicker
@@ -330,28 +344,30 @@ function DecisionRow(props: CardProps): ReactNode {
           </View>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 13 }}>{info.decides}</Text>
         </Cell>
-        <Cell width={COLUMNS.mode}>
-          <ChipPicker
-            theme={theme}
-            title={`${info.title} mode`}
-            note={info.askedBy}
-            disabled={row.disabled || blocked}
-            value={mine ? (writes.pendingMode ?? mode) : mode}
-            options={modeOptions(policy)}
-            onChange={pickMode}
-          />
-        </Cell>
-        <Cell width={COLUMNS.model}>
-          <ModelCell
-            theme={theme}
-            title={info.title}
-            view={model}
-            blocked={blocked}
-            onChange={(option) =>
-              writes.writeModel(policy, option, { mode, fallback: model.fallback })
-            }
-          />
-        </Cell>
+        <Controls>
+          <Cell width={TABLE.mode}>
+            <ChipPicker
+              theme={theme}
+              title={`${info.title} mode`}
+              note={info.askedBy}
+              disabled={row.disabled || blocked}
+              value={mine ? (writes.pendingMode ?? mode) : mode}
+              options={modeOptions(policy)}
+              onChange={pickMode}
+            />
+          </Cell>
+          <Cell width={TABLE.model}>
+            <ModelCell
+              theme={theme}
+              title={info.title}
+              view={model}
+              blocked={blocked}
+              onChange={(option) =>
+                writes.writeModel(policy, option, { mode, fallback: model.fallback })
+              }
+            />
+          </Cell>
+        </Controls>
       </View>
       {row.line === null ? null : (
         <Line
@@ -364,7 +380,7 @@ function DecisionRow(props: CardProps): ReactNode {
       {model.line === null ? null : (
         <Line theme={theme} line={model.line} disabled onFix={() => undefined} />
       )}
-      {outcome === null ? null : (
+      {outcome === null || outcome.tone === 'success' ? null : (
         <View style={{ marginHorizontal: -16 }}>
           <InlineMessage theme={theme} tone={outcome.tone} text={outcome.text} />
         </View>
@@ -401,28 +417,29 @@ export function DecisionsSection({
   const status = useGatewayStatus();
   const engines = useEngines(values.gatewayUrl);
   const reachable = status.data?.up !== false;
+  const [width, setWidth] = useState(Infinity);
+  const older = engines.data?.reachable === true && engines.data.policies === undefined;
   return (
     <SettingsSection title="Decisions" info={INFO}>
       <SettingsCard>
-        {reachable ? null : <InlineMessage theme={theme} tone="warning" text={UNREACHABLE} />}
-        <Header theme={theme} />
-        {GATEWAY_POLICIES.map((policy) => (
-          <DecisionRow
-            key={policy}
-            theme={theme}
-            policy={policy}
-            values={values}
-            writes={writes}
-            gatewayUrl={values.gatewayUrl}
-            gatewayMode={modes[policy]}
-            modesLoaded={loaded}
-            reachable={reachable}
-          />
-        ))}
-        <Footer
-          theme={theme}
-          older={engines.data?.policies === undefined && engines.data !== undefined}
-        />
+        <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+          {reachable ? null : <InlineMessage theme={theme} tone="warning" text={UNREACHABLE} />}
+          {tableStacked(width) ? null : <Header theme={theme} />}
+          {GATEWAY_POLICIES.map((policy) => (
+            <DecisionRow
+              key={policy}
+              theme={theme}
+              policy={policy}
+              values={values}
+              writes={writes}
+              gatewayUrl={values.gatewayUrl}
+              gatewayMode={modes[policy]}
+              modesLoaded={loaded}
+              reachable={reachable}
+            />
+          ))}
+          <Footer theme={theme} older={older} />
+        </View>
       </SettingsCard>
     </SettingsSection>
   );

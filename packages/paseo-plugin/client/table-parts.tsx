@@ -13,19 +13,12 @@ export function Head({ theme, text }: { theme: Theme; text: string }): ReactNode
   );
 }
 
-/** The row that holds the column titles; `wrap` lets narrow screens stack the columns. */
-export function HeaderRow({
-  wrap = false,
-  children,
-}: {
-  wrap?: boolean;
-  children: ReactNode;
-}): ReactNode {
+/** The row that holds the column titles. */
+export function HeaderRow({ children }: { children: ReactNode }): ReactNode {
   return (
     <View
       style={{
         flexDirection: 'row',
-        flexWrap: wrap ? 'wrap' : 'nowrap',
         gap: 10,
         paddingHorizontal: 16,
         paddingTop: 12,

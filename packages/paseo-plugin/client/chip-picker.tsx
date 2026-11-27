@@ -7,6 +7,7 @@ import { Icon, Modal, type ModalProps } from '@getpaseo/plugin/client/ui';
 import { useState, type ComponentType, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
+import { optionAccessibilityLabel } from '../shared/chip-label.ts';
 import type { Theme } from './ui.tsx';
 
 // `ModalComponent` (a FunctionComponent with a static `Content`) does not type-check as a JSX
@@ -47,7 +48,7 @@ function OptionRow({
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      accessibilityLabel={option.label}
+      accessibilityLabel={optionAccessibilityLabel(option)}
       onPress={onPress}
       style={({ pressed }) => ({
         flexDirection: 'row',
