@@ -7,6 +7,18 @@ import type { AgentView } from './explain.ts';
 /** A bad command line; the CLI prints it (or the usage text when empty) and exits 2. */
 export class UsageError extends Error {}
 
+/** A JSON object from a gateway body, or undefined for anything else. */
+export function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/** A non-empty string from a gateway body, or `fallback`. */
+export function displayText(value: unknown, fallback = ''): string {
+  return typeof value === 'string' && value !== '' ? value : fallback;
+}
+
 /** Parse `--input`: invalid JSON, or JSON that is not an object, is a usage error. */
 export function parseInputJson(text: string): Record<string, unknown> {
   let parsed: unknown;
