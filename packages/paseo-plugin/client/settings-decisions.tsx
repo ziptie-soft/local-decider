@@ -15,7 +15,7 @@ import {
   type PluginMode,
 } from '../shared/constants.ts';
 import { DECISION_KINDS, modeEffectLine, modeOptions } from '../shared/decision-kinds.ts';
-import type { ModelOption } from '../shared/decision-models.ts';
+import { modelNote, type ModelOption } from '../shared/decision-models.ts';
 import {
   holdState,
   HOLD_MAX_MS,
@@ -172,8 +172,6 @@ function useDecisionWrites(values: DeciderSettings, save: Save): Writes {
   };
 }
 
-const MODEL_NOTE =
-  'Default follows the default model. An own model loads next to it and needs extra memory; at most 3 own models run at once.';
 const MODES_LEGEND =
   'Off: not asked. Shadow: decides and records, changes nothing. Act: its decision takes effect.';
 const OLDER_GATEWAY_LEGEND = 'Choosing a model per decision needs a newer local-decider gateway.';
@@ -316,11 +314,13 @@ function ModelCell({
   title,
   view,
   blocked,
+  note,
   onChange,
 }: {
   theme: Theme;
   title: string;
   view: ModelSelectView;
+  note: string;
   blocked: boolean;
   onChange: (option: ModelOption) => void;
 }): ReactNode {
@@ -338,7 +338,7 @@ function ModelCell({
     <ChipPicker
       theme={theme}
       title={`${title} model`}
-      note={MODEL_NOTE}
+      note={note}
       disabled={view.disabled || blocked}
       value={view.value}
       options={view.options}
@@ -437,6 +437,7 @@ function DecisionRow(props: CardProps): ReactNode {
               theme={theme}
               title={info.title}
               view={model}
+              note={modelNote(engines.data)}
               blocked={blocked}
               onChange={(option) =>
                 writes.writeModel(policy, option, { mode, fallback: model.fallback })
@@ -463,7 +464,15 @@ function DecisionRow(props: CardProps): ReactNode {
   );
 }
 
-function Footer({ theme, older }: { theme: Theme; older: boolean }): ReactNode {
+function Footer({
+  theme,
+  older,
+  note,
+}: {
+  theme: Theme;
+  older: boolean;
+  note: string;
+}): ReactNode {
   const style = { color: theme.colors.foregroundMuted, fontSize: 12 } as const;
   return (
     <View
@@ -476,6 +485,7 @@ function Footer({ theme, older }: { theme: Theme; older: boolean }): ReactNode {
       }}
     >
       <Text style={style}>{MODES_LEGEND}</Text>
+      {older ? null : <Text style={style}>{note}</Text>}
       {older ? <Text style={style}>{OLDER_GATEWAY_LEGEND}</Text> : null}
     </View>
   );
@@ -514,7 +524,7 @@ export function DecisionsSection({
               reachable={reachable}
             />
           ))}
-          <Footer theme={theme} older={older} />
+          <Footer theme={theme} older={older} note={modelNote(engines.data)} />
         </View>
       </SettingsCard>
     </SettingsSection>
