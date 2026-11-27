@@ -5,7 +5,7 @@
 import { defaultModelName } from './decision-models.ts';
 import { engineTag, type EngineCatalog } from './engines.ts';
 import { engineStateSentence } from './lifecycle.ts';
-import { ms } from './recommended-card.ts';
+import { formatMs } from './stats.ts';
 import type { Status } from './status.ts';
 
 type StatusLike = Pick<
@@ -24,7 +24,8 @@ export function gatewayRow(status: StatusLike | undefined): { label: string; hin
       hint: `No answer from ${status.gatewayUrl}. Start it with: local-decider gateway start (on the computer that runs the Paseo daemon).`,
     };
   }
-  const typical = status.p50Ms === null ? '' : ` · typical decision ${ms(status.p50Ms)}`;
+  // The live p50, unrounded like the quick-status popover and the sidebar, so the three agree.
+  const typical = status.p50Ms === null ? '' : ` · typical decision ${formatMs(status.p50Ms)}`;
   return { label: 'Gateway is running', hint: `Answering at ${status.gatewayUrl}${typical}` };
 }
 
