@@ -282,6 +282,17 @@ describe('gateway pidfile ownership', () => {
     assert.equal(stopped, 'stopped');
     assert.deepEqual(signalled, [process.pid]);
   });
+
+  it('treats ESRCH during stop as an already exited gateway', () => {
+    const paths = tempPaths();
+    writeGatewayPidfile(paths, process.pid, 43210);
+    const stopped = stopService('pidfile', paths, {
+      kill: () => {
+        throw Object.assign(new Error('process exited'), { code: 'ESRCH' });
+      },
+    });
+    assert.equal(stopped, 'stopped');
+  });
 });
 
 describe('starting an installed service', () => {

@@ -327,7 +327,11 @@ function stopPidfile(
 ): string {
   const owner = readPidfile(paths);
   if (owner === undefined) return 'not running';
-  kill(owner.pid, 'SIGTERM');
+  try {
+    kill(owner.pid, 'SIGTERM');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+  }
   return `stopped (pid ${String(owner.pid)})`;
 }
 

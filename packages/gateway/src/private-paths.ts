@@ -1,4 +1,4 @@
-import { constants, fstatSync, mkdirSync, openSync, closeSync } from 'node:fs';
+import { constants, fchmodSync, fstatSync, mkdirSync, openSync, closeSync } from 'node:fs';
 
 import type { Paths } from './paths.ts';
 
@@ -22,9 +22,10 @@ function ensurePrivateDirectory(dir: string): void {
     fd = openSync(dir, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0));
     const stat = fstatSync(fd);
     const uid = process.getuid?.();
-    if ((uid !== undefined && stat.uid !== uid) || (stat.mode & 0o022) !== 0) {
+    if (uid !== undefined && stat.uid !== uid) {
       throw new Error(`unsafe private directory: ${dir}`);
     }
+    if ((stat.mode & 0o022) !== 0) fchmodSync(fd, PRIVATE_MODE);
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
