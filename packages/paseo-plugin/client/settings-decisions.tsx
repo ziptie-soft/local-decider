@@ -33,7 +33,7 @@ import {
 } from '../shared/policies.ts';
 import { policyModeRpc, policySelectionRpc } from '../shared/rpc.ts';
 import type { DeciderSettings } from '../shared/settings.ts';
-import { TABLE, tableStacked } from '../shared/table-layout.ts';
+import { COLUMN_LABELS, TABLE, tableStacked } from '../shared/table-layout.ts';
 import { ChipPicker } from './chip-picker.tsx';
 import { useAction, useEngines, useGatewayStatus, type Outcome } from './hooks.ts';
 import { useGatewayModesState } from './policy-modes.ts';
@@ -85,6 +85,8 @@ interface CardProps {
   readonly gatewayMode: PluginMode | undefined;
   readonly modesLoaded: boolean;
   readonly reachable: boolean;
+  /** The card is too narrow for a header: the chips carry their own captions. */
+  readonly stacked: boolean;
 }
 
 /** The mode a card shows: the saved Paseo mode, or the gateway's for command risk. */
@@ -196,18 +198,47 @@ function Cell({
   return <View style={{ width }}>{children}</View>;
 }
 
-function Controls({ children }: { children: ReactNode }): ReactNode {
-  return <View style={{ flexDirection: 'row', gap: TABLE.gap }}>{children}</View>;
+function Controls({ wrap, children }: { wrap: boolean; children: ReactNode }): ReactNode {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: wrap ? 'wrap' : 'nowrap', gap: TABLE.gap }}>
+      {children}
+    </View>
+  );
+}
+
+/** A chip column; stacked, its title moves inline before the chip and the pair never splits. */
+function Column({
+  theme,
+  label,
+  width,
+  stacked,
+  children,
+}: {
+  theme: Theme;
+  label: string;
+  width: number;
+  stacked: boolean;
+  children: ReactNode;
+}): ReactNode {
+  if (!stacked) {
+    return <Cell width={width}>{children}</Cell>;
+  }
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+      <Head theme={theme} text={label} />
+      <Cell width={width}>{children}</Cell>
+    </View>
+  );
 }
 
 function Header({ theme }: { theme: Theme }): ReactNode {
   const head = (text: string): ReactNode => <Head theme={theme} text={text} />;
   return (
     <HeaderRow>
-      <Cell grow>{head('Decision')}</Cell>
-      <Controls>
-        <Cell width={TABLE.mode}>{head('Mode')}</Cell>
-        <Cell width={TABLE.model}>{head('Model')}</Cell>
+      <Cell grow>{head(COLUMN_LABELS.decision)}</Cell>
+      <Controls wrap={false}>
+        <Cell width={TABLE.mode}>{head(COLUMN_LABELS.mode)}</Cell>
+        <Cell width={TABLE.model}>{head(COLUMN_LABELS.model)}</Cell>
       </Controls>
     </HeaderRow>
   );
@@ -344,8 +375,13 @@ function DecisionRow(props: CardProps): ReactNode {
           </View>
           <Text style={{ color: theme.colors.foregroundMuted, fontSize: 13 }}>{info.decides}</Text>
         </Cell>
-        <Controls>
-          <Cell width={TABLE.mode}>
+        <Controls wrap={props.stacked}>
+          <Column
+            theme={theme}
+            label={COLUMN_LABELS.mode}
+            width={TABLE.mode}
+            stacked={props.stacked}
+          >
             <ChipPicker
               theme={theme}
               title={`${info.title} mode`}
@@ -355,8 +391,13 @@ function DecisionRow(props: CardProps): ReactNode {
               options={modeOptions(policy)}
               onChange={pickMode}
             />
-          </Cell>
-          <Cell width={TABLE.model}>
+          </Column>
+          <Column
+            theme={theme}
+            label={COLUMN_LABELS.model}
+            width={TABLE.model}
+            stacked={props.stacked}
+          >
             <ModelCell
               theme={theme}
               title={info.title}
@@ -366,7 +407,7 @@ function DecisionRow(props: CardProps): ReactNode {
                 writes.writeModel(policy, option, { mode, fallback: model.fallback })
               }
             />
-          </Cell>
+          </Column>
         </Controls>
       </View>
       {row.line === null ? null : (
@@ -418,13 +459,14 @@ export function DecisionsSection({
   const engines = useEngines(values.gatewayUrl);
   const reachable = status.data?.up !== false;
   const [width, setWidth] = useState(Infinity);
+  const stacked = tableStacked(width);
   const older = engines.data?.reachable === true && engines.data.policies === undefined;
   return (
     <SettingsSection title="Decisions" info={INFO}>
       <SettingsCard>
         <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
           {reachable ? null : <InlineMessage theme={theme} tone="warning" text={UNREACHABLE} />}
-          {tableStacked(width) ? null : <Header theme={theme} />}
+          {stacked ? null : <Header theme={theme} />}
           {GATEWAY_POLICIES.map((policy) => (
             <DecisionRow
               key={policy}
@@ -435,6 +477,7 @@ export function DecisionsSection({
               gatewayUrl={values.gatewayUrl}
               gatewayMode={modes[policy]}
               modesLoaded={loaded}
+              stacked={stacked}
               reachable={reachable}
             />
           ))}
