@@ -116,7 +116,7 @@ export function ownSelection(entry: PolicyModel | undefined): PolicySelection | 
   return entry?.status === 'default' ? undefined : entry?.selection;
 }
 
-function fallbackOf(entry: PolicyModel | undefined): Fallback {
+export function fallbackOf(entry: PolicyModel | undefined): Fallback {
   return entry?.fallback ?? entry?.selection?.fallback ?? 'default';
 }
 
@@ -314,7 +314,7 @@ export interface ModelHintContext {
   readonly reachable: boolean;
   /** The decision's mode: the Paseo mode of a hook kind, the gateway's for command risk. */
   readonly mode: PluginMode;
-  /** False when the gateway has not loaded the policy (Mode row 4). */
+  /** False when the gateway has not loaded the policy: the select is disabled with `POLICY_NOT_LOADED_HINT`. */
   readonly policyLoaded: boolean;
   /** A write from this card is in flight: the model it sets, null for the default model. */
   readonly writing: { readonly label: string | null } | null;

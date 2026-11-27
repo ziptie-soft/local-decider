@@ -115,7 +115,7 @@ export function useServiceInfo(): UseQueryResult<ServiceInfo> {
 }
 
 export interface Outcome {
-  readonly tone: 'error' | 'success';
+  readonly tone: 'error' | 'success' | 'warning';
   readonly text: string;
 }
 
