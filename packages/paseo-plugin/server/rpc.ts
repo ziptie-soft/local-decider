@@ -15,6 +15,13 @@ import { appendRow } from './timeline.ts';
 const STATUS_TIMEOUT_MS = 1500;
 const STATS_MAX_CHARS = 20_000;
 
+export interface LaunchSummary {
+  readonly ok: boolean;
+  readonly status: string;
+  readonly message: string;
+  readonly guideUrl?: string;
+}
+
 export interface StatusResult {
   up: boolean;
   status: GatewayHealth['status'];
@@ -30,6 +37,7 @@ export interface StatusResult {
   gatewayUrl: string;
   downStreak: number;
   checkedAt: string;
+  launch: LaunchSummary | null;
 }
 
 type HealthFields = Pick<
@@ -64,6 +72,7 @@ export function createStatusHandler(
   deps: Pick<HookDeps, 'gateway' | 'settings'>,
   now: () => Date = () => new Date(),
   onResult: (up: boolean) => void = () => {},
+  onDown?: (url: string, attempt: boolean) => Promise<LaunchSummary | null>,
 ): () => Promise<StatusResult> {
   let downStreak = 0;
   return async () => {
@@ -72,13 +81,16 @@ export function createStatusHandler(
     const up = health !== null && health.status !== 'down';
     downStreak = up ? 0 : downStreak + 1;
     onResult(up);
+    const gatewayUrl = gateway?.baseUrl ?? (await deps.settings()).gatewayUrl;
+    const launch = onDown === undefined ? null : await onDown(gatewayUrl, !up);
     return {
       up,
       ...healthFields(health),
       ...policyEnginesField(health),
-      gatewayUrl: gateway?.baseUrl ?? (await deps.settings()).gatewayUrl,
+      gatewayUrl,
       downStreak,
       checkedAt: now().toISOString(),
+      launch,
     };
   };
 }

@@ -1349,7 +1349,31 @@ describe('rpc handlers', () => {
       gatewayUrl: 'http://127.0.0.1:8765',
       downStreak: 0,
       checkedAt: '1970-01-01T00:00:00.000Z',
+      launch: null,
     });
+  });
+
+  it('includes the auto-launch summary when health is down', async () => {
+    const gw = fakeGateway(() => null);
+    gw.health = async () => null;
+    let attempts = 0;
+    const status = createStatusHandler(
+      deps(settings(), gw),
+      () => new Date(0),
+      () => {},
+      async () => {
+        attempts++;
+        return { ok: false, status: 'not-installed', message: 'install the gateway manually' };
+      },
+    );
+    const result = await status();
+    assert.equal(attempts, 1);
+    assert.deepEqual(result.launch, {
+      ok: false,
+      status: 'not-installed',
+      message: 'install the gateway manually',
+    });
+    assert.deepEqual(statusSchema.parse(result).launch, result.launch);
   });
 
   it('reads the benchmark progress from health, leniently', async () => {

@@ -1,4 +1,5 @@
 import type { PluginServerContext, PluginSettingsState } from '@getpaseo/plugin/server';
+import { readFileSync } from 'node:fs';
 
 import { Background } from './server/background.ts';
 import type { HookDeps } from './server/deps.ts';
@@ -31,13 +32,20 @@ import {
 } from './server/engines.ts';
 import { gatewaySource } from './server/gateway-source.ts';
 import { LabelRegistry, recordPermissionLabel } from './server/labels.ts';
+import { launchGateway, type LaunchResult } from './server/launcher/launch.ts';
 import { createOpenHandler } from './server/open.ts';
 import { createPermissionHandlers } from './server/permission.ts';
 import { preloadOnStart } from './server/preload.ts';
 import { DailyReview } from './server/review.ts';
 import { drawRoutingRow } from './server/routing-row.ts';
 import { createRoutingHandler } from './server/routing.ts';
-import { createStatusHandler, manualDecide, recordFeedback, statsText } from './server/rpc.ts';
+import {
+  createStatusHandler,
+  manualDecide,
+  recordFeedback,
+  statsText,
+  type LaunchSummary,
+} from './server/rpc.ts';
 import { defaultServiceEnv, runService, serviceInfo } from './server/service.ts';
 import { createTurnHandler } from './server/turn.ts';
 import { UsageLinks } from './server/usage.ts';
@@ -84,6 +92,81 @@ function log(message: string): void {
 
 /** A failed check is trusted for this long; afterwards hooks try the gateway again. */
 const DOWN_TTL_MS = 60_000;
+const AUTO_LAUNCH_TTL_MS = 5 * 60_000;
+
+function pinnedGatewayVersion(): string | null {
+  try {
+    const manifest: unknown = JSON.parse(
+      readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
+    );
+    if (typeof manifest !== 'object' || manifest === null || Array.isArray(manifest)) return null;
+    const localDecider = (manifest as Record<string, unknown>)['localDecider'];
+    if (typeof localDecider !== 'object' || localDecider === null || Array.isArray(localDecider))
+      return null;
+    const version = (localDecider as Record<string, unknown>)['gateway'];
+    return typeof version === 'string' ? version : null;
+  } catch {
+    return null;
+  }
+}
+
+function launchSummary(result: LaunchResult): LaunchSummary {
+  return {
+    ok: result.ok,
+    status: result.status,
+    message: result.message.slice(0, 1000),
+    ...(result.guideUrl === undefined ? {} : { guideUrl: result.guideUrl }),
+  };
+}
+
+function createAutoLauncher(): (url: string, attempt?: boolean) => Promise<LaunchSummary | null> {
+  let lastAutoLaunchAt = Number.NEGATIVE_INFINITY;
+  let previousLaunch: LaunchSummary | null = null;
+  let launchInFlight: Promise<LaunchSummary | null> | null = null;
+  return (url, attempt = true) => {
+    const starting: LaunchSummary = {
+      ok: true,
+      status: 'starting',
+      message: 'gateway launch is running in the background',
+    };
+    if (!attempt) return Promise.resolve(previousLaunch);
+    if (launchInFlight !== null) return Promise.resolve(previousLaunch ?? starting);
+    if (Date.now() - lastAutoLaunchAt < AUTO_LAUNCH_TTL_MS) return Promise.resolve(previousLaunch);
+    lastAutoLaunchAt = Date.now();
+    previousLaunch = starting;
+    launchInFlight = (async () => {
+      const version = pinnedGatewayVersion();
+      if (version === null) {
+        previousLaunch = {
+          ok: false,
+          status: 'failed',
+          message: 'could not read the pinned gateway version',
+        };
+        return previousLaunch;
+      }
+      const outcome = await launchGateway({
+        url,
+        env: process.env,
+        pinnedVersion: version,
+        guideUrl: 'https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md',
+      });
+      previousLaunch = launchSummary(outcome);
+      return previousLaunch;
+    })()
+      .catch((error: unknown) => {
+        previousLaunch = {
+          ok: false,
+          status: 'failed',
+          message: error instanceof Error ? error.message : 'gateway launch failed',
+        };
+        return previousLaunch;
+      })
+      .finally(() => {
+        launchInFlight = null;
+      });
+    return Promise.resolve(starting);
+  };
+}
 
 function createDeps(server: PluginServerContext): {
   deps: HookDeps;
@@ -154,6 +237,11 @@ function createDeps(server: PluginServerContext): {
 
 export default function contribute(server: PluginServerContext): () => void {
   const { deps, markHealth, onSettings, cleanup } = createDeps(server);
+  const maybeLaunch = createAutoLauncher();
+  void deps
+    .settings()
+    .then((settings) => maybeLaunch(settings.gatewayUrl))
+    .catch(() => undefined);
 
   const background = new Background();
   const review = new DailyReview(deps);
@@ -194,7 +282,7 @@ export default function contribute(server: PluginServerContext): () => void {
   server.addHook('agent.create.before', async (payload, ctx) => onCreate(payload, ctx));
   server.addHook('agent.open.before', async (payload) => onOpen(payload));
 
-  const status = createStatusHandler(deps, undefined, markHealth);
+  const status = createStatusHandler(deps, undefined, markHealth, maybeLaunch);
   server.handle(statusRpc, async () => status());
   server.handle(statsRpc, async () => statsText(deps));
   server.handle(reviewRpc, async () => review.view());
