@@ -29,6 +29,7 @@ const NEVER_PASS_TAGS = [
 const PASS_ACTION: Readonly<Record<string, string>> = {
   'permission': 'allow',
   'command-risk': 'log',
+  'command-risk-binary': 'log',
 };
 const MIN_PER_CLASS = 5;
 /** Permission and command-risk fixtures run from this project, as `demo (/work/demo)`. */
@@ -100,6 +101,7 @@ describe('policy fixtures', () => {
       tuningFixtures.map((fixture) => fixture.policyId).toSorted(),
       [
         'command-risk',
+        'command-risk-binary',
         'permission',
         'routing',
         'routing-budget',
@@ -153,7 +155,11 @@ function runFixtureSuite(fixtures: readonly Fixture[]): void {
       it('expects an action the policy can produce and a real answer option', () => {
         const actions = new Set([...policy.rules.map((rule) => rule.action), policy.default]);
         const options = Object.values(policy.questions).flatMap((question) =>
-          question.type === 'choice' ? Object.keys(question.criteria) : [],
+          question.type === 'choice'
+            ? Object.keys(question.criteria)
+            : question.type === 'noul'
+              ? ['true', 'false']
+              : [],
         );
         for (const testCase of fixture.cases) {
           assert.ok(
