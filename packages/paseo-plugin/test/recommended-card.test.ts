@@ -109,7 +109,7 @@ describe('recommendedCard kinds', () => {
     assert.equal(card.kind, 'ok-auto');
     assert.equal(card.mode, 'Automatic');
     assert.equal(card.headline, 'd3 mini on NPU');
-    assert.equal(card.latency, '1.7 s per decision · 1.6 s on long prompts');
+    assert.equal(card.latency, '1.7 s in the benchmark · 1.6 s on long prompts');
     assert.equal(card.reasonText, 'Measured 12 Nov. 37% faster than GPU (Vulkan).');
     assert.equal(card.status, "You're on the recommended setup.");
     assert.equal(card.primary.kind, 'none');
@@ -402,7 +402,7 @@ describe('recommendedCard precedence, overlays and badges', () => {
       'auto',
     );
     assert.equal(card.headline, 'd3 lite on NPU');
-    assert.equal(card.latency, '520 ms per decision · 1.6 s on long prompts');
+    assert.equal(card.latency, '520 ms in the benchmark · 1.6 s on long prompts');
     assert.equal(
       card.reasonText,
       'Measured 12 Nov. About the same as GPU (Vulkan); the NPU is steadier and leaves your GPU free.',

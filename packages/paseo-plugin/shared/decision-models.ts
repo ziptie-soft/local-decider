@@ -437,7 +437,7 @@ function ownModelText(f: Facts, lifecycle: string): string {
   const duration =
     f.target === null || model === undefined ? null : measuredDuration(model, f.target.device);
   const speed =
-    duration === null ? 'Speed not measured here.' : `About ${duration} per decision here.`;
+    duration === null ? 'Speed not measured here.' : `About ${duration} per decision in the benchmark.`;
   return `Own model on ${where}${memoryClause(f)}. ${lifecycle} ${speed}`;
 }
 

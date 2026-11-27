@@ -500,10 +500,10 @@ export function measuredDuration(model: EngineModel, device: string | null): str
   return ms(fastest) === ms(slowest) ? ms(fastest) : `${ms(fastest)} to ${ms(slowest)}`;
 }
 
-/** `~{duration} here` for a fresh measurement on `device`; null when there is none. */
+/** `~{duration} in the benchmark` for a fresh measurement on `device`; null when there is none. */
 export function measuredSpeed(model: EngineModel, device: string | null): string | null {
   const duration = measuredDuration(model, device);
-  return duration === null ? null : `~${duration} here`;
+  return duration === null ? null : `~${duration} in the benchmark`;
 }
 
 /** The measurement, else the catalog's figure labelled as a reference. */
