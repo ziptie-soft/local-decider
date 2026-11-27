@@ -21,7 +21,6 @@ const HOST_REFUSAL: Readonly<Record<string, string>> = {
 
 export class EngineInstallUsageError extends Error {
   override readonly name = 'EngineInstallUsageError';
-  // fallow-ignore-next-line unused-class-member -- cli.ts uses this to set the process exit status.
   readonly exitCode = 2;
 }
 
