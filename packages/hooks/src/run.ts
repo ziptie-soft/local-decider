@@ -17,7 +17,8 @@ import {
   type HookInput,
 } from '@ziptie-soft/local-decider-core';
 
-import { gatewayClient, type Env } from './gateway-config.ts';
+import { gatewayClient } from './gateway-client.ts';
+import type { Env } from './gateway-config.ts';
 import {
   callOf,
   EVENT_POLICY,

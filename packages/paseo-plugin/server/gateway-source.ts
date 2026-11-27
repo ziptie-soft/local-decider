@@ -9,6 +9,7 @@ import { socketFetch } from './launcher/transport.ts';
 export interface GatewaySourceOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly log: (message: string) => void;
+  readonly clientId?: string;
   readonly create?: typeof createGateway;
 }
 
@@ -73,7 +74,7 @@ export function gatewaySource(options: GatewaySourceOptions): (url: string) => G
     const gatewayOptions: GatewayOptions = {
       baseUrl: url,
       token,
-      clientId: 'paseo/3.1.1',
+      clientId: options.clientId ?? 'paseo/0.0.0',
       ...(socketPath === null ? {} : { fetch: socketFetch(socketPath) }),
       tokenOrigin,
       reportToken: report,

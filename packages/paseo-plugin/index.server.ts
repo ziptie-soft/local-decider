@@ -94,20 +94,30 @@ function log(message: string): void {
 const DOWN_TTL_MS = 60_000;
 const AUTO_LAUNCH_TTL_MS = 5 * 60_000;
 
-function pinnedGatewayVersion(): string | null {
+function readManifest(): Record<string, unknown> | null {
   try {
     const manifest: unknown = JSON.parse(
       readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
     );
-    if (typeof manifest !== 'object' || manifest === null || Array.isArray(manifest)) return null;
-    const localDecider = (manifest as Record<string, unknown>)['localDecider'];
-    if (typeof localDecider !== 'object' || localDecider === null || Array.isArray(localDecider))
-      return null;
-    const version = (localDecider as Record<string, unknown>)['gateway'];
-    return typeof version === 'string' ? version : null;
+    return typeof manifest === 'object' && manifest !== null && !Array.isArray(manifest)
+      ? (manifest as Record<string, unknown>)
+      : null;
   } catch {
     return null;
   }
+}
+
+function pinnedGatewayVersion(): string | null {
+  const localDecider = readManifest()?.['localDecider'];
+  if (typeof localDecider !== 'object' || localDecider === null || Array.isArray(localDecider))
+    return null;
+  const version = (localDecider as Record<string, unknown>)['gateway'];
+  return typeof version === 'string' ? version : null;
+}
+
+function pluginVersion(): string {
+  const version = readManifest()?.['version'];
+  return typeof version === 'string' ? version : '0.0.0';
 }
 
 function launchSummary(result: LaunchResult): LaunchSummary {
@@ -151,6 +161,7 @@ function createAutoLauncher(): (url: string, attempt?: boolean) => Promise<Launc
           (process.env['LOCAL_DECIDER_URL']?.trim() ?? '') === '',
         env: process.env,
         pinnedVersion: version,
+        clientId: `paseo/${pluginVersion()}`,
         guideUrl: 'https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md',
       });
       previousLaunch = launchSummary(outcome);
@@ -179,7 +190,7 @@ function createDeps(server: PluginServerContext): {
   cleanup: () => void;
 } {
   const handle = server.registerSettings(deciderSettings);
-  const gatewayFor = gatewaySource({ log });
+  const gatewayFor = gatewaySource({ log, clientId: `paseo/${pluginVersion()}` });
   const defaults: DeciderSettings = deciderSettings.schema.parse({});
   let current = defaults;
   let lastDownAt: number | null = null;

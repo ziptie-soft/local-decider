@@ -97,6 +97,29 @@ describe('launchGateway', () => {
     });
   });
 
+  it('sends the supplied client identity and defaults to launcher/0.0.0', async () => {
+    const root = tempRoot();
+    const clientIds: string[] = [];
+    const probe = async (clientId?: string): Promise<void> => {
+      const result = await launchGateway({
+        ...options(root),
+        ...(clientId === undefined ? {} : { clientId }),
+        deps: {
+          fetch: async (_input, init) => {
+            const headers = init?.headers as Record<string, string>;
+            clientIds.push(headers['x-local-decider-client'] ?? '');
+            return new Response(JSON.stringify({ status: 'ok' }));
+          },
+        },
+      });
+      assert.equal(result.status, 'running');
+    };
+
+    await probe('codex-hooks/1.0.0');
+    await probe();
+    assert.deepEqual(clientIds, ['codex-hooks/1.0.0', 'launcher/0.0.0']);
+  });
+
   it('runs gateway ensure with sanitized env, fixed argv and private cwd', async () => {
     const root = tempRoot();
     const cli = join(root, 'local-decider');

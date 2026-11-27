@@ -89,6 +89,7 @@ function createState(pi: PiAPI, opts: ExtensionOptions): State {
   const getGateway = (): Gateway => {
     gateway ??= createGateway({
       url: getResolved().config.url,
+      clientId: `pi/${piVersion()}`,
       defaultEndpoint: getResolved().config.defaultEndpoint === true,
       env: { ...(opts.env ?? process.env) },
       token: getResolved().config.token,
@@ -172,19 +173,29 @@ function gatewayProxy(state: State): Gateway {
   };
 }
 
-function pinnedVersion(): string | null {
+function readManifest(): Record<string, unknown> | null {
   try {
     const manifest: unknown = JSON.parse(
       readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
     );
-    if (typeof manifest !== 'object' || manifest === null || Array.isArray(manifest)) return null;
-    const config = (manifest as Record<string, unknown>)['localDecider'];
-    if (typeof config !== 'object' || config === null || Array.isArray(config)) return null;
-    const version = (config as Record<string, unknown>)['gateway'];
-    return typeof version === 'string' ? version : null;
+    return typeof manifest === 'object' && manifest !== null && !Array.isArray(manifest)
+      ? (manifest as Record<string, unknown>)
+      : null;
   } catch {
     return null;
   }
+}
+
+function pinnedVersion(): string | null {
+  const config = readManifest()?.['localDecider'];
+  if (typeof config !== 'object' || config === null || Array.isArray(config)) return null;
+  const version = (config as Record<string, unknown>)['gateway'];
+  return typeof version === 'string' ? version : null;
+}
+
+function piVersion(): string {
+  const version = readManifest()?.['version'];
+  return typeof version === 'string' ? version : '0.0.0';
 }
 
 async function runLaunch(state: State, opts: ExtensionOptions): Promise<LaunchResult> {
@@ -198,6 +209,7 @@ async function runLaunch(state: State, opts: ExtensionOptions): Promise<LaunchRe
   }
   return (opts.launch ?? launchGateway)({
     url: state.getConfig().url,
+    clientId: `pi/${piVersion()}`,
     defaultEndpoint: resolveConfig(opts.env ?? process.env, {}).config.defaultEndpoint === true,
     env: { ...(opts.env ?? process.env) },
     pinnedVersion: version,

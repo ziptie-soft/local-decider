@@ -6,7 +6,8 @@ import { str, type GatewayClient, type GatewayHealth } from '@ziptie-soft/local-
 import { isLoopbackUrl } from '@ziptie-soft/local-decider-launcher';
 import { gatewaySocketPathForEnv } from '@ziptie-soft/local-decider-launcher/socket-path';
 
-import { gatewayClient, gatewayConfig, type Env } from './gateway-config.ts';
+import { gatewayClient, hooksClientId } from './gateway-client.ts';
+import { gatewayConfig, type Env } from './gateway-config.ts';
 import type { HookHarness } from './mapping.ts';
 
 /** Gateway health; `null` when unreachable, slow or erroring. */
@@ -44,7 +45,7 @@ async function legacyHealth(url: string, harness: HookHarness): Promise<GatewayH
     const response = await fetch(new URL('/health', url), {
       method: 'GET',
       redirect: 'error',
-      headers: { 'x-local-decider-client': `${harness}-hooks/1.0.0` },
+      headers: { 'x-local-decider-client': hooksClientId(harness) },
       signal: AbortSignal.timeout(250),
     });
     const value: unknown = await response.json();

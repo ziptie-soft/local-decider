@@ -114,6 +114,7 @@ export interface LaunchOptions {
   readonly url: string;
   /** True only when no user URL setting selected this built-in local endpoint. */
   readonly defaultEndpoint?: boolean;
+  readonly clientId?: string;
   readonly env: NodeJS.ProcessEnv;
   readonly pinnedVersion: string;
   readonly guideUrl: string;
@@ -602,7 +603,7 @@ async function installGateway(
 async function probe(
   url: string,
   fetcher: typeof fetch,
-  clientId = 'launcher/1.0.0',
+  clientId: string,
 ): Promise<EngineStatus | null> {
   try {
     const response = await fetcher(new URL('/health', url), {
@@ -718,13 +719,14 @@ async function quickOutcome(
     return result('remote', 'gateway URL is not loopback; remote gateways are never started');
   }
   const useSocket = isDefaultEndpoint(options);
+  const clientId = options.clientId ?? 'launcher/0.0.0';
   const runDir = join(dataDirectory(options, deps), 'run');
   const path = useSocket ? gatewaySocketPath(runDir) : null;
   const fetcher = deps.fetch ?? (path === null ? globalThis.fetch : socketFetch(path));
-  const foundHealth = await probe(options.url, fetcher, 'launcher/1.0.0');
+  const foundHealth = await probe(options.url, fetcher, clientId);
   if (foundHealth !== null) return result('running', 'gateway is answering /health', foundHealth);
   if (path === null || deps.fetch !== undefined) return null;
-  const tcpHealth = await probe(options.url, globalThis.fetch, 'launcher/1.0.0');
+  const tcpHealth = await probe(options.url, globalThis.fetch, clientId);
   if (tcpHealth === null) return null;
   if (tcpHealth.instance === undefined) {
     return result(
