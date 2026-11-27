@@ -90,7 +90,7 @@ answers fall below the policy thresholds and the policy default or `ask` wins. I
 gate on all six default policies, so it is in the catalogue as `recommended: false` and is not
 recommended for any decision kind ([benchmarks.md](benchmarks.md#kev-08b-on-llamacpp-vulkan) has
 the per-class numbers). It is fast: 156 ms p50 at 256 tokens and 435 ms at 1,024 on the Radeon 880M,
-against 135 ms and 352 ms for `d3-lite-q8_0`. It has not been measured on `command-risk-binary`.
+against 135 ms (a separate run) and 352 ms for `d3-lite-q8_0`. It has not been measured on `command-risk-binary`.
 Select it by hand with `local-decider engine use llama-vulkan kev-0.8b-q8_0`.
 
 **Discovered OpenAI-compatible and LM Studio models.** `openai-compatible` and `lmstudio` score one
@@ -134,7 +134,9 @@ scores `true` 28/30 and `false` 11/14, against gate floors of 0.8 and 0.7.
 Only a model that passes the gate for a decision kind is recommended for it, so the only model
 recommended for every kind is the Strands 2B reference
 (`StrandsAgents/strands-decider-2B-qwen3.5-v1-2610`). Automatic selection (`selection.mode: auto`)
-ranks by hardware instead, and it only picks calibrated engines. This is what `rankEngines` gives:
+ranks by hardware instead, and it only picks calibrated engines. The table follows the selection
+ladder (`LADDER` in `selector.ts`, walked by `rankEngines`). Its CUDA rung also serves AMD ROCm,
+because ROCm torch reports as `cuda`:
 
 | Hardware class | Automatic pick | Gate evidence |
 |---|---|---|
