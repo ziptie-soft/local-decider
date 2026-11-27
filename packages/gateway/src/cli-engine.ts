@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
 
+import { asRecord, displayText } from './cli-support.ts';
 import { DEFAULT_MODEL, type GatewayConfig } from './config.ts';
 import { isOpenAILike } from './engine-discovery.ts';
 import type { FlavorChoice } from './engine-flavor.ts';
@@ -25,16 +26,6 @@ export class EngineInstallUsageError extends Error {
 }
 
 type UnknownRecord = Record<string, unknown>;
-
-function asRecord(value: unknown): UnknownRecord | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as UnknownRecord)
-    : undefined;
-}
-
-function displayText(value: unknown, fallback = ''): string {
-  return typeof value === 'string' && value !== '' ? value : fallback;
-}
 
 function engineLine(engine: UnknownRecord, activeId: string | undefined): string | undefined {
   const id = displayText(engine['id']);
@@ -72,6 +63,80 @@ function modelLines(models: readonly unknown[], engineId: string): string[] {
   });
 }
 
+const ENGINE_STATE_TEXT: Readonly<Record<string, string>> = {
+  ready: 'ready',
+  starting: 'loading',
+  stopped: 'loads on the first decision',
+  failed: 'failed',
+};
+
+interface ModelRef {
+  readonly engine: string;
+  readonly model: string;
+}
+
+function ownModel(policy: UnknownRecord): ModelRef {
+  const selection = asRecord(policy['selection']);
+  return {
+    engine: displayText(selection?.['engine'], displayText(policy['engine'], 'unknown')),
+    model: displayText(selection?.['model'], displayText(policy['model'], 'unknown')),
+  };
+}
+
+const modelText = (ref: ModelRef): string => `${ref.engine} ${ref.model}`;
+
+/** An active decision: its lane state, or a note that it is the very model the default uses. */
+function activeLine(id: string, policy: UnknownRecord, primary: ModelRef | undefined): string {
+  const own = ownModel(policy);
+  if (primary?.engine === own.engine && primary.model === own.model) {
+    return `  ${id}: ${modelText(own)} (same as the default model)`;
+  }
+  const state = ENGINE_STATE_TEXT[displayText(policy['state'])];
+  return `  ${id}: ${modelText(own)} (own model${state === undefined ? '' : `, ${state}`})`;
+}
+
+function policyLine(policy: UnknownRecord, primary: ModelRef | undefined): string | undefined {
+  const id = displayText(policy['id']);
+  if (id === '') {
+    return undefined;
+  }
+  const status = policy['status'];
+  const reason = displayText(policy['reason'], 'not available');
+  if (status === 'unavailable') {
+    const instead = policy['fallback'] === 'open' ? 'skipped' : 'default model';
+    return `  ${id}: unavailable: ${reason} → ${instead}`;
+  }
+  if (status === 'off') {
+    return `  ${id}: ${modelText(ownModel(policy))} (off, not loaded)`;
+  }
+  if (status === 'active') {
+    return activeLine(id, policy, primary);
+  }
+  return `  ${id}: default model`;
+}
+
+/**
+ * The "Decisions:" block: the policies that have a model of their own. A policy that is not in
+ * `policies` uses the default model; a gateway that sends no `policies` has no per-policy info.
+ */
+function policyLines(policies: unknown, primary: ModelRef | undefined): string[] {
+  if (!Array.isArray(policies)) {
+    return [];
+  }
+  const lines = policies.flatMap((item) => {
+    const policy = asRecord(item);
+    const line = policy === undefined ? undefined : policyLine(policy, primary);
+    return line === undefined ? [] : [line];
+  });
+  return lines.length === 0 ? ['Decisions: all use the default model'] : ['Decisions:', ...lines];
+}
+
+function primaryModel(active: UnknownRecord | undefined): ModelRef | undefined {
+  const engine = displayText(active?.['engine']);
+  const model = displayText(active?.['model']);
+  return engine === '' || model === '' ? undefined : { engine, model };
+}
+
 /** Lenient plain-text view of a gateway engine catalog. */
 export function formatEngineList(payload: unknown): string {
   const root = asRecord(payload);
@@ -80,6 +145,7 @@ export function formatEngineList(payload: unknown): string {
   }
   const active = asRecord(root['active']);
   const activeId = typeof active?.['engine'] === 'string' ? active['engine'] : undefined;
+  const primary = primaryModel(active);
   const models = Array.isArray(root['models']) ? root['models'] : [];
   const lines = root['engines'].flatMap((item) => {
     const engine = asRecord(item);
@@ -89,7 +155,9 @@ export function formatEngineList(payload: unknown): string {
     const line = engineLine(engine, activeId);
     return line === undefined ? [] : [line, ...modelLines(models, String(engine['id']))];
   });
-  return lines.length === 0 ? 'no engines available' : lines.join('\n');
+  return lines.length === 0
+    ? 'no engines available'
+    : [...lines, ...policyLines(root['policies'], primary)].join('\n');
 }
 
 export type InstallPlan =

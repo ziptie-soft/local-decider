@@ -229,6 +229,132 @@ describe('engine list formatting', () => {
   });
 });
 
+describe('engine list decisions', () => {
+  const engines = [{ id: 'llama-vulkan', label: 'llama.cpp', supported: true }];
+  const own = { engine: 'llama-vulkan', model: 'd3-lite-q8_0', fallback: 'default' };
+  const list = (policies?: unknown): string =>
+    formatEngineList({ engines, ...(policies === undefined ? {} : { policies }) });
+  const entry = (id: string, state?: string): unknown => ({
+    id,
+    selection: own,
+    status: 'active',
+    ...(state === undefined ? {} : { state }),
+  });
+
+  it('lists a decision with its own model, with the lane state', () => {
+    const lines = list([
+      {
+        id: 'command-risk',
+        selection: own,
+        status: 'active',
+        fallback: 'default',
+        engine: 'llama-vulkan',
+        model: 'd3-lite-q8_0',
+        state: 'ready',
+      },
+      {
+        id: 'secret-leak',
+        selection: own,
+        status: 'active',
+        engine: 'llama-vulkan',
+        model: 'd3-lite-q8_0',
+        state: 'stopped',
+      },
+    ]).split('\n');
+    assert.ok(lines.includes('Decisions:'));
+    assert.ok(lines.includes('  command-risk: llama-vulkan d3-lite-q8_0 (own model, ready)'));
+    assert.ok(
+      lines.includes(
+        '  secret-leak: llama-vulkan d3-lite-q8_0 (own model, loads on the first decision)',
+      ),
+    );
+  });
+
+  it('names the other lane states, and none when the state is missing', () => {
+    const lines = list([
+      entry('a'),
+      entry('b', 'starting'),
+      entry('c', 'failed'),
+      entry('d', 'bogus'),
+    ]).split('\n');
+    assert.ok(lines.includes('  a: llama-vulkan d3-lite-q8_0 (own model)'));
+    assert.ok(lines.includes('  b: llama-vulkan d3-lite-q8_0 (own model, loading)'));
+    assert.ok(lines.includes('  c: llama-vulkan d3-lite-q8_0 (own model, failed)'));
+    assert.ok(lines.includes('  d: llama-vulkan d3-lite-q8_0 (own model)'));
+  });
+
+  it('says a decision on the very model the default uses is the same as the default', () => {
+    const lines = formatEngineList({
+      engines,
+      active: { engine: 'llama-vulkan', model: 'd3-lite-q8_0' },
+      policies: [
+        { id: 'same', selection: own, status: 'active', state: 'ready' },
+        {
+          id: 'other',
+          selection: { ...own, model: 'd3-mini-q4_k_m' },
+          status: 'active',
+          state: 'ready',
+        },
+      ],
+    }).split('\n');
+    assert.ok(lines.includes('  same: llama-vulkan d3-lite-q8_0 (same as the default model)'));
+    assert.ok(lines.includes('  other: llama-vulkan d3-mini-q4_k_m (own model, ready)'));
+  });
+
+  it('shows an unavailable model with what answers instead', () => {
+    const lines = list([
+      {
+        id: 'command-risk',
+        selection: own,
+        status: 'unavailable',
+        reason: 'does not fit with the default model',
+        fallback: 'default',
+      },
+      {
+        id: 'secret-leak',
+        selection: { ...own, fallback: 'open' },
+        status: 'unavailable',
+        reason: 'llama-vulkan is not available',
+        fallback: 'open',
+      },
+      { id: 'no-reason', selection: own, status: 'unavailable', fallback: 'default' },
+    ]).split('\n');
+    assert.ok(
+      lines.includes(
+        '  command-risk: unavailable: does not fit with the default model → default model',
+      ),
+    );
+    assert.ok(
+      lines.includes('  secret-leak: unavailable: llama-vulkan is not available → skipped'),
+    );
+    assert.ok(lines.includes('  no-reason: unavailable: not available → default model'));
+  });
+
+  it('shows a decision that is off', () => {
+    assert.match(
+      list([{ id: 'command-risk', selection: own, status: 'off', fallback: 'default' }]),
+      /^ {2}command-risk: llama-vulkan d3-lite-q8_0 \(off, not loaded\)$/m,
+    );
+  });
+
+  it('shows a default-status entry as the default model', () => {
+    assert.match(
+      list([{ id: 'command-risk', status: 'default' }]),
+      /^ {2}command-risk: default model$/m,
+    );
+  });
+
+  it('says every decision uses the default model when none has its own', () => {
+    assert.match(list([]), /^Decisions: all use the default model$/m);
+  });
+
+  it('adds nothing for a gateway that sends no policies, and survives junk', () => {
+    assert.doesNotMatch(list(), /Decisions/);
+    assert.doesNotMatch(list('nope'), /Decisions/);
+    assert.match(list([null, 4, { id: '' }]), /^Decisions: all use the default model$/m);
+  });
+});
+
 describe('automatic install planning', () => {
   const NO = { status: 'unavailable', evidence: 'x' } as const;
   const YES = { status: 'available', evidence: 'ok' } as const;

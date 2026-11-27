@@ -24,6 +24,7 @@ import {
 } from './cli-engine.ts';
 import { labelCommand } from './cli-label.ts';
 import { logsCommand } from './cli-logs.ts';
+import { parseUseCommand, runPolicyUse } from './cli-policy-model.ts';
 import { explainCommand, reviewCommand } from './cli-review.ts';
 import {
   configCommand,
@@ -98,7 +99,10 @@ Usage:
   local-decider engine install --engine llama-vulkan [--model d3-mini-q4_k_m]  Linux GPU (Vulkan): downloads a pinned d3 GGUF
   local-decider engine list                         list engines and models
   local-decider engine configure <openai-compatible|lmstudio> --url URL --model ID [--token-env NAME]
-  local-decider engine use <engine> <model> [--device D]  select an engine and model
+  local-decider engine use <engine> <model> [--device D]  select the default engine and model
+  local-decider engine use <engine> <model> --policy ID [--device D] [--fallback default|open]
+                                                    give one decision its own model (open: skip it while unavailable)
+  local-decider engine use default --policy ID      put one decision back on the default model
   local-decider decide <policy> [--input JSON] [key=value ...]
   local-decider stats [--json] [--days N] [--scope claude-auto]  agreement and calibration from the shadow log
   local-decider calibrate [--json]   report temperature fit and allow thresholds
@@ -294,34 +298,6 @@ async function listEngines(ctx: Context): Promise<void> {
   console.log(formatEngineList(payload));
 }
 
-function parseUseSelection(args: readonly string[]): {
-  engine: string;
-  model: string;
-  device?: string;
-} {
-  try {
-    const parsed = parseArgs({
-      args: [...args],
-      options: { device: { type: 'string' } },
-      allowPositionals: true,
-    });
-    const [engineName, model, ...extra] = parsed.positionals;
-    if (engineName === undefined || model === undefined || extra.length > 0) {
-      throw new UsageError();
-    }
-    return {
-      engine: engineName,
-      model,
-      ...(parsed.values.device === undefined ? {} : { device: parsed.values.device }),
-    };
-  } catch (error) {
-    if (error instanceof UsageError) {
-      throw error;
-    }
-    throw new UsageError();
-  }
-}
-
 function printSelectionResult(
   result: Exclude<Awaited<ReturnType<GatewayClient['selectEngine']>>, null>,
   engineName: string,
@@ -353,7 +329,25 @@ function printGatewayError(value: unknown): void {
 }
 
 async function useEngine(ctx: Context, args: readonly string[]): Promise<void> {
-  const selection = parseUseSelection(args);
+  const command = parseUseCommand(args);
+  if (command.kind !== 'engine') {
+    const outcome = await runPolicyUse(client(ctx, 30_000), command, {
+      url: gatewayUrl(ctx.config),
+      refused: refusedMessage(ctx),
+    });
+    if (outcome.ok) {
+      console.log(outcome.message);
+    } else {
+      console.error(outcome.message);
+      process.exitCode = 1;
+    }
+    return;
+  }
+  const selection = {
+    engine: command.engine,
+    model: command.model,
+    ...(command.device === undefined ? {} : { device: command.device }),
+  };
   const result = await client(ctx, 30_000).selectEngine(selection);
   if (result === null) {
     console.error(`gateway unreachable at ${gatewayUrl(ctx.config)}`);
