@@ -103,12 +103,15 @@ export function ChipPicker({
         accessibilityRole="button"
         accessibilityLabel={`${title}: ${label}`}
         disabled={disabled}
+        hitSlop={6}
         onPress={() => setOpen(true)}
         style={({ pressed }) => ({
           flexDirection: 'row',
           alignItems: 'center',
           gap: 6,
           maxWidth: 260,
+          flexShrink: 1,
+          minWidth: 0,
           paddingVertical: 5,
           paddingHorizontal: 10,
           borderRadius: 999,
@@ -124,6 +127,7 @@ export function ChipPicker({
         <Text
           numberOfLines={1}
           style={{
+            flexGrow: 1,
             flexShrink: 1,
             color: muted ? theme.colors.foregroundMuted : theme.colors.foreground,
             fontSize: 13,
