@@ -451,16 +451,44 @@ export function typicalP50(model: EngineModel, device: string | null): number | 
   return entry?.typical?.p50Ms ?? null;
 }
 
-/** `~{ms} here` for a fresh measurement, else the catalog's figure labelled as a reference. */
-function speedFact(model: EngineModel, device: string): string | null {
+/**
+ * The device an engine runs on: the one asked for, else the one the default model resolved to
+ * when it runs on that engine, else the engine's only device. Any other engine with several
+ * devices stays null: the catalog cannot say which one `auto` picks there.
+ */
+export function deviceFor(
+  catalog: EngineCatalog,
+  engine: string,
+  requested: string | null | undefined,
+): string | null {
+  if (requested != null && requested !== 'auto') {
+    return requested;
+  }
+  const active = catalog.active;
+  if (active?.engine !== engine) {
+    const devices = catalog.engines.find((e) => e.id === engine)?.devices ?? [];
+    return devices.length === 1 ? (devices[0] ?? null) : null;
+  }
+  const resolved = active.resolvedDevice ?? active.device;
+  return resolved === 'auto' ? null : resolved;
+}
+
+/** `~{ms} here` for a fresh measurement on `device`; null when there is none. */
+export function measuredSpeed(model: EngineModel, device: string | null): string | null {
   const p50 = typicalP50(model, device);
-  if (p50 !== null) {
-    return `~${ms(p50)} here`;
+  return p50 === null ? null : `~${ms(p50)} here`;
+}
+
+/** The measurement, else the catalog's figure labelled as a reference. */
+function speedFact(model: EngineModel, device: string | null): string | null {
+  const measured = measuredSpeed(model, device);
+  if (measured !== null) {
+    return measured;
   }
   return model.latencyHint === null ? null : `reference: ${model.latencyHint}`;
 }
 
-function facts(model: EngineModel, device: string): string[] {
+function facts(model: EngineModel, device: string | null): string[] {
   const parts: string[] = [];
   if (model.downloadGb !== null) {
     parts.push(`${gb(model.downloadGb)} download`);
@@ -533,12 +561,17 @@ function actionFor(
 export function modelRowView(
   model: EngineModel,
   state: ModelRowState,
-  options: { readonly device: string; readonly totalMemoryGb: number | null },
+  options: {
+    readonly device: string;
+    /** The device the speed is measured on, from `deviceFor`; null when it cannot be told. */
+    readonly speedDevice: string | null;
+    readonly totalMemoryGb: number | null;
+  },
 ): ModelRowView {
   const note = stateNote(state, model, options.totalMemoryGb);
   return {
     label: model.recommended ? `${model.label} · Recommended` : model.label,
-    hint: [...facts(model, options.device), ...(note === null ? [] : [note])].join(' · '),
+    hint: [...facts(model, options.speedDevice), ...(note === null ? [] : [note])].join(' · '),
     ...actionFor(state, model, options.device),
   };
 }
