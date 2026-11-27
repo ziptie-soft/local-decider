@@ -26,7 +26,8 @@ import {
 } from '../shared/lifecycle.ts';
 import { engineLoadRpc, lifecycleRpc } from '../shared/rpc.ts';
 import { defaultModelRow, gatewayRow } from '../shared/status-card.ts';
-import { outcomeOf, useAction, useEngines, useGatewayStatus } from './hooks.ts';
+import { outcomeOf, useAction, useEngines, useGatewayStatus, useServiceInfo } from './hooks.ts';
+import { useServiceRun } from './service.tsx';
 import { InlineMessage, type Theme } from './ui.tsx';
 
 type Action = ReturnType<typeof useAction>;
@@ -174,6 +175,33 @@ function GuideRow({ url }: { url: string | undefined }): ReactNode {
   );
 }
 
+/**
+ * Restart the gateway's user service (Start while it is down), e.g. after installing a tool it
+ * discovers at startup. Hidden when no service is installed; the Details page has stop too.
+ */
+function RestartRow({ theme, up }: { theme: Theme; up: boolean }): ReactNode {
+  const info = useServiceInfo();
+  const svc = useServiceRun();
+  const commands = info.data?.commands ?? null;
+  if (commands === null) return null;
+  const action = up ? 'restart' : 'start';
+  const idle = up ? 'Restart' : 'Start';
+  return (
+    <>
+      <SettingsAction
+        label={up ? 'Restart gateway' : 'Start gateway'}
+        hint={`Runs: ${commands[action]}`}
+        actionLabel={svc.busy === null ? idle : `${idle}ing…`}
+        disabled={svc.busy !== null}
+        onPress={() => void svc.start(action)}
+      />
+      {svc.outcome === null ? null : (
+        <InlineMessage theme={theme} tone={svc.outcome.tone} text={svc.outcome.text} />
+      )}
+    </>
+  );
+}
+
 /** Settings: the gateway, the default model and when it unloads, in one card. */
 export function StatusSection({
   theme,
@@ -199,6 +227,7 @@ export function StatusSection({
               onPress={() => void refetch()}
             />
             <GuideRow url={row.guideUrl} />
+            <RestartRow theme={theme} up={data?.up !== false} />
           </>
         }
       />
