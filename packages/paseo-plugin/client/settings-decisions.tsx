@@ -1,28 +1,21 @@
 /**
- * Settings, Decisions: one card per decision kind with its mode. Hook kinds keep a Paseo mode and
- * set the gateway too; command risk only has the gateway's mode.
+ * Settings, Decisions: one table with a row per decision kind, its mode and its model. Hook kinds
+ * keep a Paseo mode and set the gateway too; command risk only has the gateway's mode.
  */
-import { openExternalUrl, useRpc } from '@getpaseo/plugin/client';
-import {
-  SettingsAction,
-  SettingsCard,
-  SettingsRow,
-  SettingsSection,
-  SettingsSelect,
-} from '@getpaseo/plugin/client/ui';
+import { useRpc } from '@getpaseo/plugin/client';
+import { SettingsCard, SettingsSection } from '@getpaseo/plugin/client/ui';
 import { useState, type ReactNode } from 'react';
-import { View } from 'react-native';
+import { Text, View } from 'react-native';
 
 import {
   GATEWAY_POLICIES,
   HOOK_POLICIES,
-  MODELS_DOCS_URL,
   PLUGIN_MODES,
   type GatewayPolicy,
   type PluginMode,
 } from '../shared/constants.ts';
-import { DECISION_KINDS } from '../shared/decision-kinds.ts';
-import { defaultModelView, type ModelOption } from '../shared/decision-models.ts';
+import { DECISION_KINDS, modeOptions } from '../shared/decision-kinds.ts';
+import type { ModelOption } from '../shared/decision-models.ts';
 import {
   holdState,
   HOLD_MAX_MS,
@@ -31,19 +24,21 @@ import {
   writeModel,
   type ModelSelectView,
 } from '../shared/model-write.ts';
-import { modeOutcome, modeRowHint, type ModeWriteResult } from '../shared/policies.ts';
+import {
+  modeOutcome,
+  modeRowHint,
+  type ModeLine,
+  type ModeWriteResult,
+  type StatusLine,
+} from '../shared/policies.ts';
 import { policyModeRpc, policySelectionRpc } from '../shared/rpc.ts';
 import type { DeciderSettings } from '../shared/settings.ts';
+import { ChipPicker } from './chip-picker.tsx';
 import { useAction, useEngines, useGatewayStatus, type Outcome } from './hooks.ts';
-import { useGatewayModesState, type GatewayModes } from './policy-modes.ts';
-import { choices, type Save, type SectionProps } from './settings-common.ts';
-import { Badge, InlineMessage, Mono, type Theme, Value } from './ui.tsx';
-
-const MODE_OPTIONS = choices(PLUGIN_MODES, {
-  off: 'Off',
-  shadow: 'Shadow (record only)',
-  act: 'Act',
-});
+import { useGatewayModesState } from './policy-modes.ts';
+import type { Save, SectionProps } from './settings-common.ts';
+import { Head, HeaderRow } from './table-parts.tsx';
+import { Badge, Button, InlineMessage, type Theme } from './ui.tsx';
 
 type HookPolicy = (typeof HOOK_POLICIES)[number];
 
@@ -174,56 +169,101 @@ function useDecisionWrites(values: DeciderSettings, save: Save): Writes {
   };
 }
 
-/** The card's title row, with a badge when the decision's model has a problem. */
-function CardHeader({
-  theme,
-  policy,
-  badge,
+const COLUMNS = { mode: 110, model: 220 } as const;
+
+const MODEL_NOTE =
+  'Default follows the default model. An own model loads next to it and needs extra memory; at most 3 own models run at once.';
+const MODES_LEGEND =
+  'Off: not asked. Shadow: decides and records, changes nothing. Act: its decision takes effect.';
+const OLDER_GATEWAY_LEGEND = 'Choosing a model per decision needs a newer local-decider gateway.';
+const UNREACHABLE = 'The gateway is not running, so every decision is skipped until it is back.';
+const INFO =
+  'Each decision local-decider can make for your agents. Off: it is not asked. Shadow: it decides and records the result but changes nothing. Act: its decision takes effect. Modes set here also apply to the gateway, so Claude Code, Codex and pi outside Paseo follow them. A skipped decision changes nothing. Each decision uses the default model unless you give it its own; thresholds were tuned for the default model, so try an own model in Shadow first. Confidence thresholds are under Decision thresholds.';
+
+function Cell({
+  width,
+  grow = false,
+  children,
 }: {
-  theme: Theme;
-  policy: GatewayPolicy;
-  badge: ModelSelectView['badge'];
+  width?: number;
+  grow?: boolean;
+  children: ReactNode;
 }): ReactNode {
-  const info = DECISION_KINDS[policy];
+  if (grow) {
+    return <View style={{ flexGrow: 1, flexBasis: 260, minWidth: 0 }}>{children}</View>;
+  }
+  return <View style={{ width }}>{children}</View>;
+}
+
+function Header({ theme }: { theme: Theme }): ReactNode {
+  const head = (text: string): ReactNode => <Head theme={theme} text={text} />;
   return (
-    <SettingsRow label={info.title} hint={`${info.decides} ${info.askedBy}`}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 }}>
-        {badge === null ? null : <Badge theme={theme} tone={badge.tone} text={badge.text} />}
-        <Mono theme={theme}>{policy}</Mono>
-      </View>
-    </SettingsRow>
+    <HeaderRow wrap>
+      <Cell grow>{head('Decision')}</Cell>
+      <Cell width={COLUMNS.mode}>{head('Mode')}</Cell>
+      <Cell width={COLUMNS.model}>{head('Model')}</Cell>
+    </HeaderRow>
   );
 }
 
-/** The Model select, or a static row when the gateway is too old to choose per decision. */
-function ModelRow({
+/** A toned status line under a row; a mismatch carries the button that fixes it. */
+function Line({
   theme,
+  line,
+  disabled,
+  onFix,
+}: {
+  theme: Theme;
+  line: ModeLine | StatusLine;
+  disabled: boolean;
+  onFix: (mode: PluginMode) => void;
+}): ReactNode {
+  const fix = 'fix' in line ? line.fix : undefined;
+  const color = line.tone === 'warning' ? theme.colors.statusWarning : theme.colors.foregroundMuted;
+  return (
+    <View style={{ gap: 6, alignItems: 'flex-start' }}>
+      <Text accessibilityLiveRegion="polite" style={{ color, fontSize: 12 }}>
+        {line.text}
+      </Text>
+      {fix === undefined ? null : (
+        <Button
+          theme={theme}
+          variant="secondary"
+          label={fix.label}
+          disabled={disabled}
+          onPress={() => onFix(fix.mode)}
+        />
+      )}
+    </View>
+  );
+}
+
+/** The Model chip, or plain `Default` when the gateway is too old to choose per decision. */
+function ModelCell({
+  theme,
+  title,
   view,
   blocked,
   onChange,
 }: {
   theme: Theme;
+  title: string;
   view: ModelSelectView;
   blocked: boolean;
   onChange: (option: ModelOption) => void;
 }): ReactNode {
   if (view.unsupported) {
-    return (
-      <SettingsRow label="Model" hint={view.hint}>
-        <Value theme={theme} muted>
-          Default model
-        </Value>
-      </SettingsRow>
-    );
+    return <Text style={{ color: theme.colors.foregroundMuted, fontSize: 13 }}>Default</Text>;
   }
   return (
-    <SettingsSelect
-      label="Model"
-      hint={view.hint}
+    <ChipPicker
+      theme={theme}
+      title={`${title} model`}
+      note={MODEL_NOTE}
       disabled={view.disabled || blocked}
       value={view.value}
       options={view.options}
-      onValueChange={(next) => {
+      onChange={(next) => {
         const option = optionByValue(view.options, next);
         if (option !== undefined && next !== view.value) {
           onChange(option);
@@ -233,8 +273,9 @@ function ModelRow({
   );
 }
 
-function DecisionCard(props: CardProps): ReactNode {
+function DecisionRow(props: CardProps): ReactNode {
   const { theme, policy, writes } = props;
+  const info = DECISION_KINDS[policy];
   const { mine, blocked } = holdState({
     policy,
     owner: writes.owner,
@@ -260,92 +301,92 @@ function DecisionCard(props: CardProps): ReactNode {
     busy: mine && writes.pendingMode !== null,
   });
   const outcome = writes.last?.policy === policy ? writes.last.outcome : null;
+  const pickMode = (next: string): void => {
+    const picked = PLUGIN_MODES.find((m) => m === next);
+    if (picked !== undefined) {
+      writes.write(policy, picked);
+    }
+  };
   return (
-    <View accessible={false} role="group" aria-label={DECISION_KINDS[policy].title}>
-      <SettingsCard>
-        <CardHeader theme={theme} policy={policy} badge={model.badge} />
-        <SettingsSelect
-          label="Mode"
-          hint={row.hint}
-          disabled={row.disabled || blocked}
-          value={mine ? (writes.pendingMode ?? mode) : mode}
-          options={MODE_OPTIONS}
-          onValueChange={(next) => writes.write(policy, next)}
-        />
-        <ModelRow
+    <View
+      accessible={false}
+      role="group"
+      aria-label={info.title}
+      style={{
+        gap: 6,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderTopWidth: 1,
+        borderTopColor: props.theme.colors.border,
+      }}
+    >
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+        <Cell grow>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <Text style={{ color: theme.colors.foreground, fontSize: 14 }}>{info.title}</Text>
+            {model.badge === null ? null : (
+              <Badge theme={theme} tone={model.badge.tone} text={model.badge.text} />
+            )}
+          </View>
+          <Text style={{ color: theme.colors.foregroundMuted, fontSize: 13 }}>{info.decides}</Text>
+        </Cell>
+        <Cell width={COLUMNS.mode}>
+          <ChipPicker
+            theme={theme}
+            title={`${info.title} mode`}
+            note={info.askedBy}
+            disabled={row.disabled || blocked}
+            value={mine ? (writes.pendingMode ?? mode) : mode}
+            options={modeOptions(policy)}
+            onChange={pickMode}
+          />
+        </Cell>
+        <Cell width={COLUMNS.model}>
+          <ModelCell
+            theme={theme}
+            title={info.title}
+            view={model}
+            blocked={blocked}
+            onChange={(option) =>
+              writes.writeModel(policy, option, { mode, fallback: model.fallback })
+            }
+          />
+        </Cell>
+      </View>
+      {row.line === null ? null : (
+        <Line
           theme={theme}
-          view={model}
-          blocked={blocked}
-          onChange={(option) =>
-            writes.writeModel(policy, option, { mode, fallback: model.fallback })
-          }
+          line={row.line}
+          disabled={blocked}
+          onFix={(fixMode) => writes.write(policy, fixMode)}
         />
-        {outcome === null ? null : (
+      )}
+      {model.line === null ? null : (
+        <Line theme={theme} line={model.line} disabled onFix={() => undefined} />
+      )}
+      {outcome === null ? null : (
+        <View style={{ marginHorizontal: -16 }}>
           <InlineMessage theme={theme} tone={outcome.tone} text={outcome.text} />
-        )}
-      </SettingsCard>
+        </View>
+      )}
     </View>
   );
 }
 
-function cardsFor(
-  theme: Theme,
-  values: DeciderSettings,
-  writes: Writes,
-  modes: GatewayModes,
-  modesLoaded: boolean,
-  reachable: boolean,
-): ReactNode[] {
-  return GATEWAY_POLICIES.map((policy) => (
-    <DecisionCard
-      key={policy}
-      theme={theme}
-      policy={policy}
-      values={values}
-      writes={writes}
-      gatewayUrl={values.gatewayUrl}
-      gatewayMode={modes[policy]}
-      modesLoaded={modesLoaded}
-      reachable={reachable}
-    />
-  ));
-}
-
-/** The model every decision set to Default model uses, and where to change it. */
-function DefaultModelCard({
-  theme,
-  gatewayUrl,
-  gatewayUp,
-}: {
-  theme: Theme;
-  gatewayUrl: string;
-  gatewayUp: boolean;
-}): ReactNode {
-  const { data, isError } = useEngines(gatewayUrl);
-  const view = defaultModelView(data, gatewayUp, isError);
+function Footer({ theme, older }: { theme: Theme; older: boolean }): ReactNode {
+  const style = { color: theme.colors.foregroundMuted, fontSize: 12 } as const;
   return (
-    <View accessible={false} role="group" aria-label="Default model">
-      <SettingsCard>
-        <SettingsRow label="Default model" hint={view.hint}>
-          <Value theme={theme}>{view.value}</Value>
-        </SettingsRow>
-        {view.more === null ? null : (
-          <SettingsRow
-            label="More models"
-            hint="Download or benchmark them under Engine and model."
-          >
-            <Value theme={theme} muted>
-              {view.more}
-            </Value>
-          </SettingsRow>
-        )}
-        <SettingsAction
-          label="What are these models?"
-          hint="Size, speed and which decisions each model suits."
-          actionLabel="Open docs"
-          onPress={() => void openExternalUrl(MODELS_DOCS_URL)}
-        />
-      </SettingsCard>
+    <View
+      style={{
+        gap: 2,
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderTopWidth: 1,
+        borderTopColor: theme.colors.border,
+      }}
+    >
+      <Text style={style}>{MODES_LEGEND}</Text>
+      {older ? <Text style={style}>{OLDER_GATEWAY_LEGEND}</Text> : null}
     </View>
   );
 }
@@ -358,23 +399,31 @@ export function DecisionsSection({
   const { modes, loaded } = useGatewayModesState();
   const writes = useDecisionWrites(values, save);
   const status = useGatewayStatus();
+  const engines = useEngines(values.gatewayUrl);
   const reachable = status.data?.up !== false;
   return (
-    <SettingsSection
-      title="Decisions"
-      info="Each decision local-decider makes, who asks for it and whether it acts. Shadow records what would have happened; Act lets it change what the agent does. Paseo's settings here also set the gateway, so Claude Code, Codex and pi outside Paseo follow them. A skipped decision changes nothing: the agent carries on as if it were Off. How sure the model must be is under Decision thresholds. Decisions set to Default model use the model from Engine and model. Thresholds were tuned for the default model, so run a decision on its own model in Shadow first."
-    >
-      {reachable ? null : (
-        <SettingsCard>
-          <InlineMessage
+    <SettingsSection title="Decisions" info={INFO}>
+      <SettingsCard>
+        {reachable ? null : <InlineMessage theme={theme} tone="warning" text={UNREACHABLE} />}
+        <Header theme={theme} />
+        {GATEWAY_POLICIES.map((policy) => (
+          <DecisionRow
+            key={policy}
             theme={theme}
-            tone="warning"
-            text="The gateway is unreachable, so every decision is skipped until it is back."
+            policy={policy}
+            values={values}
+            writes={writes}
+            gatewayUrl={values.gatewayUrl}
+            gatewayMode={modes[policy]}
+            modesLoaded={loaded}
+            reachable={reachable}
           />
-        </SettingsCard>
-      )}
-      <DefaultModelCard theme={theme} gatewayUrl={values.gatewayUrl} gatewayUp={reachable} />
-      {cardsFor(theme, values, writes, modes, loaded, reachable)}
+        ))}
+        <Footer
+          theme={theme}
+          older={engines.data?.policies === undefined && engines.data !== undefined}
+        />
+      </SettingsCard>
     </SettingsSection>
   );
 }

@@ -435,17 +435,25 @@ export function gb(value: number): string {
   return `${Number.isInteger(value) ? String(value) : value.toFixed(1)} GB`;
 }
 
-/** A fresh measurement on this machine: the one for `device`, else a device-less one, else any. */
-function measuredHere(model: EngineModel, device: string): number | null {
+/**
+ * Typical p50 of the model's fresh benchmark on `device`; null when it was never measured, only
+ * measured when stale, or measured on another device. A benchmark without a device (an engine that
+ * does not measure per device) stands in when `device` has no entry. A model measured on one device
+ * only stands in just when `device` is unknown (null); a named device without a measurement is not
+ * guessed from another one.
+ */
+export function typicalP50(model: EngineModel, device: string | null): number | null {
   const fresh = model.measured.filter((m) => m.freshness !== 'stale' && m.typical !== null);
   const entry =
-    fresh.find((m) => m.device === device) ?? fresh.find((m) => m.device === null) ?? fresh[0];
+    fresh.find((m) => m.device === device) ??
+    fresh.find((m) => m.device === null) ??
+    (device === null && fresh.length === 1 ? fresh[0] : undefined);
   return entry?.typical?.p50Ms ?? null;
 }
 
 /** `~{ms} here` for a fresh measurement, else the catalog's figure labelled as a reference. */
 function speedFact(model: EngineModel, device: string): string | null {
-  const p50 = measuredHere(model, device);
+  const p50 = typicalP50(model, device);
   if (p50 !== null) {
     return `~${ms(p50)} here`;
   }

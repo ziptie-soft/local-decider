@@ -4,9 +4,8 @@ import { describe, it } from 'node:test';
 import { GATEWAY_POLICIES, type GatewayPolicy, type PluginMode } from '../shared/constants.ts';
 import { DECISION_KINDS } from '../shared/decision-kinds.ts';
 import {
-  defaultModelHint,
-  defaultModelView,
-  type DefaultModelView,
+  allModelsTitle,
+  defaultModelName,
   effectiveP50,
   headerBadge,
   modelOptions,
@@ -21,7 +20,7 @@ import {
   routingVariantHint,
   runningName,
   selectionValue,
-  speedText,
+  speedHere,
   type ModelHintContext,
 } from '../shared/decision-models.ts';
 import { parseEngineCatalog, type EngineCatalog } from '../shared/engines.ts';
@@ -155,7 +154,7 @@ function ctxFor(policy: Obj | null, mode: PluginMode = 'shadow', w: World = {}):
 }
 
 function hint(policy: Obj | null, mode: PluginMode = 'shadow', w: World = {}): string {
-  return modelRowHint('command-risk', ctxFor(policy, mode, w)).hint;
+  return modelRowHint('command-risk', ctxFor(policy, mode, w)).line?.text ?? '';
 }
 
 function entryOf(catalog: EngineCatalog, id: string): PolicyModel | undefined {
@@ -185,8 +184,9 @@ function byId(id: string): never {
   return found as never;
 }
 
-function labels(options: { label: string }[]): string[] {
-  return options.map((o) => o.label);
+/** `label | detail` per option. */
+function pairs(options: { label: string; detail: string }[]): string[] {
+  return options.map((o) => `${o.label} | ${o.detail}`);
 }
 
 function none(): undefined {
@@ -229,26 +229,26 @@ function variantCtx(policies: Obj[], mode: PluginMode = 'shadow'): ModelHintCont
   return ctx({ catalog: world({ policies }), mode });
 }
 
-describe('speedText', () => {
+describe('speedHere', () => {
   it('prints a fresh benchmark as a rounded duration', () => {
-    assert.equal(speedText(byId('d3:nano'), null), '~760 ms');
-    assert.equal(speedText(byId('mid'), null), '~1.2 s');
+    assert.equal(speedHere(byId('d3:nano'), null), '~760 ms here');
+    assert.equal(speedHere(byId('mid'), null), '~1.2 s here');
   });
 
-  it('uses the latency hint without its parenthetical when there is no fresh benchmark', () => {
-    assert.equal(speedText(byId('hinted'), null), '~2 s');
-    assert.equal(speedText(byId('stale'), null), 'quick');
+  it('never uses the catalog latency hint: only a fresh measurement counts', () => {
+    assert.equal(speedHere(byId('hinted'), null), 'speed not measured here');
+    assert.equal(speedHere(byId('stale'), null), 'speed not measured here');
   });
 
-  it('says not benchmarked with neither', () => {
-    assert.equal(speedText(byId('bare'), null), 'not benchmarked');
+  it('says not measured with no benchmark at all', () => {
+    assert.equal(speedHere(byId('bare'), null), 'speed not measured here');
   });
 
   it('reads the benchmark of the device the model runs on', () => {
-    assert.equal(speedText(byId('strands'), 'cpu'), '~2.4 s');
-    assert.equal(speedText(byId('strands'), 'cuda'), '~500 ms');
-    assert.equal(speedText(byId('strands'), 'mps'), 'not benchmarked');
-    assert.equal(speedText(byId('strands'), null), 'not benchmarked');
+    assert.equal(speedHere(byId('strands'), 'cpu'), '~2.4 s here');
+    assert.equal(speedHere(byId('strands'), 'cuda'), '~500 ms here');
+    assert.equal(speedHere(byId('strands'), 'mps'), 'speed not measured here');
+    assert.equal(speedHere(byId('strands'), null), 'speed not measured here');
   });
 
   it('uses the only measurement when the device is unknown, never for a named device', () => {
@@ -257,9 +257,9 @@ describe('speedText', () => {
     });
     const found = world({ models: [solo] }).models[0];
     assert.ok(found);
-    assert.equal(speedText(found, null), '~2.4 s');
-    assert.equal(speedText(found, 'cpu'), '~2.4 s');
-    assert.equal(speedText(found, 'cuda'), 'not benchmarked');
+    assert.equal(speedHere(found, null), '~2.4 s here');
+    assert.equal(speedHere(found, 'cpu'), '~2.4 s here');
+    assert.equal(speedHere(found, 'cuda'), 'speed not measured here');
   });
 });
 
@@ -292,20 +292,21 @@ describe('effectiveP50', () => {
 describe('modelOptions', () => {
   it('lists Default first, then models by speed, unmeasured last in catalogue order', () => {
     const options = modelOptions('command-risk', world(), none());
-    assert.deepEqual(labels(options), [
-      'Default model (D3 Nano)',
-      'Fast · GPU (Vulkan) · ~460 ms',
-      'D3 Nano · NPU · ~760 ms',
-      'Edge 1000 · GPU (Vulkan) · ~1.0 s',
-      'Edge 1001 · GPU (Vulkan) · ~1.0 s · too slow',
-      'Mid · GPU (Vulkan) · ~1.2 s · too slow',
-      'Slow · GPU (Vulkan) · ~2.4 s · too slow',
-      'Hinted · GPU (Vulkan) · ~2 s',
-      'Bare · GPU (Vulkan) · not benchmarked',
-      'Stale · GPU (Vulkan) · quick',
-      'Found · LM Studio · not benchmarked',
+    assert.deepEqual(pairs(options), [
+      'Default | D3 Nano · NPU · ~760 ms here',
+      'Fast | GPU (Vulkan) · ~460 ms here',
+      'D3 Nano | NPU · ~760 ms here',
+      'Edge 1000 | GPU (Vulkan) · ~1.0 s here',
+      'Edge 1001 | GPU (Vulkan) · ~1.0 s here · too slow for hooks',
+      'Mid | GPU (Vulkan) · ~1.2 s here · too slow for hooks',
+      'Slow | GPU (Vulkan) · ~2.4 s here · too slow for hooks',
+      // A catalog latency hint is a reference, not a measurement: it is not shown here.
+      'Hinted | GPU (Vulkan) · speed not measured here',
+      'Bare | GPU (Vulkan) · speed not measured here',
+      'Stale | GPU (Vulkan) · speed not measured here',
+      'Found | LM Studio · speed not measured here',
       // Several devices on a non-active engine: the catalog cannot say which one `auto` picks.
-      'Strands 2B · Strands · not benchmarked',
+      'Strands 2B | Strands · speed not measured here',
     ]);
     assert.equal(options[0]?.value, 'default');
     assert.equal(options[1]?.value, 'llama-vulkan|fast|auto');
@@ -323,10 +324,10 @@ describe('modelOptions', () => {
         },
       ],
     });
-    const label = modelOptions('command-risk', one, none()).find((o) =>
+    const option = modelOptions('command-risk', one, none()).find((o) =>
       o.value.startsWith('strands-decider|'),
-    )?.label;
-    assert.equal(label, 'Strands 2B · GPU · ~500 ms');
+    );
+    assert.equal(option?.detail, 'GPU · ~500 ms here');
   });
 
   it('gives each option the selection it sets and the name of its model', () => {
@@ -356,8 +357,9 @@ describe('modelOptions', () => {
   it('marks too slow from 1001 ms on the hooks budget, never at 1000', () => {
     const options = modelOptions('command-risk', world(), none());
     const slow = (id: string): boolean =>
-      options.find((o) => o.value === `llama-vulkan|${id}|auto`)?.label.endsWith('too slow') ===
-      true;
+      options
+        .find((o) => o.value === `llama-vulkan|${id}|auto`)
+        ?.detail.endsWith('too slow for hooks') === true;
     assert.equal(slow('edge1000'), false);
     assert.equal(slow('edge1001'), true);
     assert.equal(DECISION_KINDS['turn-outcome'].budgets.hooks, 1000);
@@ -365,7 +367,8 @@ describe('modelOptions', () => {
 
   it('says none yet when there is no default model', () => {
     const options = modelOptions('routing', world({ active: null }), none());
-    assert.equal(options[0]?.label, 'Default model (none yet)');
+    assert.equal(options[0]?.label, 'Default');
+    assert.equal(options[0]?.detail, 'No default model yet');
   });
 
   it('does not repeat the current override, and reads an unset device as auto', () => {
@@ -387,7 +390,8 @@ describe('modelOptions', () => {
     };
     const last = modelOptions('command-risk', catalog, gone).at(-1);
     assert.deepEqual(last, {
-      label: 'Remote · unavailable',
+      label: 'Remote',
+      detail: 'unavailable',
       value: 'llama-vulkan|remote|auto',
       selection: gone,
       modelLabel: 'Remote',
@@ -398,7 +402,8 @@ describe('modelOptions', () => {
       device: undefined,
       fallback: undefined,
     };
-    assert.equal(modelOptions('command-risk', catalog, unknown).at(-1)?.label, 'who · unavailable');
+    const lost = modelOptions('command-risk', catalog, unknown).at(-1);
+    assert.deepEqual([lost?.label, lost?.detail], ['who', 'unavailable']);
   });
 
   it('appends a listed model chosen for another device with that device', () => {
@@ -410,7 +415,8 @@ describe('modelOptions', () => {
     };
     const last = modelOptions('command-risk', world(), onCpu).at(-1);
     assert.deepEqual(last, {
-      label: 'Strands 2B · cpu',
+      label: 'Strands 2B',
+      detail: 'cpu',
       value: 'strands-decider|strands|cpu',
       selection: onCpu,
       modelLabel: 'Strands 2B',
@@ -432,41 +438,37 @@ describe('modelRowHint', () => {
 
   it('1: shows a write in flight, and disables the select', () => {
     const own = modelRowHint('command-risk', ctx({ writing: { label: 'Fast' } }));
-    assert.deepEqual(own, { hint: 'Switching to Fast…', disabled: true });
+    assert.deepEqual(own, {
+      line: { text: 'Switching to Fast…', tone: 'muted' },
+      disabled: true,
+    });
     const clear = modelRowHint('command-risk', ctx({ writing: { label: null } }));
-    assert.equal(clear.hint, 'Switching to the default model…');
+    assert.equal(clear.line?.text, 'Switching to the default model…');
   });
 
   it('2: says it cannot change while the gateway is unreachable', () => {
     const row = modelRowHint('command-risk', ctx({ reachable: false }));
-    assert.deepEqual(row, {
-      hint: "Can't be changed while the gateway is unreachable.",
-      disabled: true,
-    });
+    assert.deepEqual(row, { line: null, disabled: true });
     assert.equal(
       modelRowHint('command-risk', ctx({ catalog: parseEngineCatalog(null) })).disabled,
       true,
     );
   });
 
-  it('waits for the catalog, an older gateway and an unloaded policy', () => {
-    assert.deepEqual(modelRowHint('command-risk', ctx({ catalog: undefined })), {
-      hint: 'Asking the gateway…',
-      disabled: true,
-    });
-    assert.deepEqual(modelRowHint('command-risk', ctx({ catalog: world({ policies: null }) })), {
-      hint: 'Needs a newer local-decider gateway.',
-      disabled: true,
-    });
-    assert.deepEqual(modelRowHint('command-risk', ctx({ policyLoaded: false })), {
-      hint: 'The gateway has not loaded this policy, so it never runs.',
-      disabled: true,
-    });
+  it('says nothing, and disables the select, without a catalog, on an older gateway or unloaded', () => {
+    const off = { line: null, disabled: true };
+    assert.deepEqual(modelRowHint('command-risk', ctx({ catalog: undefined })), off);
+    assert.deepEqual(
+      modelRowHint('command-risk', ctx({ catalog: world({ policies: null }) })),
+      off,
+    );
+    assert.deepEqual(modelRowHint('command-risk', ctx({ policyLoaded: false })), off);
   });
 
   it('3: names the reason and the default model answering', () => {
     const row = entry('command-risk', { status: 'unavailable', reason: 'does not fit.' });
     assert.equal(hint(row), 'Unavailable: does not fit. The default model answers instead.');
+    assert.equal(modelRowHint('command-risk', ctxFor(row)).line?.tone, 'warning');
   });
 
   it('3: copes with no reason', () => {
@@ -513,7 +515,7 @@ describe('modelRowHint', () => {
       ];
       for (const [selection, p50] of cases) {
         const ms = p50 === '2.4 s' ? 2400 : 1200;
-        const text = modelRowHint(kind, ctxFor(entry(kind, selection), 'shadow')).hint;
+        const text = modelRowHint(kind, ctxFor(entry(kind, selection), 'shadow')).line?.text;
         const expected =
           paseo !== null && ms <= paseo
             ? `${base.replace('{p50}', p50)} Paseo waits up to ${paseoText(paseo)}, so its own requests are answered.`
@@ -541,22 +543,28 @@ describe('modelRowHint', () => {
     assert.notEqual(hint(lm, 'shadow'), text);
   });
 
-  it('8: says a model without a fresh benchmark has an unknown speed', () => {
-    const text = 'Not benchmarked here, so its speed is unknown. Benchmark it under Models.';
-    assert.equal(hint(entry('command-risk', selectionOf('llama-vulkan', 'bare'))), text);
-    assert.equal(hint(entry('command-risk', selectionOf('llama-vulkan', 'stale'))), text);
-    assert.equal(
-      hint(entry('command-risk', selectionOf('llama-vulkan', 'bare')), 'off').includes('Not used'),
-      true,
-    );
+  it('8: says an own model has an unknown speed, and where to measure it', () => {
+    for (const id of ['bare', 'stale']) {
+      const text = hint(entry('command-risk', selectionOf('llama-vulkan', id)));
+      assert.match(text, /^Own model on GPU \(Vulkan\), speed not measured here\. /);
+      assert.ok(text.endsWith(' Benchmark it under Models.'));
+    }
   });
 
-  it('9: says an own model is not loaded while Mode is Off, only when there is one', () => {
+  it('8: says nothing about speed when the default model answers', () => {
+    assert.equal(hint(null, 'shadow', { active: { engine: 'llama-vulkan', model: 'bare' } }), '');
+  });
+
+  it('9: says an own model stays unloaded while Mode is Off, only when there is one', () => {
     assert.equal(
       hint(entry('command-risk'), 'off'),
-      'Not used while Mode is Off, and its own model stays unloaded.',
+      'Its own model stays unloaded while Mode is Off.',
     );
-    assert.equal(hint(null, 'off'), 'Not used while Mode is Off.');
+    assert.equal(
+      modelRowHint('command-risk', ctxFor(entry('command-risk'), 'off')).line?.tone,
+      'muted',
+    );
+    assert.equal(hint(null, 'off'), '');
   });
 
   it('10: notes an own model that equals the default', () => {
@@ -574,44 +582,49 @@ describe('modelRowHint', () => {
     const pinned = { device: 'cpu', resolvedDevice: 'cpu' };
     const same = 'Same model as the default, but it stays on it if the default changes.';
     assert.equal(hint(ownDefault('cpu'), 'shadow', { active: pinned }), same);
-    assert.ok(hint(ownDefault(), 'shadow', { active: pinned }).startsWith('Own model.'));
-    assert.ok(hint(ownDefault('auto'), 'shadow', { active: pinned }).startsWith('Own model.'));
-    assert.ok(hint(ownDefault('cuda'), 'shadow', { active: pinned }).startsWith('Own model.'));
+    assert.ok(hint(ownDefault(), 'shadow', { active: pinned }).startsWith('Own model on'));
+    assert.ok(hint(ownDefault('auto'), 'shadow', { active: pinned }).startsWith('Own model on'));
+    assert.ok(hint(ownDefault('cuda'), 'shadow', { active: pinned }).startsWith('Own model on'));
     assert.equal(
       hint(ownDefault('cuda'), 'shadow', { active: { device: 'auto', resolvedDevice: 'cuda' } }),
       same,
     );
   });
 
-  it('11: describes a lazy own model with its memory', () => {
+  it('11: describes a lazy own model with its memory, in muted text', () => {
+    const line = modelRowHint('command-risk', ctxFor(entry('command-risk'))).line;
     assert.equal(
-      hint(entry('command-risk')),
-      'Own model. Loads on its first decision and unloads when idle. Needs about 3.5 GB on top of the default model.',
+      line?.text,
+      'Own model on GPU (Vulkan), ~460 ms here. Loads on its first decision and unloads when idle. Needs about 3.5 GB on top of the default model.',
     );
+    assert.equal(line?.tone, 'muted');
   });
 
   it('11: drops the memory sentence when it is unknown', () => {
     const row = entry('command-risk', selectionOf('llama-vulkan', 'edge1000'));
-    assert.equal(hint(row), 'Own model. Loads on its first decision and unloads when idle.');
+    assert.equal(
+      hint(row),
+      'Own model on GPU (Vulkan), ~1.0 s here. Loads on its first decision and unloads when idle.',
+    );
   });
 
   it('12: describes an eager own model', () => {
     const w = { active: { lifecycle: 'eager' } };
     assert.equal(
       hint(entry('command-risk'), 'shadow', w),
-      'Own model, kept loaded. Needs about 3.5 GB on top of the default model.',
+      'Own model on GPU (Vulkan), ~460 ms here. Kept loaded. Needs about 3.5 GB on top of the default model.',
     );
     const row = entry('command-risk', selectionOf('llama-vulkan', 'edge1000'));
-    assert.equal(hint(row, 'shadow', w), 'Own model, kept loaded.');
+    assert.equal(hint(row, 'shadow', w), 'Own model on GPU (Vulkan), ~1.0 s here. Kept loaded.');
   });
 
-  it('13: says the default model is used', () => {
-    assert.equal(hint(null), 'Uses the default model.');
-    assert.equal(hint({ id: 'command-risk', status: 'default' }), 'Uses the default model.');
+  it('13: says nothing when the default model is used', () => {
+    assert.equal(modelRowHint('command-risk', ctxFor(null)).line, null);
+    assert.equal(hint({ id: 'command-risk', status: 'default' }), '');
   });
 
   it('does not assume the selection is present when the status is not default', () => {
-    assert.equal(hint({ id: 'command-risk', status: 'active' }), 'Uses the default model.');
+    assert.equal(hint({ id: 'command-risk', status: 'active' }), '');
   });
 
   it('takes the first matching row when conditions stack', () => {
@@ -624,30 +637,28 @@ describe('modelRowHint', () => {
     const slowOwn = selectionOf('llama-vulkan', 'slow');
     const starting = entry('command-risk', { ...slowOwn, state: 'starting' });
     const loading = 'Loading; decisions are skipped until it is ready.';
-    assert.equal(hint(starting, 'act'), loading, '5 over 6');
+    assert.equal(hint(starting, 'act'), loading, 'loading over too slow');
     const uncalibratedSlow = entry('command-risk', selectionOf('lmstudio', 'slowfound'));
-    assert.ok(hint(uncalibratedSlow, 'act', w).startsWith('Too slow'), '6 over 7');
-    assert.ok(hint(uncalibratedSlow, 'shadow', w).startsWith('Too slow'), '6 in Shadow');
+    assert.ok(
+      hint(uncalibratedSlow, 'act', w).startsWith('Too slow'),
+      'too slow over uncalibrated',
+    );
+    assert.ok(hint(uncalibratedSlow, 'shadow', w).startsWith('Too slow'), 'too slow in Shadow');
     const unknownOwn = entry('command-risk', selectionOf('lmstudio', 'found'));
-    assert.ok(hint(unknownOwn, 'act').startsWith('Uncalibrated'), '7 over 8');
-    assert.ok(hint(unknownOwn, 'shadow').startsWith('Not benchmarked'), '8 without Act');
+    assert.ok(hint(unknownOwn, 'act').startsWith('Uncalibrated'), 'uncalibrated over own');
+    assert.ok(hint(unknownOwn, 'shadow').startsWith('Own model on LM Studio'), 'own without Act');
     assert.equal(
       hint(unknownOwn, 'off'),
-      'Not used while Mode is Off, and its own model stays unloaded.',
-      '9 over 8',
+      'Its own model stays unloaded while Mode is Off.',
+      'off over own',
     );
   });
 
-  it('judges the default model by rows 7 and 8 when the decision has none of its own', () => {
+  it('judges the default model for uncalibrated only, and says nothing otherwise', () => {
     const uncalibrated = { active: { engine: 'lmstudio', model: 'found' } };
-    assert.ok(hint(null, 'act', uncalibrated).startsWith('Uncalibrated'), '7');
-    assert.ok(hint(null, 'shadow', uncalibrated).startsWith('Not benchmarked'), '8');
-    assert.ok(
-      hint(null, 'shadow', { active: { engine: 'llama-vulkan', model: 'bare' } }).startsWith(
-        'Not benchmarked',
-      ),
-    );
-    assert.equal(hint(null, 'shadow'), 'Uses the default model.');
+    assert.ok(hint(null, 'act', uncalibrated).startsWith('Uncalibrated'));
+    assert.equal(hint(null, 'shadow', uncalibrated), '');
+    assert.equal(hint(null, 'shadow'), '');
   });
 
   it('puts the problems before the facts about the model', () => {
@@ -773,62 +784,6 @@ describe('modelOutcome', () => {
   });
 });
 
-describe('defaultModelHint', () => {
-  const NOW = Date.parse('2026-11-12T12:00:00.000Z');
-
-  it('1: explains an automatic fallback and who uses it', () => {
-    const catalog = world({
-      active: {
-        selectionMode: 'auto',
-        fallback: {
-          reason: 'crashed',
-          engine: 'llama-vulkan',
-          device: null,
-          retryAt: '2026-11-12T12:05:00.000Z',
-        },
-      },
-    });
-    assert.equal(
-      defaultModelHint(catalog, NOW),
-      'GPU (Vulkan) failed; retrying in 5 min. Decisions set to Default model use it until then.',
-    );
-  });
-
-  it('2: says an automatic choice can change', () => {
-    const catalog = world({ active: { selectionMode: 'auto' } });
-    assert.equal(
-      defaultModelHint(catalog, NOW),
-      'Chosen automatically for this machine. Used by every decision set to Default model. Change it under Engine and model, just below.',
-    );
-  });
-
-  it('3: says a manual choice is the one to change', () => {
-    const manual =
-      'Used by every decision set to Default model. Change it under Engine and model, just below.';
-    assert.equal(defaultModelHint(world(), NOW), manual);
-    assert.equal(defaultModelHint(world({ active: { selectionMode: null } }), NOW), manual);
-  });
-
-  it('4: checks for no model before the automatic choice', () => {
-    const pick =
-      'Pick one under Engine and model, just below. Until then every decision is skipped.';
-    const noModel = { engine: null, model: null, selectionMode: 'auto' };
-    assert.equal(defaultModelHint(world({ active: noModel }), NOW), pick);
-    assert.equal(
-      defaultModelHint(world({ active: { model: null, selectionMode: 'auto' } }), NOW),
-      pick,
-    );
-    assert.equal(defaultModelHint(world({ active: { engine: null } }), NOW), pick);
-  });
-
-  it('4: says every decision is skipped without a model', () => {
-    assert.equal(
-      defaultModelHint(world({ active: null }), NOW),
-      'Pick one under Engine and model, just below. Until then every decision is skipped.',
-    );
-  });
-});
-
 describe('moreModelsCount', () => {
   it('counts models that could be downloaded and run here', () => {
     assert.equal(moreModelsCount(world()), 1);
@@ -845,105 +800,26 @@ describe('moreModelsCount', () => {
   });
 });
 
-describe('defaultModelView', () => {
-  const NOW = Date.parse('2026-11-12T12:00:00.000Z');
-  const PICK = 'Pick one under Engine and model, just below. Until then every decision is skipped.';
-  const view = (catalog: EngineCatalog | undefined, up = true, failed = false): DefaultModelView =>
-    defaultModelView(catalog, up, failed, NOW);
-
-  it('shows the running model, its hint and the models not downloaded', () => {
-    const v = view(world());
-    assert.equal(v.value, 'd3 nano on NPU · NPU (FLM)');
-    assert.equal(v.hint, defaultModelHint(world(), NOW));
-    assert.equal(v.more, '1 not downloaded');
+describe('defaultModelName', () => {
+  it('names the running model', () => {
+    assert.equal(defaultModelName(world()), 'd3 nano on NPU · NPU (FLM)');
   });
 
-  it('shows the automatic choice with its hint', () => {
-    const catalog = world({ active: { selectionMode: 'auto' } });
-    const v = view(catalog);
-    assert.equal(v.value, 'd3 nano on NPU · NPU (FLM)');
-    assert.match(v.hint, /^Chosen automatically for this machine\./);
+  it('is null when no model is chosen', () => {
+    assert.equal(defaultModelName(world({ active: null })), null);
+    assert.equal(defaultModelName(world({ active: { engine: null, model: null } })), null);
+    assert.equal(defaultModelName(world({ active: { model: null } })), null);
+  });
+});
+
+describe('allModelsTitle', () => {
+  it('counts the models not downloaded yet', () => {
+    assert.equal(allModelsTitle(world()), 'All engines and models · 1 not downloaded');
   });
 
-  it('keeps the running model while an automatic fallback stands in', () => {
-    const catalog = world({
-      active: {
-        selectionMode: 'auto',
-        fallback: {
-          reason: 'crashed',
-          engine: 'llama-vulkan',
-          device: null,
-          retryAt: '2026-11-12T12:05:00.000Z',
-        },
-      },
-    });
-    const v = view(catalog);
-    assert.equal(v.value, 'd3 nano on NPU · NPU (FLM)');
-    assert.match(v.hint, /Decisions set to Default model use it until then\.$/);
-  });
-
-  it('hides More models when everything is downloaded', () => {
+  it('is plain when everything is downloaded', () => {
     const models = [model('llama-vulkan', 'have')];
-    assert.equal(view(world({ models })).more, null);
-  });
-
-  it('hides More models on an older gateway, which sends no policies', () => {
-    const v = view(world({ policies: null }));
-    assert.equal(v.more, null);
-    assert.equal(v.value, 'd3 nano on NPU · NPU (FLM)');
-  });
-
-  it('says None yet when there is no active engine', () => {
-    const v = view(world({ active: null }));
-    assert.equal(v.value, 'None yet');
-    assert.equal(v.hint, PICK);
-  });
-
-  it('says None yet when the active entry has no engine', () => {
-    const v = view(world({ active: { engine: null, model: null } }));
-    assert.equal(v.value, 'None yet');
-    assert.equal(v.hint, PICK);
-  });
-
-  it('says None yet, not the engine name, when the model is not chosen yet', () => {
-    for (const mode of ['auto', 'manual']) {
-      const v = view(world({ active: { model: null, selectionMode: mode } }));
-      assert.equal(v.value, 'None yet');
-      assert.equal(v.hint, PICK);
-    }
-  });
-
-  it('says Checking… while the engines query is pending', () => {
-    const v = view(undefined);
-    assert.equal(v.value, 'Checking…');
-    assert.equal(v.more, null);
-  });
-
-  it('says Unknown when the engines query failed and there is no catalog', () => {
-    const v = view(undefined, true, true);
-    assert.equal(v.value, 'Unknown');
-    assert.equal(v.hint, 'The gateway is unreachable or has no /v1/engines.');
-    assert.equal(v.more, null);
-  });
-
-  it('keeps a catalog it has when a refetch failed', () => {
-    assert.equal(view(world(), true, true).value, 'd3 nano on NPU · NPU (FLM)');
-  });
-
-  it('says Unknown with the gateway hint when the status check says it is down', () => {
-    for (const catalog of [world(), undefined]) {
-      const v = view(catalog, false);
-      assert.equal(v.value, 'Unknown');
-      assert.equal(v.hint, 'The gateway is unreachable.');
-      assert.equal(v.more, null);
-    }
-  });
-
-  it('says Unknown with the engines hint when the gateway is up but the catalog is not', () => {
-    const v = view(parseEngineCatalog(null));
-    assert.equal(v.value, 'Unknown');
-    assert.equal(v.hint, 'The gateway is unreachable or has no /v1/engines.');
-    assert.equal(v.more, null);
+    assert.equal(allModelsTitle(world({ models })), 'All engines and models');
   });
 });
 
@@ -1068,7 +944,7 @@ describe('hint and policy kinds', () => {
     const kinds: GatewayPolicy[] = [...GATEWAY_POLICIES];
     for (const kind of kinds) {
       const row = modelRowHint(kind, ctxFor(null));
-      assert.equal(row.hint, 'Uses the default model.');
+      assert.equal(row.line, null);
       assert.equal(row.disabled, false);
     }
   });

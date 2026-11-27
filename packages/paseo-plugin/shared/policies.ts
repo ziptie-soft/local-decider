@@ -185,23 +185,43 @@ const MODE_LABELS: Readonly<Record<PluginMode, string>> = {
   act: 'Act',
 };
 
+/** A status line under a decision row: muted for information, warning for a problem. */
+export interface StatusLine {
+  readonly text: string;
+  readonly tone: 'muted' | 'warning';
+}
+
+/** A mode line, with the button that sets the gateway to the mode Paseo shows. */
+export interface ModeLine extends StatusLine {
+  readonly fix?: { readonly label: string; readonly mode: PluginMode };
+}
+
 /**
- * Warning for a Paseo mode and a gateway mode that disagree, or null. Command risk has no plugin
- * mode, so it never warns; an unknown gateway mode never warns.
+ * The line for a Paseo mode and a gateway mode that disagree, or null. Command risk has no plugin
+ * mode, so it never warns; an unknown gateway mode never warns. The fix sets the gateway to the
+ * Paseo mode, which `writes.write(policy, pluginMode)` does.
  */
-export function modeHint(
+export function modeMismatchLine(
   policy: GatewayPolicy,
   pluginMode: PluginMode,
   gatewayMode: PluginMode | undefined,
-): string | null {
+): ModeLine | null {
   if (!DECISION_KINDS[policy].pluginMode || gatewayMode === undefined) {
     return null;
   }
   if (pluginMode === 'act' && gatewayMode !== 'act') {
-    return `Warning: the gateway runs this in ${MODE_LABELS[gatewayMode]}, so its decisions are not enforced. Choose Act again to set the gateway too.`;
+    return {
+      tone: 'warning',
+      text: `The gateway runs this in ${MODE_LABELS[gatewayMode]}, so its decisions are not enforced.`,
+      fix: { label: 'Set gateway to Act', mode: 'act' },
+    };
   }
   if (pluginMode !== 'act' && gatewayMode === 'act') {
-    return `Warning: the gateway still runs this in Act, so Claude Code and Codex outside Paseo enforce it. Choose ${MODE_LABELS[pluginMode]} again to set the gateway too.`;
+    return {
+      tone: 'warning',
+      text: 'Outside Paseo the gateway still runs this in Act, so Claude Code and Codex enforce it.',
+      fix: { label: `Set gateway to ${MODE_LABELS[pluginMode]}`, mode: pluginMode },
+    };
   }
   return null;
 }
@@ -218,29 +238,31 @@ export interface ModeRowState {
 }
 
 /** The hint of a decision the gateway has not loaded: its Mode and Model rows are disabled. */
-export const POLICY_NOT_LOADED_HINT = 'The gateway has not loaded this policy, so it never runs.';
+const POLICY_NOT_LOADED_HINT = 'The gateway has not loaded this policy, so it never runs.';
 
-/** The hint under a card's Mode select: the first row of the plan's table that applies. */
+/**
+ * What shows under a decision's Mode: nothing for a healthy row, `Saving…`, the not-loaded warning
+ * or a mismatch with its fix. The gateway being unreachable or still asked says nothing here: the
+ * card's first line already does.
+ */
 export function modeRowHint(
   policy: GatewayPolicy,
   state: ModeRowState,
-): { hint: string; disabled: boolean } {
+): { line: ModeLine | null; disabled: boolean } {
   const gatewayOnly = !DECISION_KINDS[policy].pluginMode;
   if (state.busy) {
-    return { hint: 'Saving…', disabled: false };
+    return { line: { text: 'Saving…', tone: 'muted' }, disabled: false };
   }
-  if (gatewayOnly && !state.reachable) {
-    return { hint: "Can't be changed while the gateway is unreachable.", disabled: true };
+  if (gatewayOnly && (!state.reachable || !state.modesLoaded)) {
+    return { line: null, disabled: true };
   }
-  if (gatewayOnly && !state.modesLoaded) {
-    return { hint: 'Asking the gateway…', disabled: true };
+  if (state.modesLoaded && state.gatewayMode === undefined) {
+    return {
+      line: { text: POLICY_NOT_LOADED_HINT, tone: 'warning' },
+      disabled: gatewayOnly,
+    };
   }
-  if (gatewayOnly && state.modesLoaded && state.gatewayMode === undefined) {
-    return { hint: POLICY_NOT_LOADED_HINT, disabled: true };
-  }
-  const warning = modeHint(policy, state.pluginMode, state.gatewayMode);
-  const mode = gatewayOnly ? (state.gatewayMode ?? state.pluginMode) : state.pluginMode;
-  return { hint: warning ?? DECISION_KINDS[policy].modes[mode], disabled: false };
+  return { line: modeMismatchLine(policy, state.pluginMode, state.gatewayMode), disabled: false };
 }
 
 /** What the gateway answered to a mode write; `unreachable` when the call itself failed. */

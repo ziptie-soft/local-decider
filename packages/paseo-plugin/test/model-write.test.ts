@@ -70,7 +70,13 @@ function inputs(over: Partial<ModelRowInputs> = {}): ModelRowInputs {
 }
 
 function option(value: string, selection?: ModelOption['selection']): ModelOption {
-  return { label: value, value, selection, modelLabel: selection === undefined ? null : 'Own' };
+  return {
+    label: value,
+    detail: '',
+    value,
+    selection,
+    modelLabel: selection === undefined ? null : 'Own',
+  };
 }
 
 function ownEntry(id: string, extra: Obj = {}): Obj {
@@ -117,7 +123,8 @@ describe('modelSelectView', () => {
   it('lists Default model first and shows it selected when the decision has no model', () => {
     const view = modelSelectView(inputs());
     assert.equal(view.value, 'default');
-    assert.equal(view.options[0]?.label, 'Default model (Base)');
+    assert.equal(view.options[0]?.label, 'Default');
+    assert.match(view.options[0]?.detail ?? '', /^Base · /);
     assert.equal(view.unsupported, false);
     assert.equal(view.badge, null);
     assert.equal(view.fallback, 'default');
@@ -128,14 +135,15 @@ describe('modelSelectView', () => {
     const view = modelSelectView(inputs({ catalog }));
     assert.equal(view.value, 'llama-vulkan|own|auto');
     assert.equal(view.fallback, 'open');
-    assert.match(view.hint, /^Own model\./);
+    assert.match(view.line?.text ?? '', /^Own model on /);
+    assert.equal(view.line?.tone, 'muted');
   });
 
   it('shows the model being switched to while a write runs', () => {
     const writing = option('llama-vulkan|own|auto', { engine: 'llama-vulkan', model: 'own' });
     const view = modelSelectView(inputs({ writing }));
     assert.equal(view.value, 'llama-vulkan|own|auto');
-    assert.equal(view.hint, 'Switching to Own…');
+    assert.deepEqual(view.line, { text: 'Switching to Own…', tone: 'muted' });
     assert.equal(view.disabled, true);
   });
 
@@ -154,7 +162,7 @@ describe('modelSelectView', () => {
 
   it('is disabled while the engines are pending or the gateway is unreachable', () => {
     const pending = modelSelectView(inputs({ catalog: undefined }));
-    assert.equal(pending.hint, 'Asking the gateway…');
+    assert.equal(pending.line, null);
     assert.equal(pending.disabled, true);
     assert.equal(pending.options.length, 1);
     const down = modelSelectView(inputs({ reachable: false }));
@@ -164,14 +172,14 @@ describe('modelSelectView', () => {
   it('is unsupported on an older gateway', () => {
     const view = modelSelectView(inputs({ catalog: catalogOf(null) }));
     assert.equal(view.unsupported, true);
-    assert.equal(view.hint, 'Needs a newer local-decider gateway.');
+    assert.equal(view.line, null);
     assert.equal(view.disabled, true);
   });
 
   it('is disabled for a policy the gateway has not loaded, not before its modes are known', () => {
     const missing = modelSelectView(inputs({ gatewayMode: undefined }));
     assert.equal(missing.disabled, true);
-    assert.match(missing.hint, /has not loaded this policy/);
+    assert.equal(missing.line, null);
     assert.equal(
       modelSelectView(inputs({ gatewayMode: undefined, modesLoaded: false })).disabled,
       false,
@@ -180,19 +188,18 @@ describe('modelSelectView', () => {
 
   it('puts the routing variant text on the Routing card only', () => {
     const catalog = catalogOf([ownEntry('routing-budget', { label: 'Own' })]);
-    assert.match(
-      modelSelectView(inputs({ kind: 'routing', catalog })).hint,
-      /^routing-budget has its own model in config\.yaml: Own\./,
-    );
-    assert.equal(modelSelectView(inputs({ catalog })).hint, 'Uses the default model.');
+    const routing = modelSelectView(inputs({ kind: 'routing', catalog })).line;
+    assert.match(routing?.text ?? '', /^routing-budget has its own model in config\.yaml: Own\./);
+    assert.equal(routing?.tone, 'muted');
+    assert.equal(modelSelectView(inputs({ catalog })).line, null);
   });
 });
 
 describe('a hook kind the gateway has not loaded', () => {
-  it('is blocked with the not-loaded hint, like command risk', () => {
+  it('is blocked, like command risk (the Mode line says why)', () => {
     const view = modelSelectView(inputs({ kind: 'permission', gatewayMode: undefined }));
     assert.equal(view.disabled, true);
-    assert.equal(view.hint, 'The gateway has not loaded this policy, so it never runs.');
+    assert.equal(view.line, null);
   });
 });
 

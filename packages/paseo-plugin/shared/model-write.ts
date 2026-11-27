@@ -19,7 +19,7 @@ import {
   type ModelWriteResult,
 } from './decision-models.ts';
 import type { EngineCatalog } from './engines.ts';
-import type { PolicySelectionInput } from './policies.ts';
+import type { PolicySelectionInput, StatusLine } from './policies.ts';
 import type { PolicyModel } from './policy-models.ts';
 
 type Fallback = NonNullable<PolicyModel['fallback']>;
@@ -67,7 +67,8 @@ export interface ModelSelectView {
   readonly options: readonly ModelOption[];
   /** The select's value: the model that answers now, or the one being switched to. */
   readonly value: string;
-  readonly hint: string;
+  /** The line under the row; null when there is nothing to say. */
+  readonly line: StatusLine | null;
   /** The select cannot change now (the card also disables it while any write runs). */
   readonly disabled: boolean;
   /** The older gateway cannot choose per decision: show a static row, not a select. */
@@ -78,7 +79,13 @@ export interface ModelSelectView {
 }
 
 const DEFAULT_ONLY: readonly ModelOption[] = [
-  { label: 'Default model', value: 'default', selection: undefined, modelLabel: null },
+  {
+    label: 'Default',
+    detail: 'No default model yet',
+    value: 'default',
+    selection: undefined,
+    modelLabel: null,
+  },
 ];
 
 function hintContext(i: ModelRowInputs): ModelHintContext {
@@ -93,11 +100,14 @@ function hintContext(i: ModelRowInputs): ModelHintContext {
   };
 }
 
-/** The hint: the Routing card's variant text when it applies, else the table row. */
-function hintOf(i: ModelRowInputs, ctx: ModelHintContext): { hint: string; disabled: boolean } {
+/** The line: the Routing card's variant text when it applies, else the table row. */
+function lineOf(
+  i: ModelRowInputs,
+  ctx: ModelHintContext,
+): { line: StatusLine | null; disabled: boolean } {
   const row = modelRowHint(i.kind, ctx);
   const variant = i.kind === 'routing' ? routingVariantHint(ctx) : null;
-  return variant === null ? row : { ...row, hint: variant };
+  return variant === null ? row : { ...row, line: { text: variant, tone: 'muted' } };
 }
 
 /** What a decision's Model row shows for the catalog and the state of its card. */
@@ -105,11 +115,11 @@ export function modelSelectView(i: ModelRowInputs): ModelSelectView {
   const ctx = hintContext(i);
   const entry = i.catalog?.policies?.find((p) => p.id === i.kind);
   const own = ownSelection(entry);
-  const { hint, disabled } = hintOf(i, ctx);
+  const { line, disabled } = lineOf(i, ctx);
   return {
     options: i.catalog === undefined ? DEFAULT_ONLY : modelOptions(i.kind, i.catalog, own),
     value: i.writing === null ? selectionValue(own) : i.writing.value,
-    hint,
+    line,
     disabled,
     unsupported: i.catalog !== undefined && i.catalog.policies === undefined,
     badge: headerBadge(i.kind, ctx),

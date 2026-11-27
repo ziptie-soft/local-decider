@@ -78,6 +78,7 @@ export function ChipPicker({
   onChange,
   icon,
   disabled = false,
+  note,
 }: {
   theme: Theme;
   /** Modal title and accessibility label, e.g. "route:fast model". */
@@ -88,6 +89,8 @@ export function ChipPicker({
   /** Lucide icon before the chip label, e.g. `Brain` for thinking. */
   icon?: string;
   disabled?: boolean;
+  /** Muted text at the top of the modal, above the options. */
+  note?: string;
 }): ReactNode {
   const [open, setOpen] = useState(false);
   const current = options.find((o) => o.value === value);
@@ -131,6 +134,18 @@ export function ChipPicker({
       </Pressable>
       <Dialog title={title} open={open} onOpenChange={setOpen}>
         <DialogContent>
+          {note === undefined ? null : (
+            <Text
+              style={{
+                color: theme.colors.foregroundMuted,
+                fontSize: 12,
+                paddingHorizontal: 10,
+                paddingBottom: 6,
+              }}
+            >
+              {note}
+            </Text>
+          )}
           {groupsOf(options).map(([group, items]) => (
             <View key={group} style={{ gap: 2 }}>
               {group === '' ? null : (
