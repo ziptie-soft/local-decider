@@ -29,7 +29,7 @@ class EngineCache<T> {
 
   clear(engine?: EngineId): void {
     for (const map of [this.#values, this.#loads]) {
-      for (const key of [...map.keys()]) {
+      for (const key of map.keys()) {
         if (engine === undefined || key === engine || key.startsWith(`${engine}|`)) {
           map.delete(key);
         }
