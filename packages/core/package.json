@@ -43,7 +43,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
-    "test": "node --test --conditions=source --experimental-test-coverage --test-coverage-include='src/**' 'test/**/*.test.ts'",
+    "test": "node --test --import ../../scripts/test-tmpdir.mjs --conditions=source --experimental-test-coverage --test-coverage-include='src/**' 'test/**/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
