@@ -8,6 +8,7 @@ const FAMILY_LABELS: Readonly<Record<string, string>> = {
   'vllm-sr/d3-nano': 'd3 nano',
   'vllm-sr/d3-mini': 'd3 mini',
   'vllm-sr/d3-flash': 'd3 flash',
+  'jaredpalmer/kev-0.8b': 'Kev 0.8B',
 };
 
 /** Family id: verified base checkpoint, else the catalogue model's singleton id. */
