@@ -1,7 +1,7 @@
 {
-  "packages/core": "3.1.0",
-  "packages/gateway": "3.2.0",
-  "packages/paseo-plugin": "3.1.1",
-  "packages/pi-plugin": "1.0.1",
-  "plugins/local-decider": "3.0.0"
+  "packages/core": "3.2.0",
+  "packages/gateway": "3.3.0",
+  "packages/paseo-plugin": "3.2.0",
+  "packages/pi-plugin": "1.1.0",
+  "plugins/local-decider": "3.1.0"
 }

@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.2.0](https://github.com/ziptie-soft/local-decider/compare/core-v3.1.0...core-v3.2.0) (2026-11-27)
+
+
+### Features
+
+* **gateway:** route decisions to per-policy engine lanes ([27dc559](https://github.com/ziptie-soft/local-decider/commit/27dc55940fefa8d386ea09092b1bc0a7bdfdb7f2))
+* **gateway:** serve the API on a Unix socket ([f4871ca](https://github.com/ziptie-soft/local-decider/commit/f4871caffefc6812b49b968647a20fac9887fced))
+* **gateway:** set and report a model per decision over HTTP ([714c625](https://github.com/ziptie-soft/local-decider/commit/714c62557fb7ff2b147b5da2a449b78a1bf0ac76))
+
+
+### Bug Fixes
+
+* send real client versions to the gateway ([7ca14e1](https://github.com/ziptie-soft/local-decider/commit/7ca14e145b692e33d71435f087c76199a2a68703))
+
 ## [3.1.0](https://github.com/ziptie-soft/local-decider/compare/core-v3.0.0...core-v3.1.0) (2026-11-25)
 
 

@@ -1,5 +1,44 @@
 # Changelog
 
+## [3.3.0](https://github.com/ziptie-soft/local-decider/compare/local-decider-v3.2.0...local-decider-v3.3.0) (2026-11-27)
+
+
+### Features
+
+* **gateway:** accept a per-policy engine selection in config ([85d85ca](https://github.com/ziptie-soft/local-decider/commit/85d85cadf4464fd2ead7d9d5842b5acc1ffe95fa))
+* **gateway:** add a yes/no command-risk-binary policy variant ([58799d7](https://github.com/ziptie-soft/local-decider/commit/58799d739e52e1d86ae62ac14dd11a9be48a5e9c))
+* **gateway:** add gateway ensure and pid ownership ([c24c3ca](https://github.com/ziptie-soft/local-decider/commit/c24c3ca4f9630f9730ca11067ae67bee01496236))
+* **gateway:** add Kev 0.8B Q8_0 to the llama.cpp catalogue ([9940a81](https://github.com/ziptie-soft/local-decider/commit/9940a81ccac8495228e6df1e47ebf1e39fd539c8))
+* **gateway:** choose a model per decision from the CLI ([566e9c3](https://github.com/ziptie-soft/local-decider/commit/566e9c3717cc7340c5e467aad2cfe837c669768b))
+* **gateway:** label gateway and model processes ([585d255](https://github.com/ziptie-soft/local-decider/commit/585d25546644151ae01c4dbb4b6200233f4ab388))
+* **gateway:** let a managed engine be retired for good ([f0b3292](https://github.com/ziptie-soft/local-decider/commit/f0b3292281d7135668cfd7549edd05d7550a3489))
+* **gateway:** own per-policy lanes and switch engines without overlap ([309d4f7](https://github.com/ziptie-soft/local-decider/commit/309d4f72ba765195c02970809f0c5c7787d78cbb))
+* **gateway:** plan per-policy engine lanes within the memory budget ([3d3617d](https://github.com/ziptie-soft/local-decider/commit/3d3617d27dbfe39d00c8f6cb8feaf31158e71207))
+* **gateway:** record which model answered each decision ([3a82299](https://github.com/ziptie-soft/local-decider/commit/3a82299c1ceb8d979ffbc71a97d756c63912d87f))
+* **gateway:** route decisions to per-policy engine lanes ([27dc559](https://github.com/ziptie-soft/local-decider/commit/27dc55940fefa8d386ea09092b1bc0a7bdfdb7f2))
+* **gateway:** serve the API on a Unix socket ([f4871ca](https://github.com/ziptie-soft/local-decider/commit/f4871caffefc6812b49b968647a20fac9887fced))
+* **gateway:** set and report a model per decision over HTTP ([714c625](https://github.com/ziptie-soft/local-decider/commit/714c62557fb7ff2b147b5da2a449b78a1bf0ac76))
+
+
+### Bug Fixes
+
+* **gateway:** accept an auto-device strands model for one decision ([4740105](https://github.com/ziptie-soft/local-decider/commit/4740105dfd1fa35dee84e5602a606a1977ab769d))
+* **gateway:** bind the socket under a private umask ([2d760bf](https://github.com/ziptie-soft/local-decider/commit/2d760bfa328735102636cd1cd41814141679e879))
+* **gateway:** handle gateway startup and stop races ([157e668](https://github.com/ziptie-soft/local-decider/commit/157e66836199c6bbbd9c6dfb308b9d258af2e645))
+* **gateway:** keep displaced socket names within the socket path limit ([b7c7f43](https://github.com/ziptie-soft/local-decider/commit/b7c7f4389c478879f0723d758c76289fc03e0174))
+* **gateway:** key the model presence cache by the models asked about ([d6cd2a1](https://github.com/ziptie-soft/local-decider/commit/d6cd2a1fbd5f3f646c23eed90408362506bcb8a1))
+* **gateway:** make owner locks and runtime paths race safe ([cb2438e](https://github.com/ziptie-soft/local-decider/commit/cb2438ebc0a0b5d8b97674c040845df075fbf944))
+* **gateway:** name the Kev family Kev 0.8B ([e0b9af0](https://github.com/ziptie-soft/local-decider/commit/e0b9af0891b9fa8e94c079a6024a67a0af503d18))
+* **gateway:** suggest only recommended families as faster ([7ccd429](https://github.com/ziptie-soft/local-decider/commit/7ccd429c2a6f7d08fc6781109c288c1881478339))
+* **gateway:** suspend per-policy lanes during an engine benchmark ([4eab6c4](https://github.com/ziptie-soft/local-decider/commit/4eab6c4e2b510557d1229d5b572f81a5349855dd))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @ziptie-soft/local-decider-core bumped to 3.2.0
+
 ## [3.2.0](https://github.com/ziptie-soft/local-decider/compare/local-decider-v3.1.0...local-decider-v3.2.0) (2026-11-25)
 
 
