@@ -9,7 +9,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
-import type { PresetTargetSetting } from '../shared/policies.ts';
+import { splitPresetRows, type PresetTargetSetting } from '../shared/policies.ts';
 import {
   parsePresetModel,
   type ModelOption,
@@ -20,7 +20,7 @@ import { routingPresetRpc } from '../shared/rpc.ts';
 import { ChipPicker, type ChipOption } from './chip-picker.tsx';
 import { useQueryKey } from './host-scope.ts';
 import { Head, HeaderRow } from './table-parts.tsx';
-import type { Theme } from './ui.tsx';
+import { Disclosure, type Theme } from './ui.tsx';
 
 const PROFILE_PREFIX = 'profile:';
 const COLUMNS = { route: 120, effort: 120, mode: 140 } as const;
@@ -232,7 +232,6 @@ function PresetRow(props: RowProps): ReactNode {
         >
           {preset}
         </Text>
-        {used ? null : <Muted theme={theme} text="not in this policy" />}
       </Cell>
       <Cell>
         <ChipPicker
@@ -291,21 +290,36 @@ export function PresetTable({
   if (rows.length === 0) {
     return null;
   }
+  const { active, others, title } = splitPresetRows(rows);
+  const row = (name: string, used: boolean): ReactNode => (
+    <PresetRow
+      key={name}
+      theme={theme}
+      preset={name}
+      used={used}
+      target={presets[name]}
+      models={models}
+      thinking={thinking}
+      profiles={profiles}
+    />
+  );
   return (
     <View>
       <Header theme={theme} />
-      {rows.map(({ name, used }) => (
-        <PresetRow
-          key={name}
-          theme={theme}
-          preset={name}
-          used={used}
-          target={presets[name]}
-          models={models}
-          thinking={thinking}
-          profiles={profiles}
-        />
-      ))}
+      {active.map((name) => row(name, true))}
+      {title === null ? null : (
+        <View
+          style={{
+            paddingHorizontal: 12,
+            borderTopWidth: 1,
+            borderTopColor: theme.colors.border,
+          }}
+        >
+          <Disclosure theme={theme} title={title}>
+            <View style={{ marginHorizontal: -12 }}>{others.map((name) => row(name, false))}</View>
+          </Disclosure>
+        </View>
+      )}
     </View>
   );
 }

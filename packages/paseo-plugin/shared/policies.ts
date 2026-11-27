@@ -430,6 +430,27 @@ export function presetRows(
   ];
 }
 
+/**
+ * The preset rows split for display: the active policy's routes stay in the table, the mapped
+ * presets it never picks go into a collapsed section with its title (null when there are none).
+ */
+export function splitPresetRows(rows: readonly { name: string; used: boolean }[]): {
+  active: string[];
+  others: string[];
+  title: string | null;
+} {
+  const active = rows.filter((r) => r.used).map((r) => r.name);
+  const others = rows.filter((r) => !r.used).map((r) => r.name);
+  const n = others.length;
+  const title =
+    n === 0
+      ? null
+      : n === 1
+        ? '1 preset for a route not in this policy'
+        : `${String(n)} presets for routes not in this policy`;
+  return { active, others, title };
+}
+
 const presetTargetSchema = z.object({
   model: z.string().max(300).optional(),
   mode: z.string().max(200).optional(),
