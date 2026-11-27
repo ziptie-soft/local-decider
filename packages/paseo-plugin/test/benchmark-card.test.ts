@@ -75,7 +75,11 @@ const MODELS: Obj[] = [
 
 const NPU_OPTION = { engine: 'fastflowlm', model: 'd3:lite', device: null, backend: 'NPU' };
 
-function catalog(models: Obj[] = MODELS, active: Obj = {}): EngineCatalog {
+function catalog(
+  models: Obj[] = MODELS,
+  active: Obj = {},
+  engines: Record<string, Obj> = {},
+): EngineCatalog {
   return parseEngineCatalog({
     active: {
       engine: 'fastflowlm',
@@ -85,9 +89,14 @@ function catalog(models: Obj[] = MODELS, active: Obj = {}): EngineCatalog {
       ...active,
     },
     engines: [
-      { id: 'fastflowlm', label: 'FastFlowLM' },
-      { id: 'llama-vulkan', label: 'llama.cpp (Vulkan)' },
-      { id: 'strands-decider', label: 'Strands' },
+      { id: 'fastflowlm', label: 'FastFlowLM', installed: true, ...engines['fastflowlm'] },
+      { id: 'llama-vulkan', label: 'llama.cpp (Vulkan)', installed: true },
+      {
+        id: 'strands-decider',
+        label: 'Strands',
+        installed: true,
+        devices: ['auto', 'cpu', 'cuda'],
+      },
     ],
     models,
     recommendation: {
@@ -171,6 +180,27 @@ describe('benchmark card: idle', () => {
     assert.equal(row?.hint, 'Out of date — run again.');
     assert.equal(row?.typical, '520 ms');
     assert.equal(card.footer.at(-1), 'Results are from this machine only.');
+  });
+
+  it('does not ask to run again for out-of-date rows a run would skip', () => {
+    const stale = measured(520, 555, { freshness: 'stale' });
+    const removed = [
+      model('llama-vulkan', 'd3-lite-q8', ['f/lite', 'd3 lite'], Q4, [stale], {
+        installed: false,
+      }),
+      model('fastflowlm', 'd3:lite', ['f/lite', 'd3 lite'], NPU_FORMAT, [stale]),
+      model('llama-vulkan', 'd3-lite-q4', ['f/lite', 'd3 lite'], Q4, [measured(460, 500)]),
+    ];
+    const card = benchmarkCard(view(), catalog(removed, {}, { fastflowlm: { available: false } }));
+    assert.equal(card.primary.label, 'Run benchmark');
+    const hints = card.groups[0]?.rows.map((r) => [r.model, r.hint]);
+    assert.deepEqual(hints, [
+      ['d3:lite', "Out of date — FastFlowLM isn't available, so a run skips it."],
+      ['d3-lite-q8', 'Out of date — model not installed, so a run skips it.'],
+      ['d3-lite-q4', null],
+    ]);
+    const row = card.groups[0]?.rows.find((r) => r.model === 'd3-lite-q8');
+    assert.ok(row?.badges.some((b) => b.kind === 'stale'));
   });
 });
 
