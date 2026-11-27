@@ -6,18 +6,22 @@ import { useRpc } from '@getpaseo/plugin/client';
 import {
   SettingsAction,
   SettingsCard,
+  SettingsInput,
   SettingsSection,
   SettingsSelect,
 } from '@getpaseo/plugin/client/ui';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import type { ActiveEngine } from '../shared/engines.ts';
 import {
+  CUSTOM_IDLE,
   idleHint,
   idleOptions,
   idleValue,
   lifecycleLabel,
+  parseIdleMinutes,
   parseIdleValue,
+  type IdleChoice,
   type LifecycleChoice,
 } from '../shared/lifecycle.ts';
 import { engineLoadRpc, lifecycleRpc } from '../shared/rpc.ts';
@@ -63,28 +67,63 @@ function IdleRow({ active, action }: { active: ActiveEngine; action: Action }): 
   const setLifecycle = useRpc(lifecycleRpc);
   const choice: LifecycleChoice = active.lifecycle ?? 'lazy';
   const minutes = active.idleUnloadMinutes;
+  const [custom, setCustom] = useState(false);
+  const [draft, setDraft] = useState('');
+  const apply = (picked: IdleChoice): void => {
+    void action.run('lifecycle', async () =>
+      outcomeOf(
+        await setLifecycle(picked),
+        picked.lifecycle === 'lazy'
+          ? lifecycleLabel('lazy', picked.idleUnloadMinutes)
+          : 'Always loaded.',
+      ),
+    );
+  };
+  const typed = parseIdleMinutes(draft);
   return (
-    <SettingsSelect
-      label="Unload when idle"
-      hint={idleHint(choice)}
-      value={idleValue(choice, minutes)}
-      options={idleOptions(choice, minutes)}
-      disabled={action.busy !== null}
-      onValueChange={(next) => {
-        if (next === idleValue(choice, minutes)) {
-          return;
-        }
-        const picked = parseIdleValue(next);
-        void action.run('lifecycle', async () =>
-          outcomeOf(
-            await setLifecycle(picked),
-            picked.lifecycle === 'lazy'
-              ? lifecycleLabel('lazy', picked.idleUnloadMinutes)
-              : 'Always loaded.',
-          ),
-        );
-      }}
-    />
+    <>
+      <SettingsSelect
+        label="Unload when idle"
+        hint={idleHint(choice)}
+        value={custom ? CUSTOM_IDLE : idleValue(choice, minutes)}
+        options={idleOptions(choice, minutes)}
+        disabled={action.busy !== null}
+        onValueChange={(next) => {
+          if (next === CUSTOM_IDLE) {
+            setDraft(idleValue(choice, minutes) === 'never' ? '' : idleValue(choice, minutes));
+            setCustom(true);
+            return;
+          }
+          setCustom(false);
+          if (next !== idleValue(choice, minutes)) {
+            apply(parseIdleValue(next));
+          }
+        }}
+      />
+      {custom ? (
+        <>
+          <SettingsInput
+            label="Idle minutes"
+            hint="Whole minutes, 1 to 1440."
+            initialValue={draft}
+            placeholder="15"
+            onChangeText={setDraft}
+          />
+          <SettingsAction
+            label="Custom idle time"
+            hint={typed === null ? 'Type a number of minutes.' : lifecycleLabel('lazy', typed)}
+            actionLabel="Save"
+            disabled={action.busy !== null || typed === null}
+            onPress={() => {
+              if (typed !== null) {
+                setCustom(false);
+                apply({ lifecycle: 'lazy', idleUnloadMinutes: typed });
+              }
+            }}
+          />
+        </>
+      ) : null}
+    </>
   );
 }
 

@@ -121,6 +121,9 @@ const IDLE_PRESETS = [5, 15, 30, 60, 240] as const;
 /** The select value of "Never (stay loaded)": the lazy ones are their minutes. */
 const NEVER = 'never';
 
+/** The select value of "Custom…": it reveals a minutes field instead of setting anything. */
+export const CUSTOM_IDLE = 'custom';
+
 const PRESET_LABELS: Readonly<Record<number, string>> = {
   60: 'After 1 hour',
   240: 'After 4 hours',
@@ -158,7 +161,15 @@ export function idleOptions(lifecycle: LifecycleChoice, minutes: number | null):
   return [
     ...[...all].toSorted((a, b) => a - b).map((m) => ({ label: idleLabel(m), value: String(m) })),
     { label: 'Never (stay loaded)', value: NEVER },
+    { label: 'Custom…', value: CUSTOM_IDLE },
   ];
+}
+
+/** The minutes typed into the custom field, clamped to 1–1440; null when it is not a number. */
+export function parseIdleMinutes(text: string): number | null {
+  const trimmed = text.trim();
+  const minutes = trimmed === '' ? Number.NaN : Number(trimmed);
+  return Number.isFinite(minutes) ? clampIdleMinutes(minutes) : null;
 }
 
 /** The select value for the engine's lifecycle and idle minutes. */
