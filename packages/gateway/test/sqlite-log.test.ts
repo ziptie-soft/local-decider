@@ -95,7 +95,7 @@ describe('SqliteLog', () => {
           .all()
           .map((row) => row['name']);
         assert.ok(outcomeColumns.includes('claimed_source'));
-        assert.equal(pragma(file, 'user_version'), 6);
+        assert.equal(pragma(file, 'user_version'), 7);
       } finally {
         db.close();
       }
@@ -128,6 +128,21 @@ describe('SqliteLog', () => {
       assert.deepEqual(log.read(), [decision, verified, usage, unverifiedUsage]);
       assert.equal(log.findDecision(decision.decisionId)?.decisionId, decision.decisionId);
       assert.equal(log.findDecision('missing'), undefined);
+    } finally {
+      log.close();
+    }
+  });
+
+  it('round-trips every modelSource and reads an unset one as undefined', () => {
+    const log = tempLog();
+    try {
+      for (const source of ['default', 'policy', 'fallback', 'unavailable'] as const) {
+        log.append(makeShadowRecord(`ms-${source}`, { modelSource: source }));
+        assert.equal(log.findDecision(`ms-${source}`)?.modelSource, source);
+      }
+      log.append(makeShadowRecord('ms-none'));
+      assert.equal(log.findDecision('ms-none')?.modelSource, undefined);
+      assert.ok(!('modelSource' in (log.findDecision('ms-none') ?? {})));
     } finally {
       log.close();
     }
@@ -593,9 +608,9 @@ describe('SqliteLog', () => {
     new (sqlite().DatabaseSync)(file, { allowExtension: false }).close();
     assert.equal(pragma(file, 'user_version'), 0);
     SqliteLog.open(file).close();
-    assert.equal(pragma(file, 'user_version'), 6);
+    assert.equal(pragma(file, 'user_version'), 7);
     SqliteLog.open(file).close();
-    assert.equal(pragma(file, 'user_version'), 6);
+    assert.equal(pragma(file, 'user_version'), 7);
     const database = new (sqlite().DatabaseSync)(file, { allowExtension: false, readOnly: true });
     try {
       const names = database
@@ -695,10 +710,10 @@ describe('SqliteLog', () => {
       } finally {
         log.close();
       }
-      assert.equal(pragma(file, 'user_version'), 6);
+      assert.equal(pragma(file, 'user_version'), 7);
       const again = SqliteLog.open(file);
       again.close();
-      assert.equal(pragma(file, 'user_version'), 6);
+      assert.equal(pragma(file, 'user_version'), 7);
       const database = new (sqlite().DatabaseSync)(file, { allowExtension: false, readOnly: true });
       try {
         const columns = database

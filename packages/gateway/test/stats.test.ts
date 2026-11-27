@@ -46,6 +46,43 @@ function decision(
   };
 }
 
+const lines = (records: ShadowRecord[]): string =>
+  formatStats(computeStats(records))
+    .split('\n')
+    .filter((l) => l.includes('models:'))
+    .join('\n');
+
+describe('models line', () => {
+  it('is absent for one default model, rows without a source included', () => {
+    assert.equal(lines([decision('a', 'allow', 0.9), decision('b', 'allow', 0.9)]), '');
+    assert.equal(lines([decision('a', 'allow', 0.9, { modelSource: 'default' })]), '');
+  });
+
+  it('shows when a policy override or fallback answered', () => {
+    assert.match(
+      lines([decision('a', 'allow', 0.9, { modelSource: 'policy' })]),
+      /fake m \[policy\]=1/,
+    );
+    assert.match(
+      lines([decision('a', 'allow', 0.9, { modelSource: 'fallback' })]),
+      /\[fallback\]=1/,
+    );
+  });
+
+  it('shows when more than one model answered, and counts them', () => {
+    const records = [
+      decision('a', 'allow', 0.9),
+      decision('b', 'allow', 0.9),
+      decision('c', 'allow', 0.9, { model: 'other' }),
+    ];
+    assert.equal(lines(records), '  models: fake m=2, fake other=1');
+    assert.deepEqual(computeStats(records)[0]?.models, [
+      { engine: 'fake', model: 'm', source: 'default', count: 2 },
+      { engine: 'fake', model: 'other', source: 'default', count: 1 },
+    ]);
+  });
+});
+
 describe('computeStats', () => {
   it('gives the same result for a generator as for an array', () => {
     const records: LogRecord[] = [

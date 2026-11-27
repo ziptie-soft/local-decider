@@ -262,6 +262,33 @@ describe('agentView', () => {
     assert.equal(String(view.primary?.confidence).length <= 4, true);
   });
 
+  it('appends a modelSource suffix to the engine line, and none for default or unset', () => {
+    const engineLine = (extra: Parameters<typeof recorded>[2]): string =>
+      formatExplain(
+        explainDecision(recorded({ allow: 0.9, ask: 0.1 }, 'allow', extra), [], [], context),
+      )
+        .split('\n')
+        .find((line) => line.startsWith('engine ')) ?? '';
+    assert.match(engineLine({ modelSource: 'policy' }), /^engine \S+ \S+ \(own model\) · /);
+    assert.match(
+      engineLine({ modelSource: 'fallback' }),
+      / \(default model; own model unavailable\) · /,
+    );
+    assert.match(
+      engineLine({ modelSource: 'unavailable' }),
+      / \(skipped: own model unavailable\) · /,
+    );
+    assert.doesNotMatch(engineLine({ modelSource: 'default' }), /\(/);
+    assert.doesNotMatch(engineLine({}), /\(/);
+    const view = explainDecision(
+      recorded({ allow: 0.9, ask: 0.1 }, 'allow', { modelSource: 'policy' }),
+      [],
+      [],
+      context,
+    );
+    assert.equal(view.modelSource, 'policy');
+  });
+
   it('flags a failed open and a truncation', () => {
     const view = agentView(
       explainDecision(

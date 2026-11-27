@@ -40,6 +40,7 @@ function v4(): { dir: string; file: string } {
     'redactions',
     'rules_hash',
     'tool',
+    'model_source',
   ]) {
     db.exec(`ALTER TABLE decision DROP COLUMN ${column}`);
   }
@@ -60,7 +61,7 @@ describe('schema migration backup', () => {
   it('leaves one private backup at the old version', () => {
     const { dir, file } = v4();
     SqliteLog.open(file).close();
-    assert.equal(version(file), 6);
+    assert.equal(version(file), 7);
     const [name, ...rest] = backups(dir);
     assert.equal(rest.length, 0);
     assert.match(name ?? '', /^decider\.db\.pre-v4-\d{8}T\d{6}\.bak$/);
@@ -87,14 +88,42 @@ describe('schema migration backup', () => {
     writeFileSync(join(dir, 'decider.db.pre-v4-20261122T100000.bak'), 'in the way');
     const log = SqliteLog.open(file);
     try {
-      assert.equal(version(file), 6);
+      assert.equal(version(file), 7);
       assert.equal(log.findDecision('old-row')?.decisionId, 'old-row');
+      assert.equal(log.findDecision('old-row')?.modelSource, undefined);
       assert.match(
         String(errors.mock.calls[0]?.arguments[0]),
-        /could not back up .* before migrating schema v4 → v6 .*migrating anyway/,
+        /could not back up .* before migrating schema v4 → v7.*migrating anyway/,
       );
     } finally {
       log.close();
+    }
+  });
+
+  it('adds model_source from v6 and reads old rows as unrecorded', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ld-migrate-test-'));
+    const file = join(dir, 'decider.db');
+    const log = SqliteLog.open(file);
+    log.append(makeShadowRecord('old-row'));
+    log.close();
+    const db = openAt(file);
+    db.exec('ALTER TABLE decision DROP COLUMN model_source');
+    db.exec('PRAGMA user_version = 6');
+    db.close();
+    const migrated = SqliteLog.open(file);
+    try {
+      assert.equal(version(file), 7);
+      assert.equal(migrated.findDecision('old-row')?.modelSource, undefined);
+      migrated.append(makeShadowRecord('new-row', { modelSource: 'policy' }));
+      migrated.close();
+      const reopened = SqliteLog.open(file, { readOnly: true });
+      try {
+        assert.equal(reopened.findDecision('new-row')?.modelSource, 'policy');
+      } finally {
+        reopened.close();
+      }
+    } finally {
+      migrated.close();
     }
   });
 
@@ -119,7 +148,7 @@ describe('schema version checks', () => {
   it('refuses a newer schema for writers and readers, naming the remedy and file', () => {
     const file = atVersion(99);
     const message =
-      /newer than this build supports \(6\): upgrade local-decider or restore a backup/;
+      /newer than this build supports \(7\): upgrade local-decider or restore a backup/;
     assert.throws(() => SqliteLog.open(file), message);
     assert.throws(() => SqliteLog.open(file, { readOnly: true }), message);
     assert.throws(() => SqliteLog.open(file, { readOnly: true }), new RegExp(file));
@@ -129,7 +158,7 @@ describe('schema version checks', () => {
     const file = atVersion(4);
     assert.throws(
       () => SqliteLog.open(file, { readOnly: true }),
-      /version 4 is older than this build \(6\); start the gateway once to migrate/,
+      /version 4 is older than this build \(7\); start the gateway once to migrate/,
     );
     assert.equal(version(file), 4);
   });

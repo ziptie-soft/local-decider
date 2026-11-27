@@ -1,6 +1,7 @@
 import type {
   Answer,
   LogRecord,
+  ModelSource,
   OutcomeRecord,
   Policy,
   PolicyRule,
@@ -40,6 +41,13 @@ export interface Bucket {
   readonly accuracy: number;
 }
 
+export interface ModelUse {
+  readonly engine: string;
+  readonly model: string;
+  readonly source: ModelSource;
+  readonly count: number;
+}
+
 export interface PolicyStats {
   readonly policy: string;
   readonly decisions: number;
@@ -59,6 +67,8 @@ export interface PolicyStats {
   /** Mean multi-class Brier score over labelled decisions (0 = perfect, 2 = worst). */
   readonly brier?: number;
   readonly reliability: readonly Bucket[];
+  /** Which engine and model answered, and how it was chosen; rows without a source count as `default`. */
+  readonly models: readonly ModelUse[];
   /** Routing policies: tokens moved between models, priced when a price table is configured. */
   readonly savings?: Savings;
   /** Policies that allow: time spent on prompts they would have answered. */
@@ -269,6 +279,40 @@ function labelledDecisions(
   return labelled;
 }
 
+function modelUses(decisions: readonly ShadowRecord[]): ModelUse[] {
+  const uses = new Map<string, ModelUse>();
+  for (const d of decisions) {
+    const source = d.modelSource ?? 'default';
+    const key = JSON.stringify([d.engine, d.model, source]);
+    const seen = uses.get(key);
+    uses.set(
+      key,
+      seen === undefined
+        ? { engine: d.engine, model: d.model, source, count: 1 }
+        : { ...seen, count: seen.count + 1 },
+    );
+  }
+  return [...uses.values()].toSorted(
+    (a, b) =>
+      b.count - a.count ||
+      a.engine.localeCompare(b.engine) ||
+      a.model.localeCompare(b.model) ||
+      a.source.localeCompare(b.source),
+  );
+}
+
+/** A `models:` line only when several models answered, or one answered by other than the default. */
+function modelsLines(models: readonly ModelUse[]): string[] {
+  if (models.length <= 1 && models.every((m) => m.source === 'default')) {
+    return [];
+  }
+  const parts = models.map(
+    (m) =>
+      `${m.engine} ${m.model}${m.source === 'default' ? '' : ` [${m.source}]`}=${String(m.count)}`,
+  );
+  return [`  models: ${parts.join(', ')}`];
+}
+
 function policyStats(
   policy: string,
   policyDefinition: Policy | undefined,
@@ -300,6 +344,7 @@ function policyStats(
           brier: labelled.reduce((acc, l) => acc + brier(l.answer, l.outcome), 0) / labelled.length,
         }),
     reliability: reliability(labelled),
+    models: modelUses(decisions),
     ...(Object.keys(unverified).length === 0 ? {} : { unverifiedByClaimedSource: unverified }),
     ...(unverifiedTotals === undefined ? {} : { unverified: unverifiedTotals }),
     ...(hints.length === 0 ? {} : { calibrationHints: hints }),
@@ -463,6 +508,7 @@ export function formatStats(stats: readonly PolicyStats[]): string {
           .join(' ')}`,
       );
     }
+    lines.push(...modelsLines(s.models));
     for (const b of s.reliability) {
       lines.push(
         `    conf ${b.range}: n=${String(b.n)} mean conf ${b.meanConfidence.toFixed(2)} accuracy ${pct(b.accuracy)}`,
