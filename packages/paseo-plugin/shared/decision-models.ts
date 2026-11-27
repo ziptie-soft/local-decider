@@ -441,7 +441,7 @@ const OTHER_RULES: readonly Rule[] = [
     text: (f) =>
       f.own === undefined
         ? 'Not used while Mode is Off.'
-        : 'Not used while Mode is Off. An own model is not loaded while Off.',
+        : 'Not used while Mode is Off, and its own model stays unloaded.',
   },
   {
     id: 'same-as-default',

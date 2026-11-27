@@ -555,7 +555,7 @@ describe('modelRowHint', () => {
   it('9: says an own model is not loaded while Mode is Off, only when there is one', () => {
     assert.equal(
       hint(entry('command-risk'), 'off'),
-      'Not used while Mode is Off. An own model is not loaded while Off.',
+      'Not used while Mode is Off, and its own model stays unloaded.',
     );
     assert.equal(hint(null, 'off'), 'Not used while Mode is Off.');
   });
@@ -634,7 +634,7 @@ describe('modelRowHint', () => {
     assert.ok(hint(unknownOwn, 'shadow').startsWith('Not benchmarked'), '8 without Act');
     assert.equal(
       hint(unknownOwn, 'off'),
-      'Not used while Mode is Off. An own model is not loaded while Off.',
+      'Not used while Mode is Off, and its own model stays unloaded.',
       '9 over 8',
     );
   });
