@@ -450,9 +450,24 @@ function lifecycleFrom(config: GatewayConfig): LifecycleOptions {
   };
 }
 
-/** The settings a policy reload depends on. */
-function policiesKey(config: GatewayConfig): string {
-  return JSON.stringify([config.policies, config.policyDirs]);
+/** The per-policy settings without each policy's own engine selection. */
+function stripSelections(policies: GatewayConfig['policies']): GatewayConfig['policies'] {
+  return Object.fromEntries(
+    Object.entries(policies).map(([id, { selection: _selection, ...rest }]) => [id, rest]),
+  );
+}
+
+/** The settings a policy reload depends on; a model change does not reload policy files. */
+export function policiesKey(config: GatewayConfig): string {
+  return JSON.stringify([stripSelections(config.policies), config.policyDirs]);
+}
+
+/** What lane planning depends on: the sorted `[id, selection, mode]` triples. */
+export function policySelectionsKey(config: GatewayConfig): string {
+  const triples = Object.entries(config.policies)
+    .map(([id, settings]) => [id, settings.selection ?? null, settings.mode ?? null] as const)
+    .toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return JSON.stringify(triples);
 }
 
 function engineSettingsKey(config: GatewayConfig): string {

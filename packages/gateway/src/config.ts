@@ -78,8 +78,28 @@ const routingSchema = z
   .default({ presets: {} })
   .describe('How each harness applies `route:<preset>` decisions.');
 
+const policySelectionSchema = z
+  .strictObject({
+    engine: z.enum(SELECTABLE_IDS),
+    model: z.string().min(1).max(300),
+    device: z.enum(DEVICES).optional(),
+    fallback: z
+      .enum(['default', 'open'])
+      .default('default')
+      .describe(
+        'When this model is unavailable: `default` lets the default model answer; `open` skips the decision (policy default action, never enforced).',
+      ),
+  })
+  .describe(
+    "This decision's own engine and model. Absent: the default model (top-level selection).",
+  );
+
+// fallow-ignore-next-line unused-type -- the lane planner and routes take it (P2.6+).
+export type PolicySelection = z.infer<typeof policySelectionSchema>;
+
 const policySettingsSchema = z
   .strictObject({
+    selection: policySelectionSchema.optional(),
     mode: z
       .enum(MODES)
       .optional()

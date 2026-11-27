@@ -743,6 +743,39 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
+          "selection": {
+            "type": "object",
+            "properties": {
+              "engine": {
+                "type": "string",
+                "enum": [
+                  "strands-decider",
+                  "fastflowlm",
+                  "llama-vulkan",
+                  "openai-compatible",
+                  "lmstudio"
+                ]
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "device": {
+                "type": "string",
+                "enum": ["auto", "cpu", "mlx", "mps", "cuda"]
+              },
+              "fallback": {
+                "default": "default",
+                "description": "When this model is unavailable: `default` lets the default model answer; `open` skips the decision (policy default action, never enforced).",
+                "type": "string",
+                "enum": ["default", "open"]
+              }
+            },
+            "required": ["engine", "model"],
+            "additionalProperties": false,
+            "description": "This decision's own engine and model. Absent: the default model (top-level selection)."
+          },
           "mode": {
             "description": "off: never asked; shadow: logged only; act: adapters may enforce. Unset: the policy file decides.",
             "type": "string",
