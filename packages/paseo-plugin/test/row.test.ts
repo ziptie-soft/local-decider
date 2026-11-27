@@ -25,6 +25,7 @@ import {
   rowId,
   rowSummary,
   rowVisible,
+  showHint,
   toRowData,
   type DecisionRow,
 } from '../shared/row.ts';
@@ -504,6 +505,23 @@ describe('model source on a row', () => {
     assert.equal(
       rowSummary(placeholderRow('permission', 'r1', 'permission', 'pending')),
       'permission · deciding… · act',
+    );
+  });
+});
+
+describe('showHint', () => {
+  it('describes the selected option, then says /decide always shows', () => {
+    assert.equal(
+      showHint('all'),
+      "Every decision appears as a row in the agent's chat. /decide results always show.",
+    );
+    assert.equal(
+      showHint('notable'),
+      'Only decisions that changed something, need attention, failed, or were below 70% confidence in Shadow. /decide results always show.',
+    );
+    assert.equal(
+      showHint('off'),
+      'No rows. Decisions still run and the gateway logs them. /decide results always show.',
     );
   });
 });

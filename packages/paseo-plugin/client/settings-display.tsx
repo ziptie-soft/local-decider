@@ -13,6 +13,7 @@ import {
   SIDEBAR_POSITIONS,
   SIDEBAR_PRESS,
 } from '../shared/constants.ts';
+import { showHint } from '../shared/row.ts';
 import type { DeciderSettings } from '../shared/settings.ts';
 import { choices, type SectionProps } from './settings-common.ts';
 
@@ -77,7 +78,7 @@ export function RowsSection({ values, save }: SectionProps): ReactNode {
       <SettingsCard>
         <SettingsSelect
           label="Show"
-          hint="Notable: changed something, needs attention, failed, or was below 70% confidence in shadow. /decide results always show."
+          hint={showHint(rows.show)}
           value={rows.show}
           options={choices(ROW_VISIBILITY, {
             all: 'Every decision',
