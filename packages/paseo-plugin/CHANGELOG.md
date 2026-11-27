@@ -1,5 +1,69 @@
 # Changelog
 
+## [3.2.0](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v3.1.1...paseo-plugin-v3.2.0) (2026-11-27)
+
+
+### Features
+
+* **launcher:** add hardened gateway launcher ([232e6a0](https://github.com/ziptie-soft/local-decider/commit/232e6a0e57e265dfb30a145120bb2c9219095bff))
+* **launcher:** use the gateway socket from clients ([e7bd395](https://github.com/ziptie-soft/local-decider/commit/e7bd3953a673b1b90a953ff911494167b2e2a972))
+* link per-client setup guides when the gateway is missing ([a453b14](https://github.com/ziptie-soft/local-decider/commit/a453b1481a272b855048111a4f227e26ec1ae9e0))
+* **paseo-plugin:** add a Custom… idle time with a minutes field ([5809d08](https://github.com/ziptie-soft/local-decider/commit/5809d089605c3ec550a540d8e69b1d51a10a2de7))
+* **paseo-plugin:** add the gateway decision kinds and their mode copy ([2d5ee2b](https://github.com/ziptie-soft/local-decider/commit/2d5ee2b71d9656010a6f94ac76bc7ce4d99d0c1d))
+* **paseo-plugin:** add the per-decision model helpers ([b23c30d](https://github.com/ziptie-soft/local-decider/commit/b23c30d6ea9d37df5a34f45bc4cf7c4822355dd9))
+* **paseo-plugin:** cancel a stuck load, retry a failed one and clamp idle minutes ([308e3be](https://github.com/ziptie-soft/local-decider/commit/308e3bed07b0c110d36e9c05db22de3267b2fe4b))
+* **paseo-plugin:** caption the chips when the decisions table stacks ([4105674](https://github.com/ziptie-soft/local-decider/commit/41056740e7960d5ec7ca795547ae055a3c49d586))
+* **paseo-plugin:** choose a model for each decision ([ea3c5e9](https://github.com/ziptie-soft/local-decider/commit/ea3c5e990909d831b8e553a81ebf3fff233b0586))
+* **paseo-plugin:** compact the status card into three rows ([f3d56ca](https://github.com/ziptie-soft/local-decider/commit/f3d56ca14bd106da54578c3dcfffed32187d1add))
+* **paseo-plugin:** fold presets for routes outside the policy into a disclosure ([e88af97](https://github.com/ziptie-soft/local-decider/commit/e88af9764040962521fbc19b5d15de58904cdd27))
+* **paseo-plugin:** keep decision chips together and drop stale success lines ([e3f908f](https://github.com/ziptie-soft/local-decider/commit/e3f908f11ded738374c032e7087045e31f314181))
+* **paseo-plugin:** launch gateway from server ([08095e2](https://github.com/ziptie-soft/local-decider/commit/08095e2a15a4e6de17bea73285ff7f0e6289de93))
+* **paseo-plugin:** name the default model state like Status in the Models card ([81a24cd](https://github.com/ziptie-soft/local-decider/commit/81a24cdec6c40c2e95a8d2eb95ff2f492498b59c))
+* **paseo-plugin:** read and set the model per decision ([ab7dae6](https://github.com/ziptie-soft/local-decider/commit/ab7dae6f0848cde7b790704f7d1f313b1bc2bab8))
+* **paseo-plugin:** rename Engine and model to Models and label speed figures ([84e744d](https://github.com/ziptie-soft/local-decider/commit/84e744d818bc6547cd878efc23c9fe66805fc648))
+* **paseo-plugin:** show decisions as one table with mode and model pickers ([2f7ab1b](https://github.com/ziptie-soft/local-decider/commit/2f7ab1b77a3f7809806ccf6cae842d4e2acb1ae1))
+* **paseo-plugin:** show each decision's own model in quick status ([b4acfa5](https://github.com/ziptie-soft/local-decider/commit/b4acfa5b79a2725c53d1ba7c41984c938d34f07a))
+* **paseo-plugin:** show the auto-start outcome and install guide while the gateway is unreachable ([bd33a18](https://github.com/ziptie-soft/local-decider/commit/bd33a1858076d6ee6dc84cdf7545264cd821013c))
+* **paseo-plugin:** show the default model above the decisions ([1bd573a](https://github.com/ziptie-soft/local-decider/commit/1bd573a5897f11b0a2905832e89113aa3728046b))
+* **paseo-plugin:** show which model answered a decision ([90446c5](https://github.com/ziptie-soft/local-decider/commit/90446c51b64d6380ad3438c9bc07c10f2788bc6b))
+
+
+### Bug Fixes
+
+* **paseo-plugin:** align the preset columns by reserving the remove slot ([8e75c19](https://github.com/ziptie-soft/local-decider/commit/8e75c19d6381aa7f7851fa522ed616505bb46c48))
+* **paseo-plugin:** describe the selected chat row option in its hint ([bd82081](https://github.com/ziptie-soft/local-decider/commit/bd82081e1f8a288965df565254fec3b55ff59f27))
+* **paseo-plugin:** drop the Show results button next to the open results ([21d5d29](https://github.com/ziptie-soft/local-decider/commit/21d5d297bcd7fbae9e0192d43e58f0a06d804852))
+* **paseo-plugin:** give the own-model cap error a recovery step ([db84f5d](https://github.com/ziptie-soft/local-decider/commit/db84f5da53f5efde3f7a2774670c824495387095))
+* **paseo-plugin:** hide benchmark columns that have no measurements ([2c71f43](https://github.com/ziptie-soft/local-decider/commit/2c71f4322df32e200b17ad048c90c8ec0349fb9d))
+* **paseo-plugin:** keep the stacked decision controls inside the card ([e4bee64](https://github.com/ziptie-soft/local-decider/commit/e4bee644e59be5b1929fa9fbc325e82717ca88ea))
+* **paseo-plugin:** label speed figures by source, recent decisions or benchmark ([f4d0892](https://github.com/ziptie-soft/local-decider/commit/f4d08921a0ddb91fbe5564d19fb1680f3311a4f4))
+* **paseo-plugin:** label the unload button Unload all when decisions have their own model ([87f9ebe](https://github.com/ziptie-soft/local-decider/commit/87f9ebe082463dfa82364377bb91a67fb85208f1))
+* **paseo-plugin:** let the settings switch command-risk and show mode errors ([4cfd9d4](https://github.com/ziptie-soft/local-decider/commit/4cfd9d44e565ccfd01818e50aa8f7b1d7a0673e3))
+* **paseo-plugin:** name the default model once in the decisions table footer ([1829711](https://github.com/ziptie-soft/local-decider/commit/1829711d0d5aca4602af8e80331b8120db8860cb))
+* **paseo-plugin:** name the model and runtime the same way on Status, quick status and Details ([6b7cb08](https://github.com/ziptie-soft/local-decider/commit/6b7cb08c8e8ec27ec3917a43530639b208408d68))
+* **paseo-plugin:** name the model by its catalog label in the unavailable hint ([78722d4](https://github.com/ziptie-soft/local-decider/commit/78722d41da153afba0e899e97ae41f211e450dec))
+* **paseo-plugin:** read a model speed on its resolved device ([a25e36c](https://github.com/ziptie-soft/local-decider/commit/a25e36c82ff107ea408feb4888191f9e6899ebee))
+* **paseo-plugin:** retitle the Details load section and drop the repeated model id ([ff22e16](https://github.com/ziptie-soft/local-decider/commit/ff22e163ebc5104eee0dcf1e6050bbe4c2628d05))
+* **paseo-plugin:** say once that an off decision loads no model ([dd51d7e](https://github.com/ziptie-soft/local-decider/commit/dd51d7eaf899d026d63e024bf4d70efa215c9f2c))
+* **paseo-plugin:** say the gateway is unreachable in Models and Routing instead of guessing it is old ([f28c0b9](https://github.com/ziptie-soft/local-decider/commit/f28c0b9c8ab91b83397bdbafd78763f24f1fa328))
+* **paseo-plugin:** show a measured speed range when the device is unknown ([5c04850](https://github.com/ziptie-soft/local-decider/commit/5c0485047c447772244da1825b5f5ffc81e65ec7))
+* **paseo-plugin:** show the command-risk mode in quick status ([e159f68](https://github.com/ziptie-soft/local-decider/commit/e159f68c6acab6ca3363dc572d2bc774ffbd0704))
+* **paseo-plugin:** show the same typical decision time as the quick status ([047173a](https://github.com/ziptie-soft/local-decider/commit/047173a2f422665045beb07c2f482fa83f208f8e))
+* **paseo-plugin:** show the selected mode's effect under each decision row ([95e333f](https://github.com/ziptie-soft/local-decider/commit/95e333ff218cbef5dd91b3ae5184de0b380618aa))
+* **paseo-plugin:** shrink the stacked model chip to the card width ([6dcc8b7](https://github.com/ziptie-soft/local-decider/commit/6dcc8b779785d30ae06c9446a65ee80d8c62af67))
+* **paseo-plugin:** space the typical decision time in the gateway row ([0179cdd](https://github.com/ziptie-soft/local-decider/commit/0179cdd7d91818e5a0bb9aec65cc3fa74ea22108))
+* **paseo-plugin:** tag only the machine recommendation in the models list ([68b5b82](https://github.com/ziptie-soft/local-decider/commit/68b5b828f226021db8292645b7a2061c1e7c593a))
+* **paseo-plugin:** tidy chip layout, enlarge touch targets and lock mode chips while the gateway is unreachable ([b7a187f](https://github.com/ziptie-soft/local-decider/commit/b7a187f28e6a4153d13705f5841ec4909bec68ff))
+* **paseo-plugin:** title the Details model section Model ([2dd9965](https://github.com/ziptie-soft/local-decider/commit/2dd9965b3664be45f5bf9ca7da8f69ddf3bc5d7c))
+* send real client versions to the gateway ([7ca14e1](https://github.com/ziptie-soft/local-decider/commit/7ca14e145b692e33d71435f087c76199a2a68703))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * devDependencies
+    * @ziptie-soft/local-decider-core bumped to 3.2.0
+
 ## [3.1.1](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v3.1.0...paseo-plugin-v3.1.1) (2026-11-25)
 
 

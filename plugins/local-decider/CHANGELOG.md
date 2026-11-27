@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.0](https://github.com/ziptie-soft/local-decider/compare/agent-plugin-v3.0.0...agent-plugin-v3.1.0) (2026-11-27)
+
+
+### Features
+
+* **hooks:** start the gateway on session start ([5bc1966](https://github.com/ziptie-soft/local-decider/commit/5bc1966ed631e5ccb5269a8d7db07b6d6aaa2d9c))
+
 ## [3.0.0](https://github.com/ziptie-soft/local-decider/compare/agent-plugin-v2.1.1...agent-plugin-v3.0.0) (2026-11-22)
 
 
