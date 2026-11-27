@@ -14,8 +14,10 @@ import {
   modelRowHint,
   moreModelsCount,
   ownSelection,
+  popoverModel,
   popoverModelLabel,
   popoverModelLine,
+  popoverRowLabelWith,
   routingVariantHint,
   runningName,
   selectionValue,
@@ -1070,5 +1072,71 @@ describe('hint and policy kinds', () => {
       assert.equal(row.hint, 'Uses the default model.');
       assert.equal(row.disabled, false);
     }
+  });
+});
+
+describe('popoverModel', () => {
+  const engines = [live(), live({ policy: 'permission', state: 'failed', fallback: 'open' })];
+
+  it('reads the entry of the decision', () => {
+    assert.deepEqual(popoverModel(engines, 'command-risk'), {
+      line: { text: 'Own model: Fast', tone: 'muted' },
+      sentence: 'Own model: Fast.',
+    });
+    assert.equal(popoverModel(engines, 'permission').line?.tone, 'warning');
+  });
+
+  it('words both failed lines and their label sentences', () => {
+    const toDefault = popoverModel(
+      [live({ state: 'failed', fallback: 'default' })],
+      'command-risk',
+    );
+    assert.deepEqual(toDefault, {
+      line: { text: 'Own model failed · using default', tone: 'warning' },
+      sentence: 'Own model failed, using default.',
+    });
+    const open = popoverModel(engines, 'permission');
+    assert.deepEqual(open, {
+      line: { text: 'Own model failed · skipped', tone: 'warning' },
+      sentence: 'Own model failed, decisions skipped.',
+    });
+  });
+
+  it('shows a lazy model that has not loaded yet like a ready one', () => {
+    assert.deepEqual(popoverModel([live({ state: 'stopped' })], 'command-risk'), {
+      line: { text: 'Own model: Fast', tone: 'muted' },
+      sentence: 'Own model: Fast.',
+    });
+  });
+
+  it('does not show a variant with its own model on the row of its policy', () => {
+    const variant = [live({ policy: 'routing-budget' })];
+    assert.deepEqual(popoverModel(variant, 'routing'), { line: null, sentence: null });
+  });
+
+  it('gives every gateway policy with an entry a line', () => {
+    for (const policy of GATEWAY_POLICIES) {
+      const row = popoverModel([live({ policy })], policy);
+      assert.equal(row.line?.text, 'Own model: Fast', policy);
+      assert.equal(row.sentence, 'Own model: Fast.', policy);
+    }
+  });
+
+  it('says nothing for a decision on the default row or from an older gateway', () => {
+    const silent = { line: null, sentence: null };
+    assert.deepEqual(popoverModel(engines, 'routing'), silent);
+    assert.deepEqual(popoverModel([], 'command-risk'), silent);
+    assert.deepEqual(popoverModel(undefined, 'command-risk'), silent);
+  });
+
+  it('appends the sentence to the row label', () => {
+    assert.equal(
+      popoverRowLabelWith('Command risk: Act.', popoverModel(engines, 'command-risk')),
+      'Command risk: Act. Own model: Fast.',
+    );
+    assert.equal(
+      popoverRowLabelWith('Routing: Off.', popoverModel(engines, 'routing')),
+      'Routing: Off.',
+    );
   });
 });
