@@ -28,6 +28,22 @@ async function listen(server: Server, address: string | number, host?: string): 
   });
 }
 
+/** Leaves a socket file at the gateway path with nothing listening, as a crashed gateway does. */
+async function staleSocket(run: string): Promise<string> {
+  mkdirSync(run, { recursive: true, mode: 0o700 });
+  const path = gatewaySocketPath(run);
+  assert.ok(path !== null);
+  const stale = createServer();
+  servers.push(stale);
+  await listen(stale, path);
+  const displaced = join(run, 'stale.sock');
+  renameSync(path, displaced);
+  await close(stale);
+  renameSync(displaced, path);
+  assert.equal(existsSync(path), true);
+  return path;
+}
+
 async function close(server: Server): Promise<void> {
   if (!server.listening) return;
   await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -69,19 +85,28 @@ describe('gateway Unix socket', () => {
     assert.equal(existsSync(path), false);
   });
 
+  it('takes over a stale socket whose path is at the length limit', async () => {
+    // The takeover renames the stale socket and connects to the new name, which must fit
+    // sun_path too (104 bytes on macOS, where tmpdir paths are long).
+    const paths = trackPaths(tempPaths());
+    const prefix = Buffer.byteLength(join(paths.data, 'r', 'gateway.sock'));
+    const run = join(paths.data, 'r'.repeat(1 + 100 - prefix));
+    assert.equal(Buffer.byteLength(join(run, 'gateway.sock')), 100);
+    const path = await staleSocket(run);
+    const gateway = await startGateway({
+      config: testConfig(),
+      paths: { ...paths, run },
+      engine: new FakeEngine(),
+      env: {},
+    });
+    gateways.push(gateway);
+    const response = await socketFetch(path)('http://localhost/health');
+    assert.equal(response.status, 200);
+  });
+
   it('takes over a stale refused socket and refuses a live socket', async () => {
     const stalePaths = trackPaths(tempPaths());
-    mkdirSync(stalePaths.run, { recursive: true, mode: 0o700 });
-    const stalePath = gatewaySocketPath(stalePaths.run);
-    assert.ok(stalePath !== null);
-    const stale = createServer();
-    servers.push(stale);
-    await listen(stale, stalePath);
-    const displacedPath = join(stalePaths.run, 'stale.sock');
-    renameSync(stalePath, displacedPath);
-    await close(stale);
-    renameSync(displacedPath, stalePath);
-    assert.equal(existsSync(stalePath), true);
+    const stalePath = await staleSocket(stalePaths.run);
     const recovered = await startGateway({
       config: testConfig(),
       paths: stalePaths,

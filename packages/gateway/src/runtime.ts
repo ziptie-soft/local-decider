@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, lstatSync, renameSync, unlinkSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -318,8 +318,16 @@ function closeServer(server: Server): Promise<void> {
   return new Promise((resolve) => server.close(() => resolve()));
 }
 
+/**
+ * A sibling name for a socket being moved aside, no longer than `gateway.sock`: the takeover
+ * connects to it, so it must fit sun_path whenever the socket path does (104 bytes on macOS).
+ */
+function displacedSocketPath(path: string, tag: 's' | 'c'): string {
+  return join(dirname(path), `.${tag}${randomBytes(5).toString('hex')}`);
+}
+
 async function moveStaleSocket(path: string): Promise<boolean> {
-  const displaced = join(dirname(path), `.gateway.sock.stale-${randomUUID()}`);
+  const displaced = displacedSocketPath(path, 's');
   try {
     renameSync(path, displaced);
   } catch {
@@ -383,7 +391,7 @@ function removeOwnedSocket(
   identity: { readonly dev: number; readonly ino: number } | undefined,
 ): void {
   if (path === undefined || identity === undefined) return;
-  const displaced = join(dirname(path), `.gateway.sock.close-${randomUUID()}`);
+  const displaced = displacedSocketPath(path, 'c');
   try {
     renameSync(path, displaced);
   } catch {
