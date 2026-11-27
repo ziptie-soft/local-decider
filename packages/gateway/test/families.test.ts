@@ -47,6 +47,7 @@ describe('model families', () => {
 
   it('resolves family labels and catalogue-only membership', () => {
     assert.equal(familyLabel('vllm-sr/d3-lite'), 'd3 lite');
+    assert.equal(familyLabel('jaredpalmer/kev-0.8b'), 'Kev 0.8B');
     assert.equal(familyLabel('strands-decider:missing'), 'strands-decider:missing');
     assert.equal(familyOf('unknown', 'fastflowlm'), null);
     assert.equal(isKnownFamily('vllm-sr/d3-mini'), true);
