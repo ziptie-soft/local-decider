@@ -284,6 +284,32 @@ describe('automatic runtime fallback', () => {
     assert.equal(world.events.includes('start:strands-decider'), false);
   });
 
+  it('does not fall back from the default engine when a policy lane fails', async () => {
+    const { control, world, decide } = setup(
+      {
+        selection: { mode: 'auto' },
+        policies: {
+          permission: {
+            mode: 'act',
+            selection: { engine: 'llama-vulkan', model: 'd3-lite-q8_0' },
+          },
+        },
+      },
+      1000,
+      { capabilities: NPU_AND_VULKAN, llamaServer: true },
+    );
+    await settle(control);
+    const primary = active(control);
+    assert.equal(primary, 'fastflowlm');
+    assert.ok(world.events.includes('start:llama-vulkan'), 'the policy lane started');
+    world.fail('llama-vulkan');
+    await decide();
+    await settle(control);
+    assert.equal(active(control), primary);
+    assert.equal(await fallbackOf(control), undefined);
+    assert.equal(world.events.includes('stop:fastflowlm'), false);
+  });
+
   it('backs off exponentially and recovers without oscillating', async () => {
     const { control, world, decide } = setup({ selection: { mode: 'auto' } });
     await settle(control);
