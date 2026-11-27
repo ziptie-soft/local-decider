@@ -78,6 +78,10 @@ const routingSchema = z
   .default({ presets: {} })
   .describe('How each harness applies `route:<preset>` decisions.');
 
+/**
+ * A decision's own engine and model, `policies.<id>.selection`. It is applied on hot reload. How to
+ * choose one, its limits and its fallbacks: docs/models.md, "Switching the model for one decision".
+ */
 export const policySelectionSchema = z
   .strictObject({
     engine: z.enum(SELECTABLE_IDS),

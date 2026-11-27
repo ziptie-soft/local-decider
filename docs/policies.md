@@ -223,6 +223,30 @@ policies:
 decisions meet it and the Wilson 95% upper bound on the deny rate is at most 2%. It is advisory
 and never changes the config.
 
+## Model per decision
+
+A policy answers with the default model (the top-level `selection`) unless `config.yaml` gives it
+its own, under `policies.<id>.selection`:
+
+```yaml
+policies:
+  command-risk:
+    mode: shadow
+    selection: { engine: llama-vulkan, model: d3-lite-q8_0, fallback: default }
+```
+
+- Keys: `engine`, `model`, optional `device`, and `fallback` (`default`, the default, or `open`).
+  `fallback` says what happens while the model is unavailable: `default` lets the default model
+  answer, `open` skips the decision (the policy's default action, never enforced).
+- It is host-specific, so it lives in `config.yaml` and never in a policy file. A routing variant
+  answers with its own `selection` if it has one, then the base policy's.
+- `local-decider engine use <engine> <model> --policy <id> [--fallback default|open]` sets it and
+  `local-decider engine use default --policy <id>` removes it; so does the Model row of a decision
+  in Paseo. The gateway applies a hand edit within a second.
+- The thresholds above were set for the default model. Run a decision on its own model in `shadow`
+  first. Limits (three own models, memory, one FastFlowLM model) and the fixtures eval for one
+  decision: [models.md](models.md#6-switching-the-model-for-one-decision).
+
 ## Precedent
 
 Precedent lets the model's own lower-confidence allow count when you have allowed the exact same

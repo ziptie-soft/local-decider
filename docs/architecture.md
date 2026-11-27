@@ -324,6 +324,49 @@ how to add an engine or a model, and the macOS notes
 - **Switching.** `POST /v1/engine`, `local-decider engine install` and the Paseo settings page
   switch strands-decider, FastFlowLM and openai-compatible models at runtime; the choice is saved
   as `selection`. A remote or `engine.url` engine cannot switch (409).
+- **A model per decision.** A policy may have its own engine and model
+  (`policies.<id>.selection`, [models.md](models.md#6-switching-the-model-for-one-decision)). Each
+  distinct model runs in a **lane**: its own managed engine, queue, latency window and generation
+  counter. The default model is the lane `primary`; policies with the same own model share a lane,
+  and a policy whose own model equals the default's routes to `primary`. `EngineControl` owns every
+  engine and the `Decider` only routes and queues.
+  - *Routing.* A decision resolves its route to a lane once, and keeps that lane and its
+    generation. It re-checks them before building the state, after the engine is ready and inside
+    the queue callback; a lane retired or held in between fails open with `engine switching`. The
+    cache key already carries the lane's engine and model, so lane changes never clear the cache.
+  - *Transitions.* Every change runs one at a time: a default model change, a set, clear or hot
+    reload of an own model, a mode change, and a benchmark's start and end. A pure planner
+    (`policy-engines.ts`) places the policies in id order and returns the lanes to keep, start and
+    retire, and a route and status for each policy. A transition retires lanes first (block, bump
+    the generation, wait for the lane to go idle, drain, stop), so the old models stop before new
+    ones start and peak memory stays inside the budget. A change of the default model and a
+    benchmark hold all decisions. The saved selection is written when the transition starts, not
+    at its end, so the file watcher cannot re-apply an older one.
+  - *Caps.* At most 3 lanes (`MAX_POLICY_LANES`), one FastFlowLM model counting the default's,
+    and the memory of the default model and every local lane within 80% of the machine, with
+    decisions in mode `off` reserving theirs. The default model wins every conflict. The gateway
+    as a whole holds at most 16 waiting decisions (`GLOBAL_QUEUE_MAX`), besides each lane's own
+    queue limit.
+  - *Benchmark.* A benchmark holds all decisions, the default model's included, and they fail
+    open meanwhile. Every own-model lane is retired and reads unavailable ("benchmark running"), so
+    each route follows its policy's `fallback` (`suspendedRoutes` in `policy-lanes.ts`). Planning
+    happens once, in the transition that restores the selection, or in the user's change that
+    preempted it.
+  - *Failures.* Always fail open, and `modelSource` says which model answered:
+
+    | Situation | `fallback: default` | `fallback: open` |
+    |---|---|---|
+    | Own model unavailable (unknown, not installed, does not fit, engine unavailable, FastFlowLM conflict, over the lane cap, policy gone) or its engine `failed` | `primary` answers, `modelSource: fallback` | policy default action, never enforced, `modelSource: unavailable`, `error: policy model unavailable: <reason>` |
+    | One decision errors (timeout, 503, bad answer) | fails open, no reroute | same |
+    | Refused at admission (lane over its latency budget, or the global limit) | fails open with `engine busy (503)` | same |
+
+    `modelSource` is `default` (no own model), `policy` (the own model answered), `fallback` or
+    `unavailable`. It is absent on rows logged before the feature. An own model's failures never
+    reach the default model's failure counter, so automatic fallback concerns the default model
+    only.
+  - *Primary only.* `/v1/systemone`, `GET /models`, the pi classifier provider and the evals use
+    the default model. `POST /v1/engine/unload` and `/lifecycle` apply to every lane;
+    `/v1/engine/load` loads the default model.
 
 ## HTTP routes
 

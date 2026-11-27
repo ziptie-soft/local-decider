@@ -151,6 +151,17 @@ benchmark. Treat a "passes the gate" pick as the recommendation and an "unmeasur
 catalogue's default: run `mise run eval` before you let a policy `act` on it. Kev is never picked
 automatically.
 
+**Per decision kind.** The table in section 3 is the per-kind recommendation, under the same rule:
+a model is recommended for a kind only when it passes that kind's gate. Today that is the Strands
+2B reference for every kind (`command-risk`, `permission`, `routing`, `turn-outcome` and
+`command-risk-binary`). Automatic selection also picks it as the default model on the CUDA, ROCm,
+Apple Silicon (MLX, MPS) and CPU rungs of the ladder; the NPU and Vulkan rungs pick a different
+default ([engines.md](engines.md#5a-automatic-selection-and-fallback)). No other model is
+recommended for any kind, so an own model for one decision (section 6) is an experiment, not a
+recommendation: start it in `shadow` and read `local-decider stats` before it acts. When a
+`mise run eval` run scores another model above the floors for a kind, that cell of section 3 and
+this paragraph change; speed alone never changes them.
+
 **Budgets.** A caller passes a timeout and the gateway decides within that minus 500 ms:
 
 | Caller | Budget |
@@ -181,3 +192,132 @@ size a policy builds.
 - **Laya:** skipped. There is no published GGUF to pin.
 - **Julia-1:** skipped. Its author would not use it, because it prompts on every command.
 - **Jev:** skipped. It is a hosted model, not local.
+
+## 6. Switching the model for one decision
+
+By default one model, the **default model** (`selection` in `config.yaml`, or what automatic
+selection picked), answers every decision. A decision can have its own engine and model instead,
+for example a small fast one for `command-risk` while the default model keeps the rest. A decision
+with no model of its own behaves exactly as before.
+
+**Set it.** Three ways, all saved to the same place:
+
+```sh
+local-decider engine use llama-vulkan d3-lite-q8_0 --policy command-risk
+local-decider engine use lmstudio qwen3-4b-instruct-2507 --policy turn-outcome --fallback open
+local-decider engine use default --policy command-risk      # back to the default model
+```
+
+```yaml
+policies:
+  command-risk:
+    mode: shadow
+    selection: { engine: llama-vulkan, model: d3-lite-q8_0 }   # fallback: default
+  turn-outcome:
+    selection: { engine: lmstudio, model: qwen3-4b-instruct-2507, fallback: open }
+```
+
+In Paseo, each card under **Decisions** has a **Model** row next to Mode. It lists the models that
+are installed, fit this machine and have an available engine, fastest first, and **Default model**
+first of all. The **Default model** card above the decisions shows what that is, and links here.
+Choosing **Default model** clears the decision's own model.
+
+- `engine`, `model` and `device` are as in `engine use` ([engines.md](engines.md)); `device` is
+  optional. `systemone-remote` cannot be an own model. The engine's options (`url`, `tokenEnv`,
+  `ctxSize` and so on) come from the shared `engines.<id>` block, so two decisions on one engine
+  share its connection settings.
+- `engine use … --policy` checks the choice before it saves it, so a model that is unknown, not
+  downloaded, does not fit or has no available engine is refused and nothing is saved
+  (`POST /v1/policies/:id/selection`, [architecture.md](architecture.md#http-routes)). Editing
+  `config.yaml` is lenient instead: the gateway applies it within a second (no restart), and a
+  choice that cannot run becomes unavailable with a reason rather than stopping the gateway.
+- A routing variant (`variantOf`) answers with its own `selection` if it has one, then its base
+  policy's, then the default model.
+- A decision whose own model is the very model the default uses answers as the default model. It
+  stays on that model if the default model changes later.
+- Setting a model never changes the mode, and the mode never changes the model.
+
+**When it is unavailable.** The model is not installed, the engine is not available, it does not
+fit, it would break one of the limits below, a benchmark is running, or the engine gave up after
+its restarts. `fallback` decides what happens meanwhile:
+
+| `fallback` | What answers |
+|---|---|
+| `default` (the default) | The default model answers, and the decision records `modelSource: fallback` |
+| `open` | Nobody answers: the policy's default action, never enforced, `modelSource: unavailable` |
+
+Both fail open: an own model never turns an unavailable model into a block. A single failed
+decision (timeout, a 503, a bad answer) fails open for that decision alone and is not rerouted to
+the default model. An own model's failures never trigger automatic fallback of the default model
+([engines.md](engines.md#5a-automatic-selection-and-fallback)).
+
+**Memory and limits.** The default model plus every own model that runs locally must fit in 80% of
+the machine's memory. The default model comes first and always wins: an own model that no longer
+fits next to it becomes unavailable, and the config stays as it is. The reason reads "does not fit
+with the default model" or "needs ~N GB with the other models loaded; this machine allows ~M
+GB". An own model on an `openai-compatible` or `lmstudio` server takes no memory here.
+A decision whose mode is `off` loads nothing, but its model keeps its memory reserved, so
+turning the decision on cannot overflow the machine.
+
+- At most **3 different own models** run at once (`MAX_POLICY_LANES`). Decisions that choose the
+  same model share one, a model equal to the default model takes none, and neither does a decision
+  in mode `off`. A fourth is refused: "too many decisions with their own model (max 3)". Turning
+  an `off` decision on can hit this limit.
+- FastFlowLM serves one model on the NPU, so the default model and every own model together use
+  at most one FastFlowLM model: "fastflowlm serves one model at a time; … already uses …".
+- Own models follow the engine lifecycle (`lazy`: load on the first decision and unload when idle;
+  `eager`: load at once, except for a decision in mode `off`). A cold model's load is not part of
+  the decision's budget, so the first decision after a load may fail open.
+- Each own model has its own queue and latency budget, but the gateway as a whole holds about 16
+  waiting decisions. A decision refused for either reason fails open with `engine busy (503)`, like
+  one for a busy default model.
+- Answers are cached per engine and model, so a decision never reads another model's answers.
+- A benchmark holds all decisions, the default model's included, and they fail open while it runs.
+  Every own model is stopped and reads unavailable ("benchmark running"), so its decision follows
+  its `fallback`; own models load again when the benchmark ends. Setting one during a benchmark
+  is refused with 409.
+- A downloaded model that a decision uses cannot be removed: clear it first.
+
+**Thresholds were set for the default model.** The `command-risk`, `permission` and other
+thresholds were tuned against the reference model's probabilities, and a different model's
+probabilities have a different shape, so the same thresholds can ask too often, or too rarely. Run
+a decision on its own model in `shadow` first and read `local-decider stats` before you let it
+`act`. Paseo says this when you set a model on a decision in `act`. Models that nobody has calibrated
+(the OpenAI-compatible and LM Studio ones) need this most. The deterministic guard in the Claude
+Code and Codex hooks does not depend on any model.
+
+**See which model answered.**
+
+- `local-decider engine list` ends with a `Decisions:` block, one line per decision that has its
+  own model (`command-risk: llama-vulkan d3-lite-q8_0 (own model, ready)`), or "Decisions: all use
+  the default model". An unavailable one reads `unavailable: <reason> → default model` (or
+  `→ skipped`), one in mode `off` reads `(off, not loaded)`, and one whose model is the default
+  model reads `(same as the default model)`.
+- `local-decider explain <id>` names the engine and model of the decision, followed by `(own
+  model)`, `(default model; own model unavailable)` or `(skipped: own model unavailable)`.
+  `modelSource` in the response and the decision log says the same: `default`, `policy`, `fallback`
+  or `unavailable`.
+- `local-decider stats` adds a `models:` line for a decision when more than one model answered it,
+  or when an own model or a fallback answered.
+- Paseo's decision rows say "own model", "default (own model unavailable)" or "skipped: own model
+  unavailable"; the quick-status popover adds an "Own model: …" line under a decision that has one;
+  a Model row badge says "loading", "unavailable" or "too slow" (typical latency above the hooks'
+  1 s budget, so Claude Code, Codex and pi skip most of its decisions).
+- `GET /v1/policies` lists each decision's `selection`, `selectionStatus` and `modelSource`, and
+  `GET /v1/engines` and `/health` list the own models and their state.
+
+**Evaluate a model for one decision kind.** `mise run eval` scores the model behind
+`/v1/systemone`, which stays the default model, so make the candidate the default model for the
+run, then restore the old one:
+
+```sh
+local-decider engine use llama-vulkan d3-lite-q8_0
+mise run eval -- --policy command-risk --out /tmp/eval-d3-lite
+local-decider engine use strands-decider StrandsAgents/strands-decider-2B-qwen3.5-v1-2610
+```
+
+Note your `selection` in `config.yaml` first, because `engine use` overwrites it. The run exits 1
+when the policy falls below the per-class floors in `policies/fixtures/gate.json`. A model that
+passes can then be tried as that decision's own model, in `shadow`. The recorded fixtures and
+`mise run eval:record` are not affected by an own model: state building, redaction, truncation, the
+criteria and the questions are the same on every lane.

@@ -387,7 +387,8 @@ Latency of one 4-option question, measured at the client (p50):
 - [Install and try it](docs/install.md)
 - [Architecture](docs/architecture.md)
 - [Engines](docs/engines.md): the engine table, adding an engine or model, macOS notes
-- [Models](docs/models.md): every decider model, what it is good at, and the recommended defaults
+- [Models](docs/models.md): every decider model, what it is good at, the recommended defaults, and
+  how to give one decision its own model
 - [Policies](docs/policies.md): schema, thresholds, precedent, variants, testing
 - [Threat model and known limits](docs/security.md)
 - [Supervised child agents](docs/supervised-subagents.md)
