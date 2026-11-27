@@ -116,8 +116,7 @@ function writeUnique(path: string, content: string): string {
   return temp;
 }
 
-function isOwnerLive(owner: OwnerRecord | undefined, deps: OwnerLockDeps): boolean {
-  if (owner === undefined) return false;
+function isOwnerLive(owner: OwnerRecord, deps: OwnerLockDeps): boolean {
   if (!(deps.isAlive ?? pidAlive)(owner.pid)) return false;
   if (owner.start === null) return true;
   const current = (deps.startToken ?? processStartToken)(owner.pid);
