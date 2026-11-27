@@ -350,13 +350,24 @@ interface Rule {
   readonly text: (f: Facts) => string;
 }
 
+/** The gateway's reason with the model's raw id replaced by its catalog label when it is listed. */
+function reasonText(f: Facts, reason: string): string {
+  const own = f.own;
+  const label = own === undefined ? undefined : findModel(f.catalog, own.engine, own.model)?.label;
+  return own === undefined || label === undefined ? reason : reason.replaceAll(own.model, label);
+}
+
 function unavailableLead(f: Facts): string {
-  return f.entry?.reason === undefined ? 'Unavailable' : `Unavailable: ${sentence(f.entry.reason)}`;
+  return f.entry?.reason === undefined
+    ? 'Unavailable'
+    : `Unavailable: ${sentence(reasonText(f, f.entry.reason))}`;
 }
 
 /** Where to fix a model that is not downloaded; nothing for any other reason. */
 function downloadHint(f: Facts): string {
-  return f.entry?.reason?.includes('not downloaded') === true ? ' Download it under Models.' : '';
+  return f.entry?.reason?.includes('not downloaded') === true
+    ? ' Download it under Models › All engines and models.'
+    : '';
 }
 
 function tooSlowText(f: Facts): string {

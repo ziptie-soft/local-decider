@@ -632,11 +632,11 @@ describe('modelRowHint', () => {
     const row = {
       ...entry('command-risk'),
       status: 'unavailable',
-      reason: 'd3-lite is not downloaded yet.',
+      reason: 'fast is not downloaded yet.',
     } as const;
     assert.equal(
       hint(row),
-      'Unavailable: d3-lite is not downloaded yet. The default model answers instead. Download it under Models.',
+      'Unavailable: Fast is not downloaded yet. The default model answers instead. Download it under Models › All engines and models.',
     );
   });
 
