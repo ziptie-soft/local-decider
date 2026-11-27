@@ -21,3 +21,6 @@ export const STACK_BELOW = TABLE.padding * 2 + TABLE.description + TABLE.gap + C
 export function tableStacked(width: number): boolean {
   return width < STACK_BELOW;
 }
+
+/** The column titles: the header row shows them, and the stacked layout repeats them as captions. */
+export const COLUMN_LABELS = { decision: 'Decision', mode: 'Mode', model: 'Model' } as const;
