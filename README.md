@@ -215,9 +215,9 @@ Quick status from the sidebar: engine state, latency and each policy's mode.
 
 ![Quick-status popover](docs/assets/screenshots/quick-status.png)
 
-Engine and model picker with download sizes, memory, latency and the FastFlowLM NPU check.
+Models section: an engine and model picker with download sizes, memory, latency and the FastFlowLM NPU check.
 
-![Engine and model settings](docs/assets/screenshots/settings-models.png)
+![Models settings](docs/assets/screenshots/settings-models.png)
 
 Policy modes, how decisions show in chat, and the sidebar item.
 

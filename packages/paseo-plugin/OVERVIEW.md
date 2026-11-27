@@ -88,7 +88,7 @@ checks still run, since Paseo has no equivalent.
   agent profile or a model, with effort (thinking level) and mode, a reload for policy files, and
   "Write with an agent", which starts an agent that interviews you and writes a routing policy
   for your models.
-- **Engine and model** has three blocks, top to bottom. Everything comes from the gateway, so a
+- **Models** has three blocks, top to bottom. Everything comes from the gateway, so a
   gateway that knows another engine or model shows it here without a plugin update.
   - **Recommended for this machine:** the model family you are using, on the runtime that is
     fastest here, in plain words (for example "d3 lite on NPU"), with its typical and long
@@ -100,8 +100,9 @@ checks still run, since Paseo has no equivalent.
     runtime while Automatic is on says "(turns off automatic)" and offers to turn it back on.
   - **Benchmark this machine:** times every installed model on every runtime, one at a time, with
     short, typical and long prompts. See Benchmarks below.
-  - **Advanced: engine, device and model** (collapsed): the engine, device and model pickers with
-    download size, memory and a latency hint, Download with progress, Use, the connection form
+  - **All engines and models** (collapsed): the engine, device and model pickers with
+    download size, memory and speed (measured here, or the catalog's figure labelled as a
+    reference), Download with progress, Use, the connection form
     for OpenAI-compatible servers, and the engine check (FastFlowLM) with a Re-validate button.
     A model too big for the machine is disabled. An engine this machine cannot run is hidden
     unless it is the active one, and an uninstalled engine says how to install it; the plugin

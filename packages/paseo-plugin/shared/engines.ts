@@ -27,6 +27,7 @@ import {
   parseRecommendation,
   parseSelectionMode,
 } from './recommendation.ts';
+import { ms } from './recommended-card.ts';
 
 const text = z.string().nullable();
 
@@ -434,7 +435,24 @@ export function gb(value: number): string {
   return `${Number.isInteger(value) ? String(value) : value.toFixed(1)} GB`;
 }
 
-function facts(model: EngineModel): string[] {
+/** A fresh measurement on this machine: the one for `device`, else a device-less one, else any. */
+function measuredHere(model: EngineModel, device: string): number | null {
+  const fresh = model.measured.filter((m) => m.freshness !== 'stale' && m.typical !== null);
+  const entry =
+    fresh.find((m) => m.device === device) ?? fresh.find((m) => m.device === null) ?? fresh[0];
+  return entry?.typical?.p50Ms ?? null;
+}
+
+/** `~{ms} here` for a fresh measurement, else the catalog's figure labelled as a reference. */
+function speedFact(model: EngineModel, device: string): string | null {
+  const p50 = measuredHere(model, device);
+  if (p50 !== null) {
+    return `~${ms(p50)} here`;
+  }
+  return model.latencyHint === null ? null : `reference: ${model.latencyHint}`;
+}
+
+function facts(model: EngineModel, device: string): string[] {
   const parts: string[] = [];
   if (model.downloadGb !== null) {
     parts.push(`${gb(model.downloadGb)} download`);
@@ -442,8 +460,9 @@ function facts(model: EngineModel): string[] {
   if (model.memoryGb !== null) {
     parts.push(`${gb(model.memoryGb)} memory`);
   }
-  if (model.latencyHint !== null) {
-    parts.push(model.latencyHint);
+  const speed = speedFact(model, device);
+  if (speed !== null) {
+    parts.push(speed);
   }
   return parts;
 }
@@ -511,7 +530,7 @@ export function modelRowView(
   const note = stateNote(state, model, options.totalMemoryGb);
   return {
     label: model.recommended ? `${model.label} · Recommended` : model.label,
-    hint: [...facts(model), ...(note === null ? [] : [note])].join(' · '),
+    hint: [...facts(model, options.device), ...(note === null ? [] : [note])].join(' · '),
     ...actionFor(state, model, options.device),
   };
 }

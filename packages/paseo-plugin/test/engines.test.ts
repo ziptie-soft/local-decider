@@ -505,10 +505,28 @@ describe('model row state', () => {
       modelRowView(m, modelRowState(m, c), options);
     assert.deepEqual(view(model({ installed: false, recommended: true })), {
       label: 'd3 mini · Recommended',
-      hint: '2 GB download · 4 GB memory · ~0.5 s',
+      hint: '2 GB download · 4 GB memory · reference: ~0.5 s',
       actionLabel: 'Download (2 GB)',
       action: 'download',
     });
+    const here = (device: string | null, freshness: 'fresh' | 'stale', p50: number) => ({
+      device,
+      typical: { p50Ms: p50, p95Ms: p50 * 2 },
+      long: null,
+      sizes: [],
+      runs: 5,
+      provisional: false,
+      measuredAt: null,
+      freshness,
+      staleReason: null,
+      failed: null,
+    });
+    // A fresh measurement on this machine replaces the catalog figure; a stale one does not.
+    assert.match(view(model({ measured: [here(null, 'fresh', 480)] })).hint, /~480 ms here$/);
+    assert.match(view(model({ measured: [here('auto', 'fresh', 480)] })).hint, /~480 ms here$/);
+    assert.doesNotMatch(view(model({ measured: [here(null, 'fresh', 480)] })).hint, /reference/);
+    assert.match(view(model({ measured: [here(null, 'stale', 480)] })).hint, /reference: ~0.5 s$/);
+    assert.doesNotMatch(view(model({ latencyHint: null })).hint, /here|reference/);
     assert.equal(
       view(model({ downloadGb: 4.8, installed: false })).actionLabel,
       'Download (4.8 GB)',

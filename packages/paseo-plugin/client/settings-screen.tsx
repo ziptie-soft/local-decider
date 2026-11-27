@@ -80,7 +80,7 @@ function Message({ theme, text }: { theme: Theme; text: string }): ReactNode {
 
 /**
  * Sections run from what a user is most likely to change to what they rarely touch: health, how
- * each decision acts and the model that answers by default (the Engine and model section changes
+ * each decision acts and the model that answers by default (the Models section changes
  * what Decisions shows, so it sits directly below), routing, how decisions show up, then connection
  * details.
  */

@@ -16,6 +16,7 @@ import { View } from 'react-native';
 import type { BenchmarkView } from '../shared/benchmark.ts';
 import type { DiscoveredServer, Seed } from '../shared/connection.ts';
 import { MODELS_DOCS_URL } from '../shared/constants.ts';
+import { allModelsTitle } from '../shared/decision-models.ts';
 import {
   canRemoveModel,
   deviceOptions,
@@ -459,7 +460,7 @@ function EnginePicker({
       />
       <Disclosure
         theme={theme}
-        title="Advanced: engine, device and model"
+        title={allModelsTitle(catalog)}
         expanded={advanced}
         onExpandedChange={setAdvanced}
       >
@@ -525,7 +526,7 @@ export function EngineSection({
   const reachable = data?.reachable === true;
   return (
     <SettingsSection
-      title="Engine and model"
+      title="Models"
       info="Automatic picks the fastest engine this computer supports and switches to the next one if it fails. Manual keeps the engine you choose and never changes it on its own."
     >
       {reachable ? (
