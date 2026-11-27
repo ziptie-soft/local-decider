@@ -38,6 +38,8 @@ import {
   parseLifecycle,
   parseMode,
   parsePathUpdate,
+  policiesKey,
+  policySelectionsKey,
   parseSelection,
   parseThresholds,
 } from '../src/engine-control.ts';
@@ -2457,5 +2459,31 @@ describe('EngineControl benchmark status', () => {
     assert.equal('version' in (engines.find((entry) => entry.id === 'llama-vulkan') ?? {}), true);
     const active = status['active'] as { preferredFamily: string | null };
     assert.equal(typeof active.preferredFamily, 'string');
+  });
+});
+
+describe('policy selection keys', () => {
+  const override = { engine: 'llama-vulkan', model: 'd3-lite-q8_0' };
+
+  it('policiesKey ignores a selection but not other policy settings', () => {
+    const plain = parseConfig({ policies: { 'command-risk': { mode: 'act' } } });
+    const chosen = parseConfig({
+      policies: { 'command-risk': { mode: 'act', selection: override } },
+    });
+    const other = parseConfig({ policies: { 'command-risk': { mode: 'shadow' } } });
+    assert.equal(policiesKey(plain), policiesKey(chosen));
+    assert.notEqual(policiesKey(plain), policiesKey(other));
+  });
+
+  it('policySelectionsKey changes on a selection or mode change, not on key order', () => {
+    const base = parseConfig({ policies: { b: { mode: 'act' }, a: { selection: override } } });
+    const reordered = parseConfig({ policies: { a: { selection: override }, b: { mode: 'act' } } });
+    const model = parseConfig({
+      policies: { b: { mode: 'act' }, a: { selection: { ...override, model: 'x' } } },
+    });
+    const mode = parseConfig({ policies: { b: { mode: 'off' }, a: { selection: override } } });
+    assert.equal(policySelectionsKey(base), policySelectionsKey(reordered));
+    assert.notEqual(policySelectionsKey(base), policySelectionsKey(model));
+    assert.notEqual(policySelectionsKey(base), policySelectionsKey(mode));
   });
 });

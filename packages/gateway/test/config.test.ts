@@ -9,6 +9,10 @@ import { loadPolicies } from '../src/policies.ts';
 import { launchdPlist, systemdUnit } from '../src/service.ts';
 import { tempPaths } from './helpers.ts';
 
+function rejectsSelection(selection: object): void {
+  assert.throws(() => parseConfig({ policies: { p: { selection } } }), /invalid config/);
+}
+
 describe('config', () => {
   it('defaults to loopback and the 2B strands-decider model', () => {
     const config = parseConfig(undefined);
@@ -30,6 +34,36 @@ describe('config', () => {
       () => parseConfig({ selection: { mode: 'auto', family: 'x'.repeat(401) } }),
       /invalid config/,
     );
+  });
+
+  it('parses a per-policy selection and defaults its fallback', () => {
+    const config = parseConfig({
+      policies: {
+        'command-risk': { selection: { engine: 'llama-vulkan', model: 'd3-lite-q8_0' } },
+        'turn-outcome': {
+          selection: { engine: 'lmstudio', model: 'qwen3-4b', device: 'cpu', fallback: 'open' },
+        },
+      },
+    });
+    assert.deepEqual(config.policies['command-risk']?.selection, {
+      engine: 'llama-vulkan',
+      model: 'd3-lite-q8_0',
+      fallback: 'default',
+    });
+    assert.equal(config.policies['turn-outcome']?.selection?.fallback, 'open');
+    assert.equal(
+      parseConfig({ policies: { routing: {} } }).policies['routing']?.selection,
+      undefined,
+    );
+  });
+
+  it('rejects a per-policy selection with mode, family or a bad engine', () => {
+    rejectsSelection({ engine: 'llama-vulkan', model: 'm', mode: 'manual' });
+    rejectsSelection({ engine: 'llama-vulkan', model: 'm', family: 'f' });
+    rejectsSelection({ engine: 'nope', model: 'm' });
+    rejectsSelection({ engine: 'systemone-remote', model: 'm' });
+    rejectsSelection({ engine: 'llama-vulkan' });
+    rejectsSelection({ engine: 'llama-vulkan', model: 'm', fallback: 'x' });
   });
 
   it('parses per-engine options with descriptor defaults', () => {
