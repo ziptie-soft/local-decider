@@ -651,6 +651,28 @@ describe('Decider', () => {
     assert.notEqual(result.error, undefined);
   });
 
+  it('fails a call open when the engine is replaced during a cold load', async () => {
+    const engine = Object.assign(new FakeEngine({ allow: 1 }), {
+      ensureReady: async (): Promise<void> => undefined,
+    });
+    engine.state = 'stopped';
+    const { promise: loading, resolve: finishLoad } = Promise.withResolvers<void>();
+    engine.ensureReady = async (): Promise<void> => {
+      await loading;
+      engine.state = 'ready';
+    };
+    const next = new FakeEngine({ allow: 1 });
+    const { decider } = setup('act', engine, 0);
+    const running = decider.decide('permission', req, signal());
+    await sleep(10);
+    decider.replaceEngine(next);
+    finishLoad();
+    const result = await running;
+    assert.equal(result.error, 'engine switching');
+    assert.equal(engine.requests.length, 0);
+    assert.equal(next.requests.length, 0);
+  });
+
   it('does not cache an answer computed before a hold or engine replacement', async () => {
     for (const invalidate of [
       (d: Decider): void => {
