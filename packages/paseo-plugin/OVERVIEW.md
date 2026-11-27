@@ -7,8 +7,10 @@ tool permission requests, and can pick a model for new agents.
 ## How it works
 
 The plugin is a thin client; it never runs a model. The daemon side calls the gateway (default
-`http://127.0.0.1:8765`) and records each decision as a compact row in the agent's chat: the
-answer, its confidence, the action, and whether it was enforced. If the gateway is down, slow,
+`http://127.0.0.1:8765`; with that default, over the gateway's Unix socket
+`~/.local/share/local-decider/run/gateway.sock`, which only your user can open). It records
+each decision as a compact row in the agent's chat: the answer, its confidence, the action, and
+whether it was enforced. If the gateway is down, slow,
 or returns an error, Paseo behaves as if the plugin were not installed.
 
 Every policy starts in shadow mode: decisions are recorded but change nothing. A policy changes
@@ -30,13 +32,34 @@ supervised feedback and can become exact-match precedent. See the
 - **Paseo** `>=0.15.3 <1.0.0`, with plugins enabled on the daemon.
 - **Operating system:** the daemon host runs macOS (Apple Silicon for the MLX runtime) or Linux.
   The AMD Ryzen AI NPU (FastFlowLM) and Vulkan GPU (llama.cpp) runtimes are Linux-only.
-- **The local-decider gateway** on the daemon machine, with an engine and a model. The plugin does
-  not install it; follow the
-  [install guide](https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md).
+- **The local-decider gateway** on the daemon machine, with an engine and a model. Follow the
+  [install guide for agents](https://github.com/ziptie-soft/local-decider/blob/master/docs/install-paseo.ai.md)
+  or the [install guide](https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md).
 
 Run `local-decider gateway start`, which installs the gateway as a user service (systemd on
 Linux, launchd on macOS). The sidebar then shows whether it is up, which model and engine it
 serves, and its median latency.
+
+### Auto-start
+
+When the plugin starts, and when a status check finds the gateway down (at most once every five
+minutes), the plugin runs `local-decider gateway ensure` in the background. It starts the
+installed service, or a background gateway when there is no service. A lock in the data
+directory makes sure only one gateway runs, even when Claude Code, Codex or pi start one at the
+same time. The plugin finds the CLI through `LOCAL_DECIDER_BIN`, its own managed install, or
+`PATH`.
+
+- It never starts a gateway for a URL that is not loopback.
+- An older gateway that answers on :8765 without a socket is left alone; restart it with
+  `local-decider gateway restart`.
+- Set `LOCAL_DECIDER_AUTOSTART=0` (or `off`, `false`) in the daemon's environment to turn it off.
+
+**Auto-install** is off by default. With `LOCAL_DECIDER_AUTOINSTALL=1`, a missing gateway is
+installed with npm into `~/.local/share/local-decider/gateway/<version>/`. It installs only the
+exact gateway version this plugin pins, refuses releases younger than 72 hours, uses only
+registry.npmjs.org, and runs npm without install scripts, dev or optional dependencies. See
+[security](https://github.com/ziptie-soft/local-decider/blob/master/docs/security.md) for what
+this does not cover.
 
 A remote gateway must use https and needs `LOCAL_DECIDER_TOKEN` and
 `LOCAL_DECIDER_TOKEN_ORIGIN` in the daemon's environment. The bearer goes only to that origin or
@@ -222,6 +245,8 @@ The plugin sends agent content to the gateway at the configured URL:
 - **Agent tools** (when on): for `local_decider_decide`, the input the agent passes (capped in
   size), its agent ID and its workspace path; for `local_decider_explain`, the decision id.
 - **Feedback:** your answers to "Right answer?" chips and your accept or decline on prompts.
+- **Every request** carries an `x-local-decider-client: paseo/<version>` header, so the gateway's
+  status can list which clients use it.
 
 The gateway redacts secrets it recognises, then passes the input to its engine and writes it to
 its decision log under `~/.local/share/local-decider/` on the gateway machine. With a built-in
@@ -233,9 +258,14 @@ normal Paseo agent, so the interview and your answers go to that agent's provide
 
 ## What this plugin runs
 
-The plugin starts one kind of process: the gateway's user service manager, when you press Start,
-Stop or Restart. The command is fixed per platform, never built from settings or input, and
-shown next to each button:
+The plugin starts two kinds of process. Neither command is built from agent content.
+
+**Auto-start** (see Setup) runs `node <cli> gateway ensure --json` with a 45 second timeout, and,
+only with `LOCAL_DECIDER_AUTOINSTALL=1`, npm to install the pinned gateway.
+
+**The service buttons** run the gateway's user service manager when you press Start, Stop or
+Restart. The command is fixed per platform, never built from settings or input, and shown next
+to each button:
 
 - Linux, when `~/.config/systemd/user/local-decider.service` exists:
   `systemctl --user start|stop|restart local-decider.service`.
@@ -250,7 +280,7 @@ Without an installed service there are no buttons, only the command to install o
 
 ## What it downloads
 
-Nothing, until you press a **Download** button. Each one names the model and its size, such as
+No models, until you press a **Download** button. Each one names the model and its size, such as
 "Download (2.0 GB)", and asks the gateway to fetch that model's files into the engine's own
 cache on the gateway machine:
 
@@ -260,5 +290,6 @@ cache on the gateway machine:
 - **llama.cpp (Vulkan):** a pinned d3 GGUF file from Hugging Face (`huggingface.co/ggml-org`).
 
 Not pressing it leaves nothing downloaded, and the gateway refuses to switch to a model that is
-not downloaded. The plugin never installs engines or other software: for a missing engine it
-shows the install guide link and the command to run yourself.
+not downloaded. The plugin never installs engines: for a missing engine it shows the install
+guide link and the command to run yourself. The only software it can install is the pinned
+gateway, and only with `LOCAL_DECIDER_AUTOINSTALL=1` (see Auto-start).
