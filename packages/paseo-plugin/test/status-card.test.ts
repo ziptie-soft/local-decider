@@ -64,6 +64,11 @@ describe('gatewayRow', () => {
       gatewayRow(status({ p50Ms: 850.4 })).hint,
       `Answering at ${URL} · typical decision 850 ms`,
     );
+    // Not rounded to tens: the popover and the sidebar show the same p50.
+    assert.equal(
+      gatewayRow(status({ p50Ms: 92.3 })).hint,
+      `Answering at ${URL} · typical decision 92 ms`,
+    );
     assert.equal(
       gatewayRow(status({ p50Ms: 1500 })).hint,
       `Answering at ${URL} · typical decision 1.5 s`,
