@@ -4,6 +4,7 @@ import {
   type Action,
   type Answers,
   type DecideResponse,
+  type ModelSource,
   type OutcomeRecord,
   type Policy,
   type PolicyRule,
@@ -43,6 +44,8 @@ export interface ExplainView {
   readonly truncated?: readonly string[];
   readonly engine: string;
   readonly model: string;
+  /** Absent on rows written before per-policy models: read as the default model. */
+  readonly modelSource?: ModelSource;
   readonly latencyMs: number;
   readonly queueMs?: number;
   readonly engineMs?: number;
@@ -291,6 +294,7 @@ function identity(record: ShadowRecord): Partial<ExplainView> {
     ...(record.subagent === undefined ? {} : { subagent: record.subagent }),
     ...(record.tool === undefined ? {} : { tool: record.tool }),
     ...(record.cached === undefined ? {} : { cached: record.cached }),
+    ...(record.modelSource === undefined ? {} : { modelSource: record.modelSource }),
   };
 }
 
@@ -485,13 +489,20 @@ function detailLines(view: ExplainView): string[] {
   return lines;
 }
 
+const MODEL_SOURCE_SUFFIX: Readonly<Record<ModelSource, string>> = {
+  default: '',
+  policy: ' (own model)',
+  fallback: ' (default model; own model unavailable)',
+  unavailable: ' (skipped: own model unavailable)',
+};
+
 function engineLine(view: ExplainView): string {
   const timing = [
     view.queueMs === undefined ? undefined : `queue ${String(view.queueMs)}`,
     view.engineMs === undefined ? undefined : `engine ${String(view.engineMs)}`,
   ].filter((x) => x !== undefined);
   const parts = [
-    `engine ${view.engine} ${view.model} · ${String(view.latencyMs)} ms${timing.length === 0 ? '' : ` (${timing.join(', ')})`}`,
+    `engine ${view.engine} ${view.model}${MODEL_SOURCE_SUFFIX[view.modelSource ?? 'default']} · ${String(view.latencyMs)} ms${timing.length === 0 ? '' : ` (${timing.join(', ')})`}`,
   ];
   if (view.stateTokens !== undefined) {
     parts.push(`state ≈ ${String(view.stateTokens)} tokens`);

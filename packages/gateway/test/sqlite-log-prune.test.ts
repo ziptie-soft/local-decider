@@ -151,7 +151,7 @@ describe('SqliteLog chunked prune', () => {
     const file = fileOf();
     const holder = openAt(file);
     holder.exec('PRAGMA journal_mode=WAL');
-    holder.exec('PRAGMA user_version = 6');
+    holder.exec('PRAGMA user_version = 7');
     holder.exec('BEGIN IMMEDIATE');
     const errors = mock.method(console, 'error', () => undefined);
     try {

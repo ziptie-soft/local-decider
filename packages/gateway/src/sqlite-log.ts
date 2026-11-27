@@ -491,8 +491,9 @@ const DECISION_SQL = `INSERT INTO decision (
         permission_mode, subagent, input_hash, precedent_key, template_key,
         state_tokens, action, enforced, engine, model, latency_ms, queue_ms,
         engine_ms, error, power, requested_model, routed_model, answers, truncated,
-        rule, cached, precedent_allows, precedent_denies, redactions, rules_hash, tool
-      ) VALUES (${Array.from({ length: 35 }, () => '?').join(', ')})`;
+        rule, cached, precedent_allows, precedent_denies, redactions, rules_hash, tool,
+        model_source
+      ) VALUES (${Array.from({ length: 36 }, () => '?').join(', ')})`;
 
 function decisionParams(record: ShadowRecord): SqlValue[] {
   const extras = record as ShadowRecord & { readonly templateKey?: string };
@@ -526,6 +527,7 @@ function decisionParams(record: ShadowRecord): SqlValue[] {
     JSON.stringify(record.answers),
     record.truncated === undefined ? null : JSON.stringify(record.truncated),
     ...explainParams(record),
+    nullable(record.modelSource),
   ];
 }
 
@@ -832,6 +834,8 @@ ALTER TABLE decision ADD COLUMN rules_hash TEXT;
 ALTER TABLE decision ADD COLUMN tool TEXT;
 CREATE INDEX decision_call ON decision(call_id) WHERE call_id IS NOT NULL;
 `,
+  // Per-decision models: which model answered. Rows written before it keep NULL (default/unknown).
+  'ALTER TABLE decision ADD COLUMN model_source TEXT;',
 ];
 
 function loadDatabase(): DatabaseConstructor {
@@ -1112,6 +1116,7 @@ function explainColumns(row: Row): DecisionExtras {
   const redactions = redactionCounts(row['redactions']);
   const rulesHash = optionalText(row['rules_hash']);
   const tool = optionalText(row['tool']);
+  const modelSource = modelSourceOf(row['model_source']);
   return {
     ...(rule === undefined ? {} : { rule }),
     ...(cached === undefined ? {} : { cached: cached === 1 }),
@@ -1119,7 +1124,22 @@ function explainColumns(row: Row): DecisionExtras {
     ...(redactions === undefined ? {} : { redactions }),
     ...(rulesHash === undefined ? {} : { rulesHash }),
     ...(tool === undefined ? {} : { tool }),
+    ...(modelSource === undefined ? {} : { modelSource }),
   };
+}
+
+const MODEL_SOURCES: ReadonlySet<string> = new Set([
+  'default',
+  'policy',
+  'fallback',
+  'unavailable',
+]);
+
+/** NULL and values this build does not know read as unrecorded. */
+function modelSourceOf(value: SqlValue | undefined): ShadowRecord['modelSource'] {
+  return typeof value === 'string' && MODEL_SOURCES.has(value)
+    ? (value as ShadowRecord['modelSource'])
+    : undefined;
 }
 
 function redactionCounts(value: SqlValue | undefined): Record<string, number> | undefined {
