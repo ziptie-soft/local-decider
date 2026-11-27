@@ -15,44 +15,48 @@ function fresh<T>(entry: CacheEntry<T> | undefined, ttl: number): entry is Cache
   return entry !== undefined && Date.now() - entry.at < ttl;
 }
 
+/**
+ * Values by key, each kept for a TTL, with one load in flight per key. A key is an engine id, or
+ * `<engine>|<detail>` for a value about part of an engine; clearing an engine clears both.
+ */
 class EngineCache<T> {
-  readonly #values = new Map<EngineId, CacheEntry<T>>();
-  readonly #loads = new Map<EngineId, Promise<T>>();
+  readonly #values = new Map<string, CacheEntry<T>>();
+  readonly #loads = new Map<string, Promise<T>>();
 
-  read(engine: EngineId): T | undefined {
-    return this.#values.get(engine)?.value;
+  read(key: string): T | undefined {
+    return this.#values.get(key)?.value;
   }
 
   clear(engine?: EngineId): void {
-    if (engine === undefined) {
-      this.#values.clear();
-      this.#loads.clear();
-    } else {
-      this.#values.delete(engine);
-      this.#loads.delete(engine);
+    for (const map of [this.#values, this.#loads]) {
+      for (const key of [...map.keys()]) {
+        if (engine === undefined || key === engine || key.startsWith(`${engine}|`)) {
+          map.delete(key);
+        }
+      }
     }
   }
 
-  async get(engine: EngineId, ttl: number, load: () => Promise<T>): Promise<T> {
-    const entry = this.#values.get(engine);
+  async get(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
+    const entry = this.#values.get(key);
     if (fresh(entry, ttl)) {
       return entry.value;
     }
-    const pending = this.#loads.get(engine);
+    const pending = this.#loads.get(key);
     if (pending !== undefined) {
       return pending;
     }
     const promise = Promise.resolve().then(load);
-    this.#loads.set(engine, promise);
+    this.#loads.set(key, promise);
     try {
       const value = await promise;
-      if (this.#loads.get(engine) === promise) {
-        this.#values.set(engine, { at: Date.now(), value });
+      if (this.#loads.get(key) === promise) {
+        this.#values.set(key, { at: Date.now(), value });
       }
       return value;
     } finally {
-      if (this.#loads.get(engine) === promise) {
-        this.#loads.delete(engine);
+      if (this.#loads.get(key) === promise) {
+        this.#loads.delete(key);
       }
     }
   }
@@ -69,6 +73,13 @@ function modelsByEngine(
     groups.set(engine, group);
   }
   return groups;
+}
+
+function presenceKey(engine: EngineId, models: readonly ModelDescriptor[]): string {
+  return `${engine}|${models
+    .map((model) => model.id)
+    .toSorted()
+    .join(',')}`;
 }
 
 function modelPresence(
@@ -157,7 +168,8 @@ export class CatalogStatus {
     const groups = modelsByEngine(models);
     const values = await Promise.all(
       [...groups].map(([engine, engineModels]) =>
-        this.#models.get(engine, CACHE_TTL_MS, () =>
+        // Keyed by the models asked about: a one-model check must not answer a later full listing.
+        this.#models.get(presenceKey(engine, engineModels), CACHE_TTL_MS, () =>
           checkModels(engine, engineModels, this.#context),
         ),
       ),
