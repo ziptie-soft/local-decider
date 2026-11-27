@@ -5,7 +5,7 @@ import { NO_ENGINE_COUNTERS, type EngineCounters } from '../counters.ts';
 import { EngineError, type Engine, type EngineHealth } from './types.ts';
 
 /** How long a switch or unload waits for running decisions (the default decision timeout). */
-const DRAIN_TIMEOUT_MS = 10_000;
+export const DRAIN_TIMEOUT_MS = 10_000;
 
 export type Lifecycle = 'lazy' | 'eager';
 

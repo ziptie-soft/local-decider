@@ -26,6 +26,7 @@ import {
   type LogRecord,
   minMode,
   type Mode,
+  type ModelSource,
   type Policy,
   type PolicyThreshold,
   type PrecedentTally,
@@ -48,7 +49,17 @@ import {
   type HealthCounters,
 } from './counters.ts';
 import { EngineBusyError } from './engine-busy.ts';
-import { createLane, PRIMARY_LANE, type EngineLane } from './engine-lane.ts';
+import {
+  createLane,
+  laneDepth,
+  laneStat,
+  PRIMARY_LANE,
+  waitForIdle,
+  type EngineLane,
+  type LaneStat,
+  type PolicyRoute,
+} from './engine-lane.ts';
+import { DRAIN_TIMEOUT_MS, type ManagedEngine } from './engines/lazy.ts';
 import { ENGINE_BUSY_ERROR, isEngineBusy, type Engine } from './engines/types.ts';
 import type { LogStore } from './log-store.ts';
 import type { LoadedPolicy } from './policies.ts';
@@ -78,7 +89,14 @@ function queueLimits(slots: number): QueueLimits {
   return { max: QUEUE_MAX - 1 + slots, highReserve: QUEUE_HIGH_RESERVE };
 }
 
+/**
+ * Decisions waiting for or holding an engine, across every lane, before new ones are refused as
+ * busy: lanes multiply admission, so the gateway as a whole is capped too.
+ */
+export const GLOBAL_QUEUE_MAX = 16;
+
 const QUEUE_FULL_ERROR = 'engine queue full';
+const UNAVAILABLE_ERROR = 'policy model unavailable';
 const TIMEOUT_ERROR = 'decision timed out';
 const SWITCHING_ERROR = 'engine switching';
 
@@ -150,6 +168,31 @@ export interface DeciderOptions {
   readonly queueGraceMs?: number;
   /** Fact groups derived for policies with a `facts` section; default {@link SHIPPED_FACTS} for the policy. */
   readonly facts?: readonly FactGroup[];
+  /** How long retiring a lane waits for its decisions; default 10 s. For tests. */
+  readonly laneDrainMs?: number;
+}
+
+/** The model a decision is served by: its lane, or none when the policy's own model is unavailable. */
+interface Served {
+  readonly lane: EngineLane | null;
+  readonly engine: string;
+  readonly model: string;
+  readonly source: ModelSource;
+  readonly reason?: string;
+}
+
+/** What answers for a policy: the engine and model, where they came from and why not, if so. */
+export type ServedModel = Omit<Served, 'lane'>;
+
+/** Nothing answers: the policy's configured model, with why it is not running. */
+function unavailable(route: PolicyRoute, reason: string): Served {
+  return {
+    lane: null,
+    engine: route.configured.engine,
+    model: route.configured.model,
+    source: 'unavailable',
+    reason,
+  };
 }
 
 interface CacheEntry {
@@ -185,6 +228,8 @@ interface SharedCall {
   readonly hash: string;
   readonly priority: Priority;
   readonly controller: AbortController;
+  /** The lane running it, so retiring that lane drops it. */
+  readonly lane: EngineLane;
   readonly promise: Promise<EngineResult>;
   waiters: number;
 }
@@ -205,9 +250,12 @@ export function renderValue(value: unknown): string {
 
 /** The policy pipeline: redact → state → cache → engine (serial) → rules → shadow log. */
 export class Decider {
-  /** Engine lanes by key; the primary is the only one so far. */
+  /** Engine lanes by key: the primary and one per distinct policy model. */
   readonly #lanes = new Map<string, EngineLane>();
+  /** Policy id (or variant id) → where its decisions go; none means the primary. */
+  #routes: ReadonlyMap<string, PolicyRoute> = new Map();
   readonly #queueGraceMs: number;
+  readonly #laneDrainMs: number;
   #policies: Map<string, LoadedPolicy>;
   /** Policy id → the variant answering for it, when not the policy itself. */
   readonly #variants = new Map<string, string>();
@@ -227,6 +275,8 @@ export class Decider {
   readonly #counters = new DecisionCounters();
   /** Restarts and hangs of engines replaced since start, so the totals never go down. */
   #retiredEngine: EngineCounters = NO_ENGINE_COUNTERS;
+  /** Lane retirements in progress by key, so a second request joins the first. */
+  readonly #retiring = new Map<string, Promise<void>>();
   readonly #cache = new Map<string, CacheEntry>();
   /** Engine calls running now by input hash; identical requests join instead of calling again. */
   readonly #inflight = new Map<string, SharedCall>();
@@ -238,6 +288,7 @@ export class Decider {
 
   constructor(options: DeciderOptions) {
     this.#queueGraceMs = options.queueGraceMs ?? ABANDON_GRACE_MS;
+    this.#laneDrainMs = options.laneDrainMs ?? DRAIN_TIMEOUT_MS;
     this.#lanes.set(PRIMARY_LANE, createLane(PRIMARY_LANE, options.engine, this.#queueGraceMs));
     this.#policies = new Map(options.policies);
     this.#log = options.log;
@@ -506,10 +557,138 @@ export class Decider {
     return previous;
   }
 
-  /** Decisions in the engine queue or waiting for the engine to load. */
+  /**
+   * Add a policy lane with a fresh queue, service window and generation. EngineControl owns the
+   * engine: it starts it, and retires the lane before dropping it.
+   */
+  installLane(key: string, engine: ManagedEngine): void {
+    if (this.#lanes.has(key)) {
+      throw new Error(`lane "${key}" is already installed`);
+    }
+    this.#lanes.set(key, createLane(key, engine, this.#queueGraceMs));
+  }
+
+  /**
+   * Take a policy lane out of service: its decisions fail open with `reason`, its routes go, and
+   * once its calls finish (bounded) its engine is drained and retired for good. Other lanes and
+   * the cache are untouched. The primary is replaced, never retired.
+   */
+  retireLane(key: string, reason: string): Promise<void> {
+    if (key === PRIMARY_LANE) {
+      return Promise.reject(new Error('the primary lane is replaced, not retired'));
+    }
+    const running = this.#retiring.get(key);
+    if (running !== undefined) {
+      return running;
+    }
+    const lane = this.#lanes.get(key);
+    if (lane === undefined || lane.retired) {
+      return Promise.resolve();
+    }
+    // Out of service synchronously: the lane's routes stay, answering as fallback or unavailable.
+    lane.blocked = reason;
+    lane.generation += 1;
+    lane.retired = true;
+    this.#dropSharedCalls(lane);
+    const done = this.#finishRetire(key, lane).finally(() => {
+      this.#retiring.delete(key);
+    });
+    this.#retiring.set(key, done);
+    return done;
+  }
+
+  /** Let the lane's calls finish (bounded), then drain and retire its engine; always remove it. */
+  async #finishRetire(key: string, lane: EngineLane): Promise<void> {
+    try {
+      await waitForIdle(lane, this.#laneDrainMs);
+      await lane.engine.drain?.(this.#laneDrainMs);
+      await (lane.engine.retire?.() ?? lane.engine.stop());
+    } finally {
+      this.#retiredEngine = addEngineCounters(
+        this.#retiredEngine,
+        lane.engine.counters?.() ?? NO_ENGINE_COUNTERS,
+      );
+      if (this.#lanes.get(key) === lane) {
+        this.#lanes.delete(key);
+      }
+    }
+  }
+
+  /** Forget the lane's running shared calls so no new request joins them. */
+  #dropSharedCalls(lane: EngineLane): void {
+    for (const [hash, call] of this.#inflight) {
+      if (call.lane === lane) {
+        this.#inflight.delete(hash);
+      }
+    }
+  }
+
+  /** Replace where each policy's decisions go. No global invalidation: lanes are independent. */
+  setPolicyRoutes(routes: ReadonlyMap<string, PolicyRoute>): void {
+    this.#routes = new Map(routes);
+  }
+
+  /** State of every lane in service, the primary first. */
+  laneStats(): LaneStat[] {
+    return this.#serving().map(laneStat);
+  }
+
+  /** What answers for policy `id` now (through its selected variant), or undefined if unknown. */
+  engineOf(id: string): ServedModel | undefined {
+    if (!this.#policies.has(id)) {
+      return undefined;
+    }
+    const { engine, model, source, reason } = this.#routeFor(id, this.activeVariant(id));
+    return { engine, model, source, ...(reason === undefined ? {} : { reason }) };
+  }
+
+  /**
+   * Where a decision for `policyId` (answered as `variant`) goes: the variant's route, then the
+   * base policy's, else the primary. A route whose lane is retired or gone never answers as
+   * `default`: with `fallback: default` the primary answers as `fallback`, else it is unavailable.
+   */
+  #routeFor(policyId: string, variant: string | undefined): Served {
+    const route =
+      (variant === undefined ? undefined : this.#routes.get(variant)) ?? this.#routes.get(policyId);
+    if (route === undefined) {
+      return this.#servedBy(this.#primary, 'default');
+    }
+    const lane = route.laneKey === null ? undefined : this.#lanes.get(route.laneKey);
+    if (route.source === 'unavailable' || lane === undefined || lane.retired) {
+      const reason = route.reason ?? 'its engine is not running';
+      return route.source !== 'unavailable' && route.fallback === 'default'
+        ? { ...this.#servedBy(this.#primary, 'fallback'), reason }
+        : unavailable(route, reason);
+    }
+    return {
+      ...this.#servedBy(lane, route.source),
+      ...(route.reason === undefined ? {} : { reason: route.reason }),
+    };
+  }
+
+  #servedBy(lane: EngineLane, source: ModelSource): Served {
+    return { lane, engine: lane.engine.id, model: lane.engine.model, source };
+  }
+
+  /** Stop the primary and every lane, for shutdown or unload; every one is tried. */
+  async stopAll(): Promise<void> {
+    const results = await Promise.allSettled(
+      [...this.#lanes.values()].map((lane) => lane.engine.stop()),
+    );
+    const failed = results.find((r) => r.status === 'rejected');
+    if (failed !== undefined) {
+      throw failed.reason;
+    }
+  }
+
+  /** Lanes in service: the primary first, none retired. */
+  #serving(): EngineLane[] {
+    return [...this.#lanes.values()].filter((lane) => !lane.retired);
+  }
+
+  /** Decisions waiting for or holding an engine on any lane in service (retired lanes drain apart). */
   get queueDepth(): number {
-    const lane = this.#primary;
-    return lane.queue.depth + lane.preparing;
+    return this.#serving().reduce((sum, lane) => sum + laneDepth(lane), 0);
   }
 
   /** Engine calls that run at once, from the engine's own setting. */
@@ -528,9 +707,10 @@ export class Decider {
 
   /** Monotonic counters since gateway start: decisions, log store and engine restarts. */
   counters(): HealthCounters {
-    const engine = addEngineCounters(
+    // Every lane still held, draining ones too: a retired lane is folded into the total on removal.
+    const engine = [...this.#lanes.values()].reduce(
+      (total, lane) => addEngineCounters(total, lane.engine.counters?.() ?? NO_ENGINE_COUNTERS),
       this.#retiredEngine,
-      this.engine.counters?.() ?? NO_ENGINE_COUNTERS,
     );
     const log = this.#log.counters?.() ?? { logWriteFailures: 0, logDropped: 0 };
     return { ...this.#counters.snapshot(), ...log, ...engine };
@@ -637,7 +817,9 @@ export class Decider {
       request.workspace?.cwd,
     );
     const admitted = admission(mode, policy, signal, request.budgetMs);
+    const served = this.#routeFor(policyId, variant);
     const result = await this.#answers(
+      served,
       { state, questions },
       hash,
       policy.cache.ttlSeconds,
@@ -652,6 +834,9 @@ export class Decider {
     const enforced = mode === 'act' && result.error === undefined;
     const response: DecideResponse = {
       ...base,
+      engine: served.engine,
+      model: served.model,
+      modelSource: served.source,
       action: match.action,
       enforced,
       answers: result.answers,
@@ -768,18 +953,29 @@ export class Decider {
   }
 
   async #answers(
+    served: Served,
     request: SystemOneRequest,
     stateHash: string,
     ttlSeconds: number,
     admitted: Admission,
   ): Promise<EngineResult> {
     const { signal, priority, budgetMs } = admitted;
-    const blocked = this.#blocked;
+    const { lane } = served;
+    if (lane === null) {
+      // The policy's own model is unavailable and nothing else answers: fail open, no engine.
+      return {
+        answers: {},
+        latencyMs: 0,
+        cached: false,
+        error: `${UNAVAILABLE_ERROR}: ${served.reason ?? 'unknown'}`,
+      };
+    }
+    const blocked = this.#blocked ?? lane.blocked;
     if (blocked !== null) {
       return { answers: {}, latencyMs: 0, cached: false, error: blocked };
     }
     // Cache and in-flight key: the logged state hash scoped to the serving engine and model.
-    const hash = inputHash(['cache:v1', this.engine.id, this.engine.model, stateHash]);
+    const hash = inputHash(['cache:v1', lane.engine.id, lane.engine.model, stateHash]);
     const hit = this.#cacheGet(hash);
     if (hit !== undefined) {
       return { answers: hit.answers, latencyMs: 0, cached: true };
@@ -789,12 +985,12 @@ export class Decider {
     if (running !== undefined && PRIORITY_RANK[priority] <= PRIORITY_RANK[running.priority]) {
       return this.#join(running, signal);
     }
-    const busy = this.#overBudget(this.#primary, budgetMs);
+    const busy = this.#refusal(lane, budgetMs, priority);
     if (busy !== undefined) {
       return busy;
     }
     if (ttlSeconds <= 0 || running !== undefined) {
-      return this.#compute(request, hash, ttlSeconds, signal, priority);
+      return this.#compute(lane, request, hash, ttlSeconds, signal, priority);
     }
     // The shared call has its own signal: it aborts only once every waiter has left.
     const controller = new AbortController();
@@ -802,33 +998,42 @@ export class Decider {
       hash,
       priority,
       controller,
+      lane,
       waiters: 0,
-      promise: this.#compute(request, hash, ttlSeconds, controller.signal, priority).finally(() => {
-        if (this.#inflight.get(hash) === call) {
-          this.#inflight.delete(hash);
-        }
-      }),
+      promise: this.#compute(lane, request, hash, ttlSeconds, controller.signal, priority).finally(
+        () => {
+          if (this.#inflight.get(hash) === call) {
+            this.#inflight.delete(hash);
+          }
+        },
+      ),
     };
     this.#inflight.set(hash, call);
     return this.#join(call, signal);
   }
 
   /**
-   * Refuse a request whose caller will not wait out the estimated queue time, before it takes a
-   * place: the same fail-open result as the engine's own 503, not an engine failure.
+   * Refuse a request before it takes a place: when the whole gateway is at {@link GLOBAL_QUEUE_MAX}
+   * (`high` ones get {@link QUEUE_HIGH_RESERVE} more), or its caller will not wait out the lane's
+   * estimated queue time. The same fail-open result as the engine's own 503, not an engine failure.
    */
-  #overBudget(lane: EngineLane, budgetMs: number | undefined): EngineResult | undefined {
-    if (budgetMs === undefined) {
-      return undefined;
-    }
-    const wait = estimateWaitMs(
-      lane.queue.depth + lane.preparing,
-      lane.queue.concurrency,
-      lane.service.mean(),
-    );
-    return wait > budgetMs
+  #refusal(
+    lane: EngineLane,
+    budgetMs: number | undefined,
+    priority: Priority,
+  ): EngineResult | undefined {
+    const cap = GLOBAL_QUEUE_MAX + (priority === 'high' ? QUEUE_HIGH_RESERVE : 0);
+    return this.queueDepth >= cap || this.#overBudget(lane, budgetMs)
       ? { answers: {}, latencyMs: 0, cached: false, error: ENGINE_BUSY_ERROR, counter: 'busy' }
       : undefined;
+  }
+
+  /** Whether `budgetMs` is shorter than the lane's estimated wait for a slot. */
+  #overBudget(lane: EngineLane, budgetMs: number | undefined): boolean {
+    return (
+      budgetMs !== undefined &&
+      estimateWaitMs(laneDepth(lane), lane.queue.concurrency, lane.service.mean()) > budgetMs
+    );
   }
 
   /** Wait for a shared call; return early (not abort it) when this caller's signal fires. */
@@ -869,6 +1074,7 @@ export class Decider {
   }
 
   async #compute(
+    lane: EngineLane,
     request: SystemOneRequest,
     hash: string,
     ttlSeconds: number,
@@ -876,8 +1082,7 @@ export class Decider {
     priority: Priority,
   ): Promise<EngineResult> {
     // A managed engine (ensureReady) loads on demand, outside the queue; others must be up.
-    // The lane is resolved once: nothing below reads a mutable Decider field for the engine.
-    const lane = this.#primary;
+    // The lane was resolved once, by the route: nothing below reads a mutable Decider field.
     const engine = lane.engine;
     const generation = this.#generation;
     const laneGeneration = lane.generation;
@@ -925,14 +1130,31 @@ export class Decider {
           ...timings,
         };
       }
-      if (generation === this.#generation) {
+      if (this.#unchanged(generation, lane, laneGeneration)) {
         this.#remember(hash, answers, ttlSeconds);
       }
-      this.#successHandler?.(engine);
+      this.#noteSuccess(lane);
       return { answers, latencyMs, cached: false, ...timings };
     } catch (error) {
-      return this.#failed(error, engine, started, signal);
+      return this.#failed(error, lane, started, signal);
     }
+  }
+
+  /** Tell the supervisor the primary answered; policy lanes are not its business. */
+  #noteSuccess(lane: EngineLane): void {
+    if (lane.key === PRIMARY_LANE) {
+      this.#successHandler?.(lane.engine);
+    }
+  }
+
+  /** Whether neither the gateway nor the lane changed since the call was admitted. */
+  #unchanged(generation: number, lane: EngineLane, laneGeneration: number): boolean {
+    return (
+      generation === this.#generation &&
+      lane.generation === laneGeneration &&
+      !lane.retired &&
+      lane.blocked === null
+    );
   }
 
   /**
@@ -992,7 +1214,7 @@ export class Decider {
    * A full queue is not an engine failure: no failure handler, and `latencyMs: 0` even for a
    * decision evicted after waiting (kept out of latency stats on purpose).
    */
-  #failed(error: unknown, engine: Engine, started: number, caller: AbortSignal): EngineResult {
+  #failed(error: unknown, lane: EngineLane, started: number, caller: AbortSignal): EngineResult {
     if (error instanceof QueueFullError) {
       return {
         answers: {},
@@ -1014,7 +1236,10 @@ export class Decider {
     }
     if (!caller.aborted) {
       // A caller that hung up is not an engine failure; a decision timeout (bounded signal) is.
-      this.#failureHandler?.(engine);
+      // Only the primary feeds the supervisor: a policy model's failure never triggers fallback.
+      if (lane.key === PRIMARY_LANE) {
+        this.#failureHandler?.(lane.engine);
+      }
       this.#errorLatency.add(performance.now() - started);
     }
     return {
@@ -1092,6 +1317,7 @@ export class Decider {
       enforced: response.enforced,
       engine: response.engine,
       model: response.model,
+      ...(response.modelSource === undefined ? {} : { modelSource: response.modelSource }),
       latencyMs: Math.round(response.latencyMs),
       ...(state.queueMs === undefined ? {} : { queueMs: Math.round(state.queueMs) }),
       ...(state.engineMs === undefined ? {} : { engineMs: Math.round(state.engineMs) }),

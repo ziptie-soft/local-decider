@@ -42,8 +42,8 @@ type Responder = (
 
 /** Scripted engine: answers every choice question with `probs` (or a custom responder). */
 export class FakeEngine implements Engine {
-  readonly id = 'fake';
-  readonly model = 'fake-model';
+  id: string = 'fake';
+  model: string = 'fake-model';
   state: EngineState = 'ready';
   readonly requests: SystemOneRequest[] = [];
   inFlight = 0;
