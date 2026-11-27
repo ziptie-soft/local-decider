@@ -26,7 +26,7 @@ export interface ClientOptions {
   /** Local control token. Sent only when `baseUrl` points to loopback. */
   readonly controlToken?: string | undefined;
   readonly fetch?: typeof fetch;
-  /** Informational client identity, such as `claude-hooks/1.0.0`. */
+  /** Informational client identity, such as `claude-hooks/<version>`. */
   readonly clientId?: string;
 }
 

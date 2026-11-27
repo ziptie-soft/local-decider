@@ -56,9 +56,21 @@ test('decide returns a validated reply and posts to the policy route', async () 
   assert.equal(first.init.redirect, 'error');
   assert.equal(
     (first.init.headers as Record<string, string>)['x-local-decider-client'],
-    'pi/1.0.0',
+    'pi/0.0.0',
   );
   assert.equal((bodyOf(first) as { budgetMs: number }).budgetMs, 1000);
+});
+
+test('an explicit client identity is sent on gateway requests', async () => {
+  const { fetch, seen } = stub(() => json(reply()));
+  const gateway = createGateway({ url: 'http://127.0.0.1:8765', clientId: 'pi/1.2.3', fetch });
+  await gateway.decide('permission', REQUEST, { timeoutMs: 1000 });
+  const first = seen[0];
+  assert.ok(first);
+  assert.equal(
+    (first.init.headers as Record<string, string>)['x-local-decider-client'],
+    'pi/1.2.3',
+  );
 });
 
 test('an absent signal still gets a timeout signal', async () => {

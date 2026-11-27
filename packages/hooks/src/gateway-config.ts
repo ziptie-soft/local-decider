@@ -7,9 +7,7 @@
  * never sent to another: `LOCAL_DECIDER_URL` pairs with `LOCAL_DECIDER_TOKEN` only, the option URL
  * with the option token only. With the default URL either token is accepted, env first.
  */
-import { DEFAULT_GATEWAY_URL, GatewayClient, str } from '@ziptie-soft/local-decider-core';
-import { gatewaySocketPathForEnv } from '@ziptie-soft/local-decider-launcher/socket-path';
-import { socketFetch } from '@ziptie-soft/local-decider-launcher/transport';
+import { DEFAULT_GATEWAY_URL, str } from '@ziptie-soft/local-decider-core';
 
 export type Env = Readonly<Record<string, string | undefined>>;
 
@@ -32,21 +30,4 @@ export function gatewayConfig(env: Env): GatewayConfig {
     return { url: optionUrl, defaultEndpoint: false, token: optionToken };
   }
   return { url: DEFAULT_GATEWAY_URL, defaultEndpoint: true, token: envToken ?? optionToken };
-}
-
-/** A `GatewayClient` for the gateway `env` points at. */
-export function gatewayClient(
-  env: Env,
-  timeoutMs: number,
-  harness: 'claude' | 'codex' = 'claude',
-): GatewayClient {
-  const { url, token, defaultEndpoint } = gatewayConfig(env);
-  const socketPath = defaultEndpoint ? gatewaySocketPathForEnv(env) : null;
-  return new GatewayClient({
-    baseUrl: url,
-    timeoutMs,
-    clientId: `${harness}-hooks/1.0.0`,
-    ...(socketPath === null ? {} : { fetch: socketFetch(socketPath) }),
-    ...(token === undefined ? {} : { token }),
-  });
 }

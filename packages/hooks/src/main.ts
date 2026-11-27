@@ -6,6 +6,7 @@ import { launchGateway } from '@ziptie-soft/local-decider-launcher';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
+import { hooksClientId } from './gateway-client.ts';
 import { gatewayConfig } from './gateway-config.ts';
 import { run, timeoutOf } from './run.ts';
 
@@ -55,12 +56,12 @@ function finish(stdout: string): void {
   process.stdout.write(stdout, () => process.exit(0));
 }
 
-function startGatewayDetached(): void {
+function startGatewayDetached(harness: string): void {
   if (pinnedGatewayVersion() === null) return;
   const bundle = process.argv[1];
   if (bundle === undefined) return;
   try {
-    const child = spawn(process.execPath, [bundle, '--launch-gateway'], {
+    const child = spawn(process.execPath, [bundle, '--launch-gateway', harness], {
       detached: true,
       stdio: 'ignore',
       env: process.env,
@@ -90,6 +91,7 @@ function pinnedGatewayVersion(): string | null {
 }
 
 async function launchMode(): Promise<void> {
+  const harness = process.argv[3] === 'codex' ? 'codex' : 'claude';
   const pinnedVersion = pinnedGatewayVersion();
   if (pinnedVersion === null) return;
   const env = process.env;
@@ -99,6 +101,7 @@ async function launchMode(): Promise<void> {
     defaultEndpoint: gateway.defaultEndpoint,
     env,
     pinnedVersion,
+    clientId: hooksClientId(harness),
     guideUrl: 'https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md',
   });
 }
@@ -120,7 +123,7 @@ async function main(): Promise<void> {
   const deps = input.oversize === undefined ? {} : { oversize: input.oversize };
   const result = await run(harness, event, input.text, env, {
     ...deps,
-    startGateway: startGatewayDetached,
+    startGateway: () => startGatewayDetached(harness),
   });
   finish(result.stdout);
 }

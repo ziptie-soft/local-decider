@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { after, before, describe, it } from 'node:test';
 
 import { gatewayConfig } from '../src/gateway-config.ts';
@@ -8,6 +9,11 @@ import { run } from '../src/run.ts';
 
 const URL_OPT = 'CLAUDE_PLUGIN_OPTION_GATEWAY_URL';
 const TOKEN_OPT = 'CLAUDE_PLUGIN_OPTION_GATEWAY_TOKEN';
+const hooksVersion = (
+  JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+    version: string;
+  }
+).version;
 
 describe('gatewayConfig', () => {
   it('defaults to the local gateway with no token', () => {
@@ -136,7 +142,7 @@ describe('hook runner with plugin options', () => {
     assert.deepEqual(res, { stdout: '', exitCode: 0 });
     assert.equal(seen[0]?.url, `${base}/v1/decide/command-risk`);
     assert.equal(seen[0]?.headers['authorization'], 'Bearer opt-token');
-    assert.equal(seen[0]?.headers['x-local-decider-client'], 'claude-hooks/1.0.0');
+    assert.equal(seen[0]?.headers['x-local-decider-client'], `claude-hooks/${hooksVersion}`);
   });
 
   it('never sends LOCAL_DECIDER_TOKEN to the option URL', async () => {

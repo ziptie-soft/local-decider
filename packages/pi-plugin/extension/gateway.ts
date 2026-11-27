@@ -29,6 +29,7 @@ export interface DecideReply {
 
 export interface GatewayOptions {
   readonly url: string;
+  readonly clientId?: string;
   readonly defaultEndpoint?: boolean;
   readonly env?: NodeJS.ProcessEnv;
   /** Bearer token; sent only over https or to a loopback host, never logged. */
@@ -143,7 +144,7 @@ export function createGateway(options: GatewayOptions): Gateway {
     if (baseUrl === null) return null;
     try {
       const headers: Record<string, string> = { accept: 'application/json' };
-      headers['x-local-decider-client'] = 'pi/1.0.0';
+      headers['x-local-decider-client'] = options.clientId ?? 'pi/0.0.0';
       if (body !== undefined) headers['content-type'] = 'application/json';
       if (token !== undefined) headers['authorization'] = `Bearer ${token}`;
       const res = await doFetch(`${baseUrl}${path}`, {

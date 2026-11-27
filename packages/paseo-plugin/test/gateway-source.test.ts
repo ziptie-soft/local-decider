@@ -28,7 +28,7 @@ describe('gatewaySource', () => {
     assert.ok(firstBuild !== undefined);
     assert.equal(firstBuild.reportToken, undefined);
     assert.equal(firstBuild.controlToken, undefined);
-    assert.equal(firstBuild.clientId, 'paseo/3.1.1');
+    assert.equal(firstBuild.clientId, 'paseo/0.0.0');
     assert.equal(typeof firstBuild.fetch, 'function');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'control-token'), 'truncated');
@@ -42,6 +42,20 @@ describe('gatewaySource', () => {
     assert.equal(builds[1]?.controlToken, control);
     assert.equal(source('http://127.0.0.1:8765'), rebuilt);
     assert.equal(builds.length, 2);
+  });
+
+  it('uses an explicit client identity when configured', () => {
+    const builds: GatewayOptions[] = [];
+    const source = gatewaySource({
+      log: () => {},
+      clientId: 'paseo/3.1.1',
+      create: (options) => {
+        builds.push(options ?? {});
+        return fakeGateway(() => null);
+      },
+    });
+    source('http://127.0.0.1:8765');
+    assert.equal(builds[0]?.clientId, 'paseo/3.1.1');
   });
 
   it('re-reads local tokens after a 401 invalidates the cached gateway', () => {
