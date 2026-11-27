@@ -59,6 +59,27 @@ describe('toolchain discovery', () => {
     assert.deepEqual([entry.source, entry.effective], ['path', system]);
   });
 
+  it('finds uv outside PATH where its installers and mise put it, PATH first', () => {
+    const paths = tempPaths();
+    const config = parseConfig({});
+    const home = join(paths.data, 'home');
+    const env = { PATH: '', HOME: home };
+    assert.equal(resolveEntry('tools.uv', config, paths, env).source, 'missing');
+    const shim = executable(join(home, '.local', 'share', 'mise', 'shims', 'uv'));
+    const found = resolveEntry('tools.uv', config, paths, env);
+    assert.deepEqual([found.source, found.effective, found.ok], ['default', shim, true]);
+    const local = executable(join(home, '.local', 'bin', 'uv'));
+    assert.equal(resolveEntry('tools.uv', config, paths, env).effective, local);
+    const bin = join(paths.data, 'bin');
+    const system = executable(join(bin, 'uv'));
+    const onPath = resolveEntry('tools.uv', config, paths, { ...env, PATH: bin });
+    assert.deepEqual([onPath.source, onPath.effective], ['path', system]);
+    const custom = join(paths.data, 'mise-data');
+    const moved = executable(join(custom, 'shims', 'uv'));
+    const relocated = { PATH: '', HOME: join(paths.data, 'nobody'), MISE_DATA_DIR: custom };
+    assert.equal(resolveEntry('tools.uv', config, paths, relocated).effective, moved);
+  });
+
   it('reports missing tools and sets model-store env only for overrides', () => {
     const paths = tempPaths();
     const entry = resolveEntry('tools.uv', parseConfig({}), paths, { PATH: '' });

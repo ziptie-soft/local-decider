@@ -68,6 +68,28 @@ export function onPath(name: string, env: NodeJS.ProcessEnv): string | undefined
   return undefined;
 }
 
+/**
+ * Where uv's installers and version managers put it, for a gateway started by systemd or launchd
+ * with a bare PATH: `$XDG_BIN_HOME` and `~/.local/bin` (the standalone installer), `~/.cargo/bin`
+ * (older installers, cargo) and the mise shims. Read from `env` only, so tests stay hermetic.
+ */
+function uvLocations(env: NodeJS.ProcessEnv): string[] {
+  const home = env['HOME'];
+  const dataHome =
+    env['XDG_DATA_HOME'] ?? (home === undefined ? undefined : join(home, '.local', 'share'));
+  const miseData =
+    env['MISE_DATA_DIR'] ?? (dataHome === undefined ? undefined : join(dataHome, 'mise'));
+  const dirs = [
+    env['XDG_BIN_HOME'],
+    home === undefined ? undefined : join(home, '.local', 'bin'),
+    home === undefined ? undefined : join(home, '.cargo', 'bin'),
+    miseData === undefined ? undefined : join(miseData, 'shims'),
+  ];
+  return dirs
+    .filter((d): d is string => d !== undefined && isAbsolute(d))
+    .map((d) => join(d, 'uv'));
+}
+
 function hfDefault(env: NodeJS.ProcessEnv): string {
   if (env['HF_HUB_CACHE'] !== undefined) {
     return env['HF_HUB_CACHE'];
@@ -109,7 +131,10 @@ const DEFS: Readonly<Record<PathKey, PathDef>> = {
     kind: 'executable',
     tool: 'uv',
     installUrl: 'https://docs.astral.sh/uv/getting-started/installation/',
-    auto: (_paths, env) => [['path', onPath('uv', env)]],
+    auto: (_paths, env) => [
+      ['path', onPath('uv', env)],
+      ...uvLocations(env).map((p): [PathSource, string] => ['default', p]),
+    ],
   },
   'dirs.flmModels': {
     label: 'FastFlowLM models',
