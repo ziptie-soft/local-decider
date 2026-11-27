@@ -5,6 +5,7 @@ import { engineLoad, setLifecycle } from '../server/engines.ts';
 import {
   engineStateNote,
   engineStateSentence,
+  clampIdleMinutes,
   idleHint,
   idleOptions,
   idleValue,
@@ -141,6 +142,18 @@ describe('unload when idle', () => {
     assert.deepEqual(parseIdleValue('never'), { lifecycle: 'eager' });
     assert.deepEqual(parseIdleValue('60'), { lifecycle: 'lazy', idleUnloadMinutes: 60 });
     assert.deepEqual(parseIdleValue('junk'), { lifecycle: 'lazy', idleUnloadMinutes: 15 });
+  });
+
+  it('keeps idle minutes to whole minutes from 1 to 1440', () => {
+    assert.equal(clampIdleMinutes(0), 1);
+    assert.equal(clampIdleMinutes(99999), 1440);
+    assert.equal(clampIdleMinutes(7.6), 8);
+    assert.equal(idleValue('lazy', 5000), '1440');
+    assert.equal(labels(5000).at(-2), 'After 1440 min');
+    assert.equal(labels(0)[0], 'After 1 min');
+    assert.deepEqual(parseIdleValue('9999'), { lifecycle: 'lazy', idleUnloadMinutes: 1440 });
+    assert.deepEqual(parseIdleValue('-3'), { lifecycle: 'lazy', idleUnloadMinutes: 1 });
+    assert.deepEqual(parseIdleValue('x'), { lifecycle: 'lazy', idleUnloadMinutes: 15 });
   });
 
   it('explains each choice', () => {

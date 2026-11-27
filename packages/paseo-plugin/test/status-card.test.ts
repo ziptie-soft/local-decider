@@ -81,13 +81,20 @@ const row = (
   s: Record<string, unknown> | undefined,
   c: EngineCatalog | undefined,
   busy: string | null = null,
+  catalogFailed = false,
 ): ReturnType<typeof defaultModelRow> =>
-  defaultModelRow({ status: s === undefined ? undefined : status(s), catalog: c, busy });
+  defaultModelRow({
+    status: s === undefined ? undefined : status(s),
+    catalog: c,
+    catalogFailed,
+    busy,
+  });
 
 describe('defaultModelRow', () => {
   it('names the model and says it is loaded, with Unload', () => {
     assert.deepEqual(row({}, catalog()), {
       hint: `${NAME}. Loaded.`,
+      error: null,
       action: 'unload',
       actionLabel: 'Unload',
       disabled: false,
@@ -105,12 +112,17 @@ describe('defaultModelRow', () => {
     assert.equal(r.hint, `${NAME}. Not loaded; press Load now.`);
   });
 
-  it('shows Loading… and disables the button while it starts or loads', () => {
+  it('offers Cancel loading while it starts, and Loading… while a load request runs', () => {
     const starting = row({ engineState: 'starting' }, catalog({ state: 'starting' }));
     assert.equal(starting.hint, `${NAME}. Loading…`);
-    assert.deepEqual([starting.actionLabel, starting.disabled], ['Loading…', true]);
+    assert.deepEqual(
+      [starting.action, starting.actionLabel, starting.disabled],
+      ['unload', 'Cancel loading', false],
+    );
     const busy = row({ engineState: 'stopped' }, catalog({ state: 'stopped' }), 'load');
     assert.deepEqual([busy.actionLabel, busy.disabled], ['Loading…', true]);
+    const cancelling = row({ engineState: 'starting' }, catalog({ state: 'starting' }), 'unload');
+    assert.deepEqual([cancelling.actionLabel, cancelling.disabled], ['Unloading…', true]);
   });
 
   it('shows Unloading… while an unload runs', () => {
@@ -128,10 +140,13 @@ describe('defaultModelRow', () => {
     assert.equal(r.hint, `${NAME}. Benchmarking (3 of 6)`);
   });
 
-  it('says a failed engine failed, with why', () => {
-    const r = row({ engineState: 'failed', detail: 'NPU busy' }, catalog({ state: 'failed' }));
-    assert.equal(r.hint, `${NAME}. Failed: NPU busy.`);
-    assert.equal(r.action, 'load');
+  it('keeps a failed model name in the hint, why in the error, and Load now as a retry', () => {
+    const r = row({ engineState: 'failed', detail: 'NPU busy.' }, catalog({ state: 'failed' }));
+    assert.equal(r.hint, 'd3 nano on NPU · NPU (FLM)');
+    assert.equal(r.error, 'Failed to load: NPU busy');
+    assert.deepEqual([r.action, r.actionLabel, r.disabled], ['load', 'Load now', false]);
+    const bare = row({ engineState: 'failed' }, catalog({ state: 'failed' }));
+    assert.equal(bare.error, 'Failed to load: no detail from the gateway');
   });
 
   it('falls back to the catalog state when health has none', () => {
@@ -153,6 +168,14 @@ describe('defaultModelRow', () => {
     const r = row({ up: false, engineState: null }, catalog());
     assert.equal(r.hint, 'Unknown while the gateway is not running.');
     assert.deepEqual([r.action, r.actionLabel, r.disabled], ['load', 'Load now', true]);
+  });
+
+  it('says the models are unknown when the engines request failed, not Checking…', () => {
+    const r = row({}, undefined, null, true);
+    assert.equal(r.hint, 'Unknown: the gateway did not list its models.');
+    assert.equal(r.disabled, true);
+    const unreachable = row({}, parseEngineCatalog(null));
+    assert.equal(unreachable.hint, 'Unknown: the gateway did not list its models.');
   });
 
   it('checks while the status or the engines are pending', () => {

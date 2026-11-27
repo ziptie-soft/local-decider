@@ -31,21 +31,28 @@ export function gatewayRow(status: StatusLike | undefined): { label: string; hin
 export interface DefaultModelRowInput {
   /** The gateway's status check; undefined before the first answer. */
   readonly status: StatusLike | undefined;
-  /** The engines catalog; undefined while it loads. */
+  /** The engines catalog; undefined while it loads or when the request failed. */
   readonly catalog: EngineCatalog | undefined;
+  /** The engines request failed: do not keep saying `Checking…`. */
+  readonly catalogFailed: boolean;
   /** The action running now (`load`, `unload`, `lifecycle`), or null. */
   readonly busy: string | null;
 }
 
 export interface DefaultModelRow {
   readonly hint: string;
+  /** The row's error text: a model that failed to load. */
+  readonly error: string | null;
   readonly actionLabel: string;
-  /** What the button does: load the model, or unload it. */
+  /** What the button does: load the model, or unload (which also cancels a load). */
   readonly action: 'load' | 'unload';
   readonly disabled: boolean;
 }
 
 const NO_MODEL_HINT = 'None yet. Choose one under Models; until then every decision is skipped.';
+
+/** What the row says when the gateway is up but gave no model list. */
+export const MODELS_UNKNOWN_HINT = 'Unknown: the gateway did not list its models.';
 
 /** The state the sentence describes: health is the live source, the catalog adds the lifecycle. */
 function stateSentence(status: StatusLike, catalog: EngineCatalog): string {
@@ -60,18 +67,10 @@ function stateSentence(status: StatusLike, catalog: EngineCatalog): string {
   });
 }
 
-function hintOf(status: StatusLike | undefined, catalog: EngineCatalog | undefined): string {
-  if (status === undefined || (status.up && catalog === undefined)) {
-    return 'Checking…';
-  }
-  if (!status.up) {
-    return 'Unknown while the gateway is not running.';
-  }
-  if (catalog === undefined || !catalog.reachable) {
-    return 'Unknown: the gateway did not list its engines.';
-  }
-  const name = defaultModelName(catalog);
-  return name === null ? NO_MODEL_HINT : `${name}. ${stateSentence(status, catalog)}`;
+/** `Failed to load: {detail}`; the gateway's detail, without its closing full stop. */
+function failureText(status: StatusLike, catalog: EngineCatalog): string {
+  const detail = status.detail ?? catalog.active?.detail ?? 'no detail from the gateway';
+  return `Failed to load: ${detail.endsWith('.') ? detail.slice(0, -1) : detail}`;
 }
 
 /** The state the buttons act on; a stale catalog must not offer Unload while the gateway is down. */
@@ -82,17 +81,59 @@ function liveState(
   return status?.up === true ? (status.engineState ?? catalog?.active?.state ?? null) : null;
 }
 
+function missingHint(
+  status: StatusLike | undefined,
+  catalog: EngineCatalog | undefined,
+  failed: boolean,
+): string | null {
+  if (status === undefined || (status.up && catalog === undefined && !failed)) {
+    return 'Checking…';
+  }
+  if (!status.up) {
+    return 'Unknown while the gateway is not running.';
+  }
+  return catalog === undefined || !catalog.reachable ? MODELS_UNKNOWN_HINT : null;
+}
+
+/** The hint and the error text of the row: a failed model keeps its name and moves why to `error`. */
+function textOf(i: DefaultModelRowInput): { hint: string; error: string | null } {
+  const { status, catalog } = i;
+  const missing = missingHint(status, catalog, i.catalogFailed);
+  if (missing !== null || status === undefined || catalog === undefined) {
+    return { hint: missing ?? 'Checking…', error: null };
+  }
+  const name = defaultModelName(catalog);
+  if (name === null) {
+    return { hint: NO_MODEL_HINT, error: null };
+  }
+  if (liveState(status, catalog) === 'failed') {
+    return { hint: name, error: failureText(status, catalog) };
+  }
+  return { hint: `${name}. ${stateSentence(status, catalog)}`, error: null };
+}
+
+/** The button: Unload when loaded, Cancel loading while it starts, Load now otherwise (retry too). */
+function buttonOf(
+  state: string | null,
+  busy: string | null,
+): Pick<DefaultModelRow, 'action' | 'actionLabel'> {
+  if (state === 'ready' || state === 'starting') {
+    const label = state === 'ready' ? 'Unload' : 'Cancel loading';
+    return { action: 'unload', actionLabel: busy === 'unload' ? 'Unloading…' : label };
+  }
+  return { action: 'load', actionLabel: busy === 'load' ? 'Loading…' : 'Load now' };
+}
+
 /** The Default model row: its model, its state, and the button that loads or unloads it. */
 export function defaultModelRow(i: DefaultModelRowInput): DefaultModelRow {
   const { status, catalog, busy } = i;
   const chosen = catalog?.active?.engine != null && catalog.active.model != null;
-  const hint = hintOf(status, catalog);
+  const button = buttonOf(liveState(status, catalog), busy);
   const blocked = status?.up !== true || busy !== null || !chosen;
-  if (liveState(status, catalog) === 'ready') {
-    const label = busy === 'unload' ? 'Unloading…' : 'Unload';
-    return { hint, action: 'unload', actionLabel: label, disabled: blocked };
-  }
-  const loading = busy === 'load' || liveState(status, catalog) === 'starting';
-  const label = loading ? 'Loading…' : 'Load now';
-  return { hint, action: 'load', actionLabel: label, disabled: blocked || loading };
+  return {
+    ...textOf(i),
+    action: button.action,
+    actionLabel: button.actionLabel,
+    disabled: blocked,
+  };
 }
