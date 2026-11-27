@@ -34,11 +34,11 @@ Run `paseo plugin ls` and check that `local-decider` shows `running`. Upgrade wi
 `paseo plugin update local-decider`; after pulling a local checkout, use
 `paseo plugin reload local-decider`.
 
-Then open **Settings → Local decider**. The **Engine and model** section has three blocks:
+Then open **Settings → Local decider**. The **Models** section has three blocks:
 **Recommended for this machine** (the model family you use, on its fastest runtime),
 **Benchmark this machine** (times every installed model and runtime; decisions are passed to you
 while it runs, your setup comes back afterwards, and results are from this machine only) and
-**Advanced: engine, device and model** (collapsed). Also choose each policy's mode and control
+**All engines and models** (collapsed). Also choose each policy's mode and control
 the gateway service. What each setting does, and how the recommendation is chosen:
 [OVERVIEW.md](OVERVIEW.md). The engines come from the gateway; see
 [docs/engines.md](https://github.com/ziptie-soft/local-decider/blob/master/docs/engines.md).

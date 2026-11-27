@@ -542,8 +542,7 @@ describe('modelRowHint', () => {
   });
 
   it('8: says a model without a fresh benchmark has an unknown speed', () => {
-    const text =
-      'Not benchmarked here, so its speed is unknown. Benchmark it under Engine and model.';
+    const text = 'Not benchmarked here, so its speed is unknown. Benchmark it under Models.';
     assert.equal(hint(entry('command-risk', selectionOf('llama-vulkan', 'bare'))), text);
     assert.equal(hint(entry('command-risk', selectionOf('llama-vulkan', 'stale'))), text);
     assert.equal(

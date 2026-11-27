@@ -432,8 +432,7 @@ const OTHER_RULES: readonly Rule[] = [
   {
     id: 'not-benchmarked',
     applies: (f) => f.mode !== 'off' && f.target !== null && f.p50 === null,
-    text: () =>
-      'Not benchmarked here, so its speed is unknown. Benchmark it under Engine and model.',
+    text: () => 'Not benchmarked here, so its speed is unknown. Benchmark it under Models.',
   },
   {
     id: 'off',
@@ -632,6 +631,14 @@ export function moreModelsCount(catalog: EngineCatalog): number {
   return catalog.models.filter(
     (m) => !m.installed && m.downloadGb !== null && m.fits && engineAvailable(catalog, m.engine),
   ).length;
+}
+
+/** The disclosure that lists every engine and model, with how many are not downloaded yet. */
+export function allModelsTitle(catalog: EngineCatalog): string {
+  const count = moreModelsCount(catalog);
+  return count > 0
+    ? `All engines and models · ${String(count)} not downloaded`
+    : 'All engines and models';
 }
 
 /** What the Default model card shows. */
