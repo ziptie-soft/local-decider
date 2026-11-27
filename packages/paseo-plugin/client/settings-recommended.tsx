@@ -7,6 +7,7 @@ import { SettingsCard, SettingsRow } from '@getpaseo/plugin/client/ui';
 import { useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
 
+import { runningName } from '../shared/decision-models.ts';
 import type { Download } from '../shared/engines.ts';
 import type { EngineCatalog } from '../shared/engines.ts';
 import { fallbackLine, namesOf, runningView } from '../shared/recommendation.ts';
@@ -47,26 +48,6 @@ function familyText(card: Card, catalog: EngineCatalog): string {
 function targetWord(catalog: EngineCatalog, a: CardAction): string {
   const t = a.target;
   return t === null ? 'this runtime' : runtimeName(catalog, { ...t, backend: null });
-}
-
-/** `d3 lite on NPU · 4-bit Q4_K_M`, else `FastFlowLM · d3:lite` when the model is unknown. */
-function runningName(catalog: EngineCatalog): string | null {
-  const a = catalog.active;
-  if (a?.engine == null) {
-    return null;
-  }
-  const model = catalog.models.find((m) => m.engine === a.engine && m.id === a.model);
-  const engine = catalog.engines.find((e) => e.id === a.engine)?.label ?? a.engine;
-  if (model?.family == null) {
-    return a.model === null ? engine : `${engine} · ${a.model}`;
-  }
-  const where = runtimeName(catalog, {
-    engine: a.engine,
-    device: a.resolvedDevice ?? a.device,
-    backend: a.backend,
-  });
-  const format = model.format === null ? '' : ` · ${model.format.label}`;
-  return `${model.family.label} on ${where}${format}`;
 }
 
 /** What is running now, with its state, and a note while a backup engine stands in. */

@@ -430,7 +430,7 @@ export interface ModelRowView {
   readonly action: 'use' | 'download' | null;
 }
 
-function gb(value: number): string {
+export function gb(value: number): string {
   return `${Number.isInteger(value) ? String(value) : value.toFixed(1)} GB`;
 }
 
