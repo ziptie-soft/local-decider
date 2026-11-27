@@ -20,6 +20,21 @@
         {
           "type": "generic",
           "path": "src/version.ts"
+        },
+        {
+          "type": "json",
+          "path": "/packages/pi-plugin/package.json",
+          "jsonpath": "$.localDecider.gateway"
+        },
+        {
+          "type": "json",
+          "path": "/packages/paseo-plugin/package.json",
+          "jsonpath": "$.localDecider.gateway"
+        },
+        {
+          "type": "json",
+          "path": "/plugins/local-decider/package.json",
+          "jsonpath": "$.localDecider.gateway"
         }
       ]
     },
