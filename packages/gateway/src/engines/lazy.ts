@@ -28,6 +28,7 @@ export class ManagedEngine implements Engine {
   #loading: Promise<void> | undefined;
   #timer: NodeJS.Timeout | undefined;
   #unloadedIdle = false;
+  #retired = false;
   #inFlight = 0;
   readonly #drainWaiters: (() => void)[] = [];
 
@@ -63,7 +64,7 @@ export class ManagedEngine implements Engine {
   setLifecycle(options: LifecycleOptions): void {
     this.#options = options;
     this.#arm();
-    if (options.lifecycle === 'eager') {
+    if (options.lifecycle === 'eager' && !this.#retired) {
       void this.load();
     }
   }
@@ -76,6 +77,9 @@ export class ManagedEngine implements Engine {
   }
 
   load(): Promise<void> {
+    if (this.#retired) {
+      return Promise.reject(new EngineError('engine retired'));
+    }
     const state = this.#inner.health().state;
     if (state === 'ready') {
       return Promise.resolve();
@@ -102,6 +106,9 @@ export class ManagedEngine implements Engine {
 
   health(): EngineHealth {
     const inner = this.#inner.health();
+    if (this.#retired) {
+      return { ...inner, state: 'stopped', detail: 'retired' };
+    }
     if (inner.state === 'stopped' && this.#options.lifecycle === 'lazy') {
       const why = this.#unloadedIdle
         ? `unloaded after ${String(this.#options.idleUnloadMinutes)} min idle; `
@@ -113,6 +120,7 @@ export class ManagedEngine implements Engine {
 
   /** Wait until the engine answers; loads it first when it is stopped. */
   async ensureReady(signal: AbortSignal): Promise<void> {
+    this.#assertNotRetired();
     const state = this.#inner.health().state;
     if (state === 'ready') {
       return;
@@ -126,6 +134,13 @@ export class ManagedEngine implements Engine {
         throw new EngineError(`engine failed: ${this.#inner.health().detail ?? 'unknown'}`);
       }
       await sleep(100, undefined, { signal });
+      this.#assertNotRetired();
+    }
+  }
+
+  #assertNotRetired(): void {
+    if (this.#retired) {
+      throw new EngineError('engine retired');
     }
   }
 
@@ -179,9 +194,24 @@ export class ManagedEngine implements Engine {
     await this.#inner.stop();
   }
 
+  /**
+   * Stop the engine for good: it never loads again, so a lane that was swapped out cannot be
+   * revived by a late decision. A load in flight finishes first, then the engine stops.
+   */
+  async retire(): Promise<void> {
+    this.#retired = true;
+    clearTimeout(this.#timer);
+    // Does not drain in-flight decisions: the caller (retireLane) drains first.
+    await this.#loading?.catch(() => undefined);
+    await this.#inner.stop();
+  }
+
   /** (Re)start the idle timer; only lazy engines unload, and never while a decision runs. */
   #arm(): void {
     clearTimeout(this.#timer);
+    if (this.#retired) {
+      return;
+    }
     if (this.#options.lifecycle !== 'lazy' || this.#inFlight > 0) {
       return;
     }
