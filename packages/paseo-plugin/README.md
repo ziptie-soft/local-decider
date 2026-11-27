@@ -40,8 +40,9 @@ Run `paseo plugin ls` and check that `local-decider` shows `running`. Upgrade wi
 
 Then open **Settings → Local decider**. The **Models** section has three blocks:
 **Recommended for this machine** (the model family you use, on its fastest runtime),
-**Benchmark this machine** (times every installed model and runtime; decisions are passed to you
-while it runs, your setup comes back afterwards, and results are from this machine only) and
+**Benchmark** (a table of decision times for each installed model on each processor; decisions
+are passed to you while it runs, your setup comes back afterwards, and results are from this
+machine only) and
 **All engines and models** (collapsed). Also choose each policy's mode and control
 the gateway service. What each setting does, and how the recommendation is chosen:
 [OVERVIEW.md](OVERVIEW.md). The engines come from the gateway; see
