@@ -11,10 +11,8 @@ import {
   linkSync,
   mkdirSync,
   mkdtempSync,
-  fstatSync,
   lstatSync,
   openSync,
-  readFileSync,
   readdirSync,
   rmSync,
   unlinkSync,
@@ -25,8 +23,8 @@ import { basename, dirname, join } from 'node:path';
 import type { LogCounters } from './counters.ts';
 import type { LogStore } from './log-store.ts';
 import { ALLOW_VETO_REPLAY_MS } from './outcome-labels.ts';
+import { acquireOwnerLock, releaseOwnerLock, type OwnerLock } from './owner-lock.ts';
 import type { Paths } from './paths.ts';
-import { processStartToken } from './process-start.ts';
 import { pruneDatabase } from './sqlite-prune.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -80,13 +78,6 @@ interface PendingWrite {
   readonly decision?: ShadowRecord;
 }
 
-interface Lock {
-  readonly path: string;
-  readonly fd: number;
-  readonly dev: number;
-  readonly ino: number;
-}
-
 export interface OpenLogOptions {
   readonly readOnly?: boolean;
   /** Writers hold this pid lock file so a second gateway cannot open the same database. */
@@ -96,7 +87,7 @@ export interface OpenLogOptions {
 /** The single durable store, backed by `node:sqlite`. */
 export class SqliteLog implements LogStore {
   readonly #database: Database;
-  readonly #lock: Lock | undefined;
+  readonly #lock: OwnerLock | undefined;
   readonly #statements = new Map<string, Statement>();
   #pending: PendingWrite[] = [];
   readonly #pendingDecisions = new Map<string, ShadowRecord>();
@@ -110,7 +101,7 @@ export class SqliteLog implements LogStore {
   #pruning: Promise<number> | undefined;
   #closed = false;
 
-  constructor(database: Database, lock?: Lock) {
+  constructor(database: Database, lock?: OwnerLock) {
     this.#database = database;
     this.#lock = lock;
   }
@@ -598,13 +589,13 @@ export function openLogStore(
 
 function openDatabase(Db: DatabaseConstructor, file: string, options: OpenLogOptions): SqliteLog {
   const readOnly = options.readOnly === true;
-  let lock: Lock | undefined;
+  let lock: OwnerLock | undefined;
   let database: Database | undefined;
   try {
     if (!readOnly) {
       mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
       chmodSync(dirname(file), 0o700);
-      lock = options.lockPath === undefined ? undefined : acquireLock(options.lockPath);
+      lock = options.lockPath === undefined ? undefined : acquireOwnerLock(options.lockPath);
       createPrivateFile(file);
     }
     database = new Db(file, { allowExtension: false, readOnly, timeout: 2000 });
@@ -866,113 +857,8 @@ function createPrivateFile(file: string): void {
   chmodSync(file, 0o600);
 }
 
-function acquireLock(path: string): Lock {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const fd = openSync(path, 'wx', 0o600);
-      try {
-        writeFileSync(fd, lockContent());
-        const { dev, ino } = fstatSync(fd);
-        return { path, fd, dev, ino };
-      } catch (error) {
-        closeSync(fd);
-        unlinkSync(path);
-        throw error;
-      }
-    } catch (error) {
-      if (!isExistsError(error) || !removeStaleLock(path)) {
-        throw new Error(`SQLite database is locked by another writer (${path})`, { cause: error });
-      }
-    }
-  }
-  throw new Error(`SQLite database is locked by another writer (${path})`);
-}
-
-/** `<pid>` and, where the platform allows, `<start token>` of this process, one per line. */
-function lockContent(): string {
-  const start = processStartToken(process.pid);
-  return `${String(process.pid)}\n${start === undefined ? '' : `${start}\n`}`;
-}
-
-interface LockSnapshot {
-  readonly content: string;
-  readonly dev: number;
-  readonly ino: number;
-}
-
-/** Read the lock through one descriptor, so the identity and the content belong together. */
-function readLock(path: string): LockSnapshot {
-  const fd = openSync(path, 'r');
-  try {
-    const { dev, ino } = fstatSync(fd);
-    return { content: readFileSync(fd, 'utf8'), dev, ino };
-  } finally {
-    closeSync(fd);
-  }
-}
-
-/** A lock is live only if its pid runs and, when a start token was recorded, still matches it. */
-function lockHolderIsLive(content: string): boolean {
-  const [pidLine, recordedStart] = content.split('\n');
-  const pid = Number.parseInt(pidLine ?? '', 10);
-  if (!Number.isInteger(pid) || !processIsAlive(pid)) {
-    return !Number.isInteger(pid);
-  }
-  if (recordedStart === undefined || recordedStart === '') {
-    return true;
-  }
-  const current = processStartToken(pid);
-  return current === undefined || current === recordedStart;
-}
-
-function removeStaleLock(path: string): boolean {
-  try {
-    const before = readLock(path);
-    if (lockHolderIsLive(before.content)) {
-      return false;
-    }
-    const after = readLock(path);
-    if (before.content !== after.content || before.dev !== after.dev || before.ino !== after.ino) {
-      return false;
-    }
-    unlinkSync(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function processIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
-function releaseLock(lock: Lock | undefined): void {
-  if (lock === undefined) {
-    return;
-  }
-  try {
-    closeSync(lock.fd);
-  } catch {
-    // The descriptor may already have been closed during a failed open.
-  }
-  try {
-    const pathStat = lstatSync(lock.path);
-    if (pathStat.dev === lock.dev && pathStat.ino === lock.ino) {
-      unlinkSync(lock.path);
-    }
-  } catch {
-    // A replaced or removed lock belongs to another process and is left alone.
-  }
-}
-
-function isExistsError(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException).code === 'EEXIST';
+function releaseLock(lock: OwnerLock | undefined): void {
+  releaseOwnerLock(lock);
 }
 
 function nullable<T extends SqlValue>(value: T | undefined): T | null {

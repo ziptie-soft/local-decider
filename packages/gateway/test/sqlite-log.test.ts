@@ -570,9 +570,9 @@ describe('SqliteLog', () => {
       writeFileSync(lockPath, `${String(process.pid)}\n${start}-recycled\n`, { mode: 0o600 });
       const log = SqliteLog.open(file, { lockPath });
       try {
-        const [pid, recorded] = readFileSync(lockPath, 'utf8').split('\n');
-        assert.equal(pid, String(process.pid));
-        assert.equal(recorded, start);
+        const owner = JSON.parse(readFileSync(lockPath, 'utf8')) as { pid: number; start: string };
+        assert.equal(owner.pid, process.pid);
+        assert.equal(owner.start, start);
       } finally {
         log.close();
       }
