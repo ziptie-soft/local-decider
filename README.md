@@ -140,6 +140,11 @@ Requirements:
 
 The commands below are fish-compatible. [docs/install.md](docs/install.md) has every option.
 
+Setting up with an AI agent? Point it at the guide for your harness:
+[Claude Code](docs/install-claude.ai.md), [Codex](docs/install-codex.ai.md),
+[pi](docs/install-pi.ai.md) or [Paseo](docs/install-paseo.ai.md).
+[setup-engines.ai.md](docs/setup-engines.ai.md) covers the engine.
+
 ### 1. Gateway and engine
 
 ```sh
@@ -385,6 +390,7 @@ Latency of one 4-option question, measured at the client (p50):
 ## Documentation
 
 - [Install and try it](docs/install.md)
+- Agent install guides: [Claude Code](docs/install-claude.ai.md), [Codex](docs/install-codex.ai.md), [pi](docs/install-pi.ai.md), [Paseo](docs/install-paseo.ai.md), [engines](docs/setup-engines.ai.md)
 - [Architecture](docs/architecture.md)
 - [Engines](docs/engines.md): the engine table, adding an engine or model, macOS notes
 - [Models](docs/models.md): every decider model, what it is good at, the recommended defaults, and
