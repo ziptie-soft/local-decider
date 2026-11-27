@@ -125,6 +125,30 @@ export const policyModeInputSchema = z.object({
   mode: z.enum(PLUGIN_MODES),
 });
 
+/**
+ * Input of `policySelectionRpc`: a decision's own model, or `{clear: true}` for the default
+ * model. The gateway validates the engine and model.
+ */
+export const policySelectionInputSchema = z.object({
+  policy: z.enum(GATEWAY_POLICIES),
+  selection: z.union([
+    z.strictObject({
+      engine: z.string().min(1).max(300),
+      model: z.string().min(1).max(300),
+      /** `auto` keeps the engine's own device. */
+      device: z
+        .string()
+        .regex(/^[a-z0-9_-]{1,32}$/)
+        .optional(),
+      /** Send the current one when changing the model, or the gateway resets it to `default`. */
+      fallback: z.enum(['default', 'open']).optional(),
+    }),
+    z.strictObject({ clear: z.literal(true) }),
+  ]),
+});
+
+export type PolicySelectionInput = z.output<typeof policySelectionInputSchema>;
+
 /** The gateway's run mode of every decision kind it lists. */
 export function parsePolicyModes(body: unknown): PolicyModes {
   const entries = parseEntries(Array.isArray(body) ? body : []);

@@ -19,6 +19,7 @@ import {
 } from './machine.ts';
 import { bool, fields, items, MAX_TEXT, num, str } from './parse.ts';
 import { httpsUrl, parsePaths, pathEntrySchema } from './paths.ts';
+import { parsePolicyModels, policyModelSchema, policyModelsStarting } from './policy-models.ts';
 import {
   AUTO_ENGINE,
   AUTO_OPTION_LABEL,
@@ -158,6 +159,11 @@ export const engineCatalogSchema = z.object({
   paths: z.array(pathEntrySchema),
   /** False for a remote gateway: paths are shown but cannot be changed. */
   pathsEditable: z.boolean(),
+  /**
+   * The decisions with a model of their own; one absent from the list uses the default model.
+   * Undefined from a gateway that predates per-decision models.
+   */
+  policies: z.array(policyModelSchema).optional().catch(undefined),
 });
 
 export type Validation = z.output<typeof validationSchema>;
@@ -313,10 +319,14 @@ export function parseEngineCatalog(body: unknown): EngineCatalog {
     downloads: list(v?.['downloads'], parseDownload),
     paths: parsePaths(v?.['paths']),
     pathsEditable: v?.['pathsEditable'] === true,
+    policies: parsePolicyModels(v?.['policies']),
   };
 }
 
-/** Poll `GET /v1/engines` while a download runs or a model loads; stop once nothing does. */
+/**
+ * Poll `GET /v1/engines` while a download runs or a model loads (the default model, or a
+ * decision's own); stop once nothing does.
+ */
 export const ENGINES_POLL_MS = 2500;
 
 export function enginesPollInterval(catalog: EngineCatalog | undefined): number | false {
@@ -324,7 +334,9 @@ export function enginesPollInterval(catalog: EngineCatalog | undefined): number 
     return false;
   }
   const busy =
-    catalog.downloads.some((d) => d.state === 'running') || catalog.active?.state === 'starting';
+    catalog.downloads.some((d) => d.state === 'running') ||
+    catalog.active?.state === 'starting' ||
+    policyModelsStarting(catalog.policies);
   return busy ? ENGINES_POLL_MS : false;
 }
 

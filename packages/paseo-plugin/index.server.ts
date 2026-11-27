@@ -23,6 +23,7 @@ import {
   setLifecycle,
   setSelectionMode,
   setPolicyMode,
+  setPolicySelection,
   setPolicyThresholds,
   setPolicyVariant,
   setPath,
@@ -54,6 +55,7 @@ import {
   lifecycleRpc,
   policyModeRpc,
   policyModesRpc,
+  policySelectionRpc,
   policyThresholdsRpc,
   policyVariantRpc,
   policyVariantsRpc,
@@ -216,6 +218,7 @@ export default function contribute(server: PluginServerContext): () => void {
   server.handle(engineLoadRpc, async ({ action }) => engineLoad(deps, action));
   server.handle(lifecycleRpc, async (input) => setLifecycle(deps, input));
   server.handle(policyModeRpc, async (input) => setPolicyMode(deps, input));
+  server.handle(policySelectionRpc, async (input) => setPolicySelection(deps, input));
   server.handle(policyVariantsRpc, async ({ policy }) => listPolicyVariants(deps, policy));
   server.handle(policyVariantRpc, async (input) => setPolicyVariant(deps, input));
   server.handle(policyModesRpc, async () => listPolicyModes(deps));

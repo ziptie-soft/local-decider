@@ -134,6 +134,10 @@ describe('createGateway (fail open)', () => {
           },
           '/health': () => res.end('{"status":"ok","model":"m","p50Ms":90}'),
           '/v1/outcomes': () => res.end('{}'),
+          '/v1/policies/command-risk/selection': () => {
+            res.statusCode = 409;
+            res.end(JSON.stringify({ error: 'too many decisions with their own model (max 3)' }));
+          },
         };
         const route = routes[req.url ?? ''];
         if (route === undefined) {
@@ -302,6 +306,7 @@ describe('createGateway (fail open)', () => {
       gw?.engineLoad('load'),
       gw?.setLifecycle({ lifecycle: 'lazy' }),
       gw?.setPolicyMode('permission', 'shadow'),
+      gw?.setPolicySelection('permission', { clear: true }),
       gw?.policies(),
       gw?.setPolicyVariant('permission', 'base'),
       gw?.setPolicyThresholds('permission', {}),
@@ -315,8 +320,44 @@ describe('createGateway (fail open)', () => {
       gw?.review(1, 5),
     ]);
     const requests = seen.slice(first);
-    assert.equal(requests.length, 28);
+    assert.equal(requests.length, 29);
     assert.ok(requests.every((request) => request.control === 'control-secret'));
+  });
+
+  it('returns the gateway text of a refused selection, as it is', async () => {
+    const gw = createGateway({ baseUrl: url, controlToken: 'control-secret' });
+    const selection = { engine: 'llama-vulkan', model: 'm', fallback: 'open' as const };
+    assert.deepEqual(await gw?.setPolicySelection('command-risk', selection), {
+      ok: false,
+      error: 'too many decisions with their own model (max 3)',
+    });
+    assert.deepEqual(JSON.parse(seen.at(-1)?.body ?? ''), selection);
+    const other = await gw?.setPolicySelection('routing', selection);
+    assert.deepEqual(other, { ok: false, error: 'boom' });
+  });
+
+  it("posts a decision's own model, or a clear, to its selection route", async () => {
+    const gw = createGateway({ baseUrl: url, controlToken: 'control-secret' });
+    const first = seen.length;
+    await gw?.setPolicySelection('command-risk', {
+      engine: 'llama-vulkan',
+      model: 'd3-lite-q8_0',
+      device: 'auto',
+    });
+    await gw?.setPolicySelection('turn-outcome', { clear: true });
+    await gw?.setPolicySelection('a/b', { clear: true });
+    const [set, clear, escaped] = seen.slice(first);
+    assert.equal(set?.path, '/v1/policies/command-risk/selection');
+    assert.deepEqual(JSON.parse(set?.body ?? ''), {
+      engine: 'llama-vulkan',
+      model: 'd3-lite-q8_0',
+      device: 'auto',
+    });
+    assert.equal(set?.control, 'control-secret');
+    assert.equal(clear?.path, '/v1/policies/turn-outcome/selection');
+    assert.deepEqual(JSON.parse(clear?.body ?? ''), { clear: true });
+    assert.equal(clear?.control, 'control-secret');
+    assert.equal(escaped?.path, '/v1/policies/a%2Fb/selection');
   });
 
   it('reads the review with whole-number bounds, and gets null when it cannot', async () => {

@@ -195,6 +195,8 @@ export function fakeGateway(
     engineLoad: record('engineLoad'),
     setLifecycle: record('setLifecycle'),
     setPolicyMode: record('setPolicyMode'),
+    setPolicySelection: async (policy, selection) =>
+      record('setPolicySelection')({ policy, selection }),
     policies: async () => [
       {
         id: 'permission',

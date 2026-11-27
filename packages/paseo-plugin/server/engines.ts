@@ -27,10 +27,12 @@ import {
   parseRoutingSettings,
   type PolicyModes,
   type PolicyPrompt,
+  type PolicySelectionInput,
   type PolicyThresholds,
   type PolicyVariants,
   type RoutingSettings,
 } from '../shared/policies.ts';
+import { parseSelectionOutcome, type SelectionResult } from '../shared/policy-models.ts';
 import type { HookDeps } from './deps.ts';
 
 type Deps = Pick<HookDeps, 'gateway' | 'log'>;
@@ -258,6 +260,39 @@ export async function setPolicyMode(
     () => null,
   );
   return { ok, error };
+}
+
+/** Control characters and newlines, which must not split or forge a log line. */
+function logText(text: string): string {
+  return text.replaceAll(/\p{Cc}+/gu, ' ').slice(0, 200);
+}
+
+function selectionLabel(selection: PolicySelectionInput['selection']): string {
+  if ('clear' in selection) {
+    return 'the default model';
+  }
+  const device = selection.device === undefined ? '' : ` on ${selection.device}`;
+  return logText(`${selection.engine} ${selection.model}${device}`);
+}
+
+/**
+ * Give decision `policy` its own model, or clear it so the default model answers. The gateway's
+ * refusal (does not fit, engine unavailable, too many models) comes back as `error`; an accepted
+ * model comes back with its `status` and, when it is not answering yet, `reason`.
+ */
+export async function setPolicySelection(
+  deps: Deps,
+  input: PolicySelectionInput,
+): Promise<SelectionResult> {
+  const { selection } = input;
+  const { ok, error, value } = await call(
+    deps,
+    `policy ${input.policy} model ${selectionLabel(selection)}`,
+    // The gateway answers once the lane transition is done.
+    async (gw) => gw.setPolicySelection(input.policy, selection, { timeoutMs: 30_000 }),
+    parseSelectionOutcome,
+  );
+  return { ok, error, ...value };
 }
 
 /** Policy `id` and the variants that can answer for it. */
