@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test --conditions=source --experimental-test-coverage --test-coverage-include='src/**' 'test/**/*.test.ts'",
+    "test": "node --test --import ../../scripts/test-tmpdir.mjs --conditions=source --experimental-test-coverage --test-coverage-include='src/**' 'test/**/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
