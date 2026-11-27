@@ -8,6 +8,7 @@ import {
   clampIdleMinutes,
   idleHint,
   idleOptions,
+  parseIdleMinutes,
   idleValue,
   lifecycleLabel,
   parseIdleValue,
@@ -116,13 +117,14 @@ describe('unload when idle', () => {
     'After 1 hour',
     'After 4 hours',
     'Never (stay loaded)',
+    'Custom…',
   ];
 
-  it('offers the presets, ending with Never', () => {
+  it('offers the presets, then Never and Custom…', () => {
     assert.deepEqual(labels(15), PRESETS);
     assert.deepEqual(
       idleOptions('lazy', 15).map((o) => o.value),
-      ['5', '15', '30', '60', '240', 'never'],
+      ['5', '15', '30', '60', '240', 'never', 'custom'],
     );
   });
 
@@ -135,9 +137,10 @@ describe('unload when idle', () => {
       'After 1 hour',
       'After 4 hours',
       'Never (stay loaded)',
+      'Custom…',
     ]);
     assert.equal(labels(1)[0], 'After 1 min');
-    assert.equal(labels(1440).at(-2), 'After 1440 min');
+    assert.equal(labels(1440).at(-3), 'After 1440 min');
     const options = idleOptions('lazy', 20);
     assert.ok(options.some((o) => o.value === idleValue('lazy', 20)));
   });
@@ -156,12 +159,20 @@ describe('unload when idle', () => {
     assert.deepEqual(parseIdleValue('junk'), { lifecycle: 'lazy', idleUnloadMinutes: 15 });
   });
 
+  it('parses the custom field and clamps it to 1–1440', () => {
+    assert.equal(parseIdleMinutes('45'), 45);
+    assert.equal(parseIdleMinutes(' 0 '), 1);
+    assert.equal(parseIdleMinutes('5000'), 1440);
+    assert.equal(parseIdleMinutes(''), null);
+    assert.equal(parseIdleMinutes('abc'), null);
+  });
+
   it('keeps idle minutes to whole minutes from 1 to 1440', () => {
     assert.equal(clampIdleMinutes(0), 1);
     assert.equal(clampIdleMinutes(99999), 1440);
     assert.equal(clampIdleMinutes(7.6), 8);
     assert.equal(idleValue('lazy', 5000), '1440');
-    assert.equal(labels(5000).at(-2), 'After 1440 min');
+    assert.equal(labels(5000).at(-3), 'After 1440 min');
     assert.equal(labels(0)[0], 'After 1 min');
     assert.deepEqual(parseIdleValue('9999'), { lifecycle: 'lazy', idleUnloadMinutes: 1440 });
     assert.deepEqual(parseIdleValue('-3'), { lifecycle: 'lazy', idleUnloadMinutes: 1 });
