@@ -178,7 +178,11 @@ describe('machine ranking', () => {
     const inactive = machineView(FAMILY, 'default', [option({ active: false })]);
     assert.equal(inactive.action, 'use');
 
-    const fasterFamily = option({ family: 'other-family', measured: measured(50) });
+    const fasterFamily = option({
+      family: 'other-family',
+      measured: measured(50),
+      recommended: true,
+    });
     const compared = machineView(
       FAMILY,
       'default',
@@ -187,5 +191,20 @@ describe('machine ranking', () => {
     );
     assert.equal(compared.fasterFamily?.family, 'other-family');
     assert.equal(compared.fasterFamily?.ratio, 2);
+  });
+
+  it('suggests only recommended families as faster', () => {
+    const unrecommended = option({
+      family: 'other-family',
+      measured: measured(50),
+      recommended: false,
+    });
+    const view = machineView(
+      FAMILY,
+      'default',
+      [option({ measured: measured(100) })],
+      [option({ measured: measured(100) }), unrecommended],
+    );
+    assert.equal(view.fasterFamily, null);
   });
 });
