@@ -48,8 +48,16 @@ import {
   selectionModeRpc,
   validateEngineRpc,
 } from '../shared/rpc.ts';
+import { modelsUnavailableHint } from '../shared/status-card.ts';
 import { ConnectionForm } from './connection-form.tsx';
-import { type Outcome, outcomeOf, useAction, useBenchmark, useEngines } from './hooks.ts';
+import {
+  type Outcome,
+  outcomeOf,
+  useAction,
+  useBenchmark,
+  useEngines,
+  useGatewayStatus,
+} from './hooks.ts';
 import { InstallRow } from './install.tsx';
 import { BenchmarkCard } from './settings-benchmark.tsx';
 import { RecommendedCard } from './settings-recommended.tsx';
@@ -530,6 +538,7 @@ export function EngineSection({
   const { data, isFetching, refetch } = useEngines(gatewayUrl);
   const benchmark = useBenchmark(gatewayUrl, data?.active?.benchmark != null);
   const reachable = data?.reachable === true;
+  const gatewayDown = useGatewayStatus().data?.up === false;
   return (
     <SettingsSection
       title="Models"
@@ -544,7 +553,7 @@ export function EngineSection({
             hint={
               data === undefined
                 ? 'Asking the gateway for its models.'
-                : 'The gateway is not running, or it is too old to list its models.'
+                : modelsUnavailableHint(gatewayDown)
             }
             actionLabel={isFetching ? 'Checking…' : 'Refresh'}
             disabled={isFetching}

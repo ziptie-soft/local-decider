@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { parseEngineCatalog, type EngineCatalog } from '../shared/engines.ts';
-import { defaultModelRow, gatewayRow, type DefaultModelRowInput } from '../shared/status-card.ts';
+import {
+  defaultModelRow,
+  gatewayRow,
+  modelsUnavailableHint,
+  type DefaultModelRowInput,
+} from '../shared/status-card.ts';
 
 type StatusInput = NonNullable<DefaultModelRowInput['status']>;
 
@@ -77,10 +82,10 @@ describe('gatewayRow', () => {
 
   it('says how to start it when it is down', () => {
     const row = gatewayRow(status({ up: false }));
-    assert.equal(row.label, 'Gateway is not running');
+    assert.equal(row.label, 'Cannot reach the gateway');
     assert.equal(
       row.hint,
-      `No answer from ${URL}. Start it with: local-decider gateway start (on the computer that runs the Paseo daemon).`,
+      `No answer from ${URL}. Start it with: local-decider gateway start (on the computer that runs the Paseo daemon). Or press Start under Details › Gateway service.`,
     );
     assert.equal(row.hint.includes('`'), false);
   });
@@ -98,6 +103,13 @@ const row = (
     catalogFailed,
     busy,
   });
+
+describe('modelsUnavailableHint', () => {
+  it('blames the gateway being down only when Status cannot reach it', () => {
+    assert.equal(modelsUnavailableHint(true), 'Unavailable while the gateway is not running.');
+    assert.match(modelsUnavailableHint(false), /too old to list its models/);
+  });
+});
 
 describe('defaultModelRow', () => {
   it('names the model and says it is loaded, with Unload', () => {

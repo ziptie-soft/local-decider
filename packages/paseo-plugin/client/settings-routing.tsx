@@ -29,7 +29,8 @@ import {
   routingPresetRpc,
   routingSettingsRpc,
 } from '../shared/rpc.ts';
-import { outcomeOf, useAction } from './hooks.ts';
+import { GATEWAY_UNAVAILABLE } from '../shared/status-card.ts';
+import { outcomeOf, useAction, useGatewayStatus } from './hooks.ts';
 import { useQueryKey } from './host-scope.ts';
 import { PresetTable } from './preset-table.tsx';
 import type { SectionProps } from './settings-common.ts';
@@ -112,10 +113,12 @@ function VariantRows({
   theme,
   variants,
   file,
+  gatewayDown,
 }: {
   theme: Theme;
   variants: PolicyVariants | undefined;
   file: string | null;
+  gatewayDown: boolean;
 }): ReactNode {
   const choose = useRpc(policyVariantRpc);
   const reload = useRpc(reloadPoliciesRpc);
@@ -124,7 +127,10 @@ function VariantRows({
   return (
     <>
       {variants === undefined || !variants.ok ? (
-        <SettingsRow label="Routing policy" hint={variants?.error ?? 'Asking the gateway…'} />
+        <SettingsRow
+          label="Routing policy"
+          hint={gatewayDown ? GATEWAY_UNAVAILABLE : (variants?.error ?? 'Asking the gateway…')}
+        />
       ) : (
         <SettingsSelect
           label="Routing policy"
@@ -216,14 +222,20 @@ export function RoutingSection({
   const presets = routing.data?.presets ?? {};
   const modelOptions = presetModelOptions(models.data ?? []);
   const routes = variants.data?.variants.find((v) => v.id === variants.data.active)?.routes ?? [];
-  const routingError = routing.data?.ok === false ? routing.data.error : null;
+  const gatewayDown = useGatewayStatus().data?.up === false;
+  const routingError = !gatewayDown && routing.data?.ok === false ? routing.data.error : null;
   return (
     <SettingsSection
       title="Routing"
       info="When routing is enforced, a new agent's provider and model follow the preset the routing policy picks. Unmapped presets change nothing."
     >
       <SettingsCard>
-        <VariantRows theme={theme} variants={variants.data} file={routing.data?.file ?? null} />
+        <VariantRows
+          theme={theme}
+          variants={variants.data}
+          file={routing.data?.file ?? null}
+          gatewayDown={gatewayDown}
+        />
         {routingError === null ? null : (
           <InlineMessage theme={theme} tone="error" text={routingError} />
         )}
