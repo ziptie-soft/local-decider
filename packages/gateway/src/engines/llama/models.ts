@@ -133,8 +133,9 @@ export const LLAMA_MODELS: readonly ModelDescriptor<'llama-vulkan'>[] = [
     engine: 'llama-vulkan',
     label: 'Kev 0.8B Q8_0',
     downloadGb: 0.8,
+    // file 0.81 GB + KV cache at ctx 4096; Vulkan RSS (0.3 GB) undercounts GPU-mapped weights
     memoryGb: 1.5,
-    latencyHint: null,
+    latencyHint: '~0.15–0.45 s (Radeon 880M Vulkan, measured here)',
     source: 'https://huggingface.co/ggml-org/Kev-0.8B-GGUF',
     // Verified from ggml-org/Kev-0.8B-GGUF cardData.base_model, 2026-11-27.
     baseModel: 'jaredpalmer/kev-0.8b',
