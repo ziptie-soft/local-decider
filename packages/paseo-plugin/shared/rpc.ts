@@ -7,7 +7,6 @@ import { CONNECTABLE_ENGINES, connectionSchema, discoverySchema } from './connec
 import { HOOK_POLICIES, SERVICE_ACTIONS } from './constants.ts';
 import { downloadSchema, engineCatalogSchema, validationSchema } from './engines.ts';
 import { IDLE_MINUTES } from './lifecycle.ts';
-import { progressSchema } from './machine.ts';
 import { PATH_KEY, pathEntrySchema } from './paths.ts';
 import {
   policyModeInputSchema,
@@ -22,27 +21,12 @@ import { selectionResultSchema } from './policy-models.ts';
 import { reviewSummarySchema } from './review.ts';
 import { decisionRowSchema, LABEL_CHOICES } from './row.ts';
 import { policyStatsSchema } from './stats.ts';
+import { statusSchema } from './status.ts';
 
 export const statusRpc = defineRpc({
   name: 'status',
   input: z.object({}),
-  output: z.object({
-    up: z.boolean(),
-    status: z.enum(['ok', 'degraded', 'down']),
-    engine: z.string().nullable(),
-    engineTag: z.string().nullable(),
-    /** `stopped|starting|ready|failed`, and why when not ready. */
-    engineState: z.string().nullable(),
-    detail: z.string().nullable(),
-    model: z.string().nullable(),
-    p50Ms: z.number().nullable(),
-    /** Progress of a running benchmark, from `/health`; null otherwise. */
-    benchmark: progressSchema.nullable(),
-    gatewayUrl: z.string(),
-    /** Consecutive failed checks, for client-side backoff. */
-    downStreak: z.number().int(),
-    checkedAt: z.string(),
-  }),
+  output: statusSchema,
 });
 
 /** The daily review kept by the daemon: nothing is fetched for this call. */

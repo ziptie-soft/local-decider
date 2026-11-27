@@ -102,6 +102,9 @@ export interface RouteTarget {
   readonly profile?: string;
 }
 
+/** Which model answered: the default, the decision's own, the default after its own failed, or none. */
+export type ModelSource = 'default' | 'policy' | 'fallback' | 'unavailable';
+
 export interface DecideResponse {
   readonly decisionId: string;
   readonly policy: string;
@@ -117,6 +120,8 @@ export interface DecideResponse {
   readonly rule: number;
   readonly engine: string;
   readonly model: string;
+  /** Absent from a gateway without per-decision models, and in mode `off`. */
+  readonly modelSource?: ModelSource;
   readonly latencyMs: number;
   readonly cached: boolean;
   readonly precedent?: PrecedentTally;

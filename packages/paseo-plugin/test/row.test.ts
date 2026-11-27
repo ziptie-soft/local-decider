@@ -19,6 +19,7 @@ import {
   LABEL_WINDOW_MS,
   labelChoices,
   permissionNote,
+  placeholderRow,
   rowDetail,
   rowExplain,
   rowLabelKind,
@@ -441,5 +442,84 @@ describe('row explanation', () => {
       precedent: { allows: 99, denies: 99 },
     });
     assert.ok(JSON.stringify(row).length < 8192);
+  });
+});
+
+const rowWith = (modelSource?: DecideResponse['modelSource'], error?: string): DecisionRow =>
+  toRowData(
+    response({
+      ...(modelSource === undefined ? {} : { modelSource }),
+      ...(error === undefined ? {} : { error }),
+    }),
+    { source: 'turn', key: 't1', enforced: false },
+  );
+
+describe('model source on a row', () => {
+  const base = '2B-qwen3.5-v1-2610 · 120 ms';
+
+  it('says nothing for default and for an older gateway, and keeps null', () => {
+    for (const row of [rowWith('default'), rowWith()]) {
+      assert.equal(rowDetail(row), base);
+    }
+    assert.equal(rowWith('default').modelSource, 'default');
+    assert.equal(rowWith().modelSource, null);
+  });
+
+  it('names an own model, a fallback and a skipped decision', () => {
+    assert.equal(rowDetail(rowWith('policy')), `${base} · own model`);
+    assert.equal(rowDetail(rowWith('fallback')), `${base} · default (own model unavailable)`);
+    assert.equal(rowDetail(rowWith('unavailable')), `${base} · skipped: own model unavailable`);
+  });
+
+  it('shows the text in the expanded explanation and keeps the value in the row data', () => {
+    const row = rowWith('fallback');
+    assert.equal(row.modelSource, 'fallback');
+    assert.equal(rowExplain(row, null).at(-1), rowDetail(row));
+    assert.deepEqual(decisionRowSchema.parse(row), row);
+  });
+
+  it('drops a value it does not know, and parses old row data as null', () => {
+    const unknown = response({ modelSource: 'elsewhere' as unknown as 'policy' });
+    const row = toRowData(unknown, { source: 'turn', key: 't1', enforced: false });
+    assert.equal(row.modelSource, null);
+    const { modelSource, ...old } = rowWith('policy');
+    void modelSource;
+    assert.equal(decisionRowSchema.parse(old).modelSource, null);
+  });
+
+  it('keeps a persisted row whose model source is unknown, with the source as null', () => {
+    const stored = { ...rowWith('policy'), modelSource: 'elsewhere' };
+    const row = decisionRowSchema.parse(stored);
+    assert.equal(row.modelSource, null);
+    assert.equal(row.policy, 'turn-outcome');
+    assert.equal(decisionRowSchema.parse({ ...stored, modelSource: 7 }).modelSource, null);
+  });
+
+  it('gives the reason once for an unavailable model, not also as an engine error', () => {
+    assert.equal(
+      rowDetail(rowWith('unavailable', 'policy model unavailable: benchmark running')),
+      `${base} · skipped: own model unavailable (benchmark running)`,
+    );
+    assert.equal(rowDetail(rowWith('unavailable')), `${base} · skipped: own model unavailable`);
+    assert.equal(
+      rowDetail(rowWith('unavailable', 'policy model unavailable: ')),
+      `${base} · skipped: own model unavailable · engine error: policy model unavailable: `,
+    );
+    assert.equal(
+      rowDetail(rowWith('unavailable', 'timeout')),
+      `${base} · skipped: own model unavailable · engine error: timeout`,
+    );
+  });
+
+  it('leaves placeholder rows unchanged', () => {
+    for (const state of ['pending', 'skipped'] as const) {
+      const row = placeholderRow('permission', 'r1', 'permission', state, 'busy');
+      assert.equal(row.modelSource, null);
+      assert.equal(rowDetail(row), '0 ms');
+    }
+    assert.equal(
+      rowSummary(placeholderRow('permission', 'r1', 'permission', 'pending')),
+      'permission · deciding… · act',
+    );
   });
 });

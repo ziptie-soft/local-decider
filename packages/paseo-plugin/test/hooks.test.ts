@@ -16,6 +16,7 @@ import { createRoutingHandler, type CreateRequest } from '../server/routing.ts';
 import { createStatusHandler, manualDecide } from '../server/rpc.ts';
 import { createTurnHandler, pluginEnforces } from '../server/turn.ts';
 import { AGENT_TOOL_NAMES, POLICY_WRITER_LABEL, POLICY_WRITER_TITLE } from '../shared/constants.ts';
+import { statusSchema } from '../shared/status.ts';
 import { ctx, deps, fakeGateway, fakePaseo, response, settings, withConfigDir } from './fakes.ts';
 
 type Paseo = ReturnType<typeof fakePaseo>;
@@ -1361,6 +1362,55 @@ describe('rpc handlers', () => {
     assert.equal((await status()).benchmark, null);
     benchmark = null;
     assert.equal((await status()).benchmark, null);
+  });
+
+  it('passes policyEngines through from health, and leaves it out for an older gateway', async () => {
+    const gw = fakeGateway(() => null);
+    let policyEngines: unknown = [
+      {
+        policy: 'command-risk',
+        engine: 'llama',
+        model: 'm2',
+        label: 'M2',
+        state: 'ready',
+        status: 'active',
+        fallback: 'default',
+        queueDepth: 2,
+        extra: 'ignored',
+      },
+      { engine: 'no policy id' },
+      { policy: 'p', state: 'sideways', queueDepth: -1 },
+    ];
+    gw.health = async () => ({ status: 'ok', policyEngines }) as never;
+    const status = createStatusHandler(deps(settings(), gw), () => new Date(0));
+    assert.deepEqual((await status()).policyEngines, [
+      {
+        policy: 'command-risk',
+        engine: 'llama',
+        model: 'm2',
+        label: 'M2',
+        state: 'ready',
+        status: 'active',
+        fallback: 'default',
+        queueDepth: 2,
+      },
+      {
+        policy: 'p',
+        state: undefined,
+        queueDepth: undefined,
+      },
+    ]);
+    const withEngines = await status();
+    assert.deepEqual(statusSchema.parse(withEngines).policyEngines, withEngines.policyEngines);
+    policyEngines = [];
+    assert.deepEqual((await status()).policyEngines, []);
+    policyEngines = 'x';
+    assert.equal((await status()).policyEngines, undefined);
+    gw.health = async () => ({ status: 'ok' });
+    const older = await status();
+    assert.equal(older.policyEngines, undefined);
+    assert.ok(!('policyEngines' in older));
+    assert.equal(statusSchema.parse(older).policyEngines, undefined);
   });
 
   it('manual decide appends an unenforced row, and throws when the gateway is down', async () => {
