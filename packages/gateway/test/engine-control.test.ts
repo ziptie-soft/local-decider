@@ -3291,7 +3291,7 @@ describe('policy selection over the control API', () => {
       model: HOBSON_V19,
       fallback: 'default',
     });
-    assert.equal(choice.selection.model, HOBSON_V19);
+    assert.equal(choice.selection?.model, HOBSON_V19);
     assert.equal(control.settings.policies['permission']?.selection?.model, HOBSON_V19);
   });
 
