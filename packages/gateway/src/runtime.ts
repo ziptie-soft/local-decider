@@ -338,6 +338,14 @@ async function moveStaleSocket(path: string): Promise<boolean> {
   return false;
 }
 
+function trySetUmask(mask: number): number | undefined {
+  try {
+    return process.umask(mask);
+  } catch {
+    return undefined;
+  }
+}
+
 async function listenSocket(
   server: Server,
   path: string,
@@ -346,7 +354,12 @@ async function listenSocket(
     try {
       await new Promise<void>((resolve, reject) => {
         server.once('error', reject);
-        server.listen(path, resolve);
+        const previous = trySetUmask(0o177);
+        try {
+          server.listen(path, resolve);
+        } finally {
+          if (previous !== undefined) process.umask(previous);
+        }
       });
       chmodSync(path, 0o600);
       const stat = lstatSync(path);

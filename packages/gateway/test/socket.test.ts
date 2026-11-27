@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
@@ -41,6 +42,8 @@ afterEach(async () => {
 describe('gateway Unix socket', () => {
   it('serves health over a mode-0600 socket and removes only its socket on close', async () => {
     const runtime = trackPaths(tempPaths());
+    const umaskBefore = process.umask();
+    process.umask(umaskBefore);
     const gateway = await startGateway({
       config: testConfig(),
       paths: runtime,
@@ -48,6 +51,9 @@ describe('gateway Unix socket', () => {
       env: {},
     });
     gateways.push(gateway);
+    const umaskAfter = process.umask();
+    process.umask(umaskAfter);
+    assert.equal(umaskAfter, umaskBefore);
     const path = gatewaySocketPath(runtime.run);
     assert.ok(path !== null);
     const socketStat = statSync(path);
@@ -142,51 +148,51 @@ describe('gateway Unix socket', () => {
     assert.equal(status.clients['harness-33']?.requests, 2);
   });
 
-  it('runs two concurrent ensure calls against one gateway and records both harnesses', async () => {
+  it('two concurrent ensures on an empty data dir spawn one gateway and both harnesses share it', async () => {
     const runtime = trackPaths(tempPaths());
     const config = testConfig();
-    const gateway = await startGateway({
-      config,
-      paths: runtime,
-      engine: new FakeEngine(),
-      env: {},
-    });
-    gateways.push(gateway);
     let spawns = 0;
-    const deps = {
-      manager: 'pidfile' as const,
-      installed: () => false,
-      spawn: () => {
-        spawns++;
-        throw new Error('the live socket should prevent spawning');
-      },
-    };
+    const started: Promise<unknown>[] = [];
+    const fakeSpawn = (() => {
+      spawns++;
+      started.push(
+        startGateway({ config, paths: runtime, engine: new FakeEngine(), env: {} }).then(
+          (gateway) => gateways.push(gateway),
+          () => undefined,
+        ),
+      );
+      return Object.assign(new EventEmitter(), { unref() {}, pid: process.pid });
+    }) as unknown as NonNullable<NonNullable<Parameters<typeof ensureGateway>[0]['deps']>['spawn']>;
+    const deps = { manager: 'pidfile' as const, installed: () => false, spawn: fakeSpawn };
     const outcomes = await Promise.all([
       ensureGateway({ paths: runtime, config, deps }),
       ensureGateway({ paths: runtime, config, deps }),
     ]);
-    assert.deepEqual(
-      outcomes.map((outcome) => outcome.listener),
-      ['running', 'running'],
-    );
-    assert.equal(spawns, 0);
+    await Promise.all(started);
+    assert.equal(spawns, 1);
+    assert.deepEqual(outcomes.map((outcome) => outcome.listener).toSorted(), [
+      'running',
+      'started',
+    ]);
     const path = gatewaySocketPath(runtime.run);
     assert.ok(path !== null);
     const fetcher = socketFetch(path);
-    await Promise.all(
-      ['claude-hooks/1.0.0', 'paseo/3.1.1'].map((clientId) =>
-        fetcher('http://localhost/health', {
+    const healths = await Promise.all(
+      ['claude-hooks/3.0.0', 'paseo/3.1.1'].map(async (clientId) => {
+        const response = await fetcher('http://localhost/health', {
           headers: { 'x-local-decider-client': clientId },
-        }),
-      ),
+        });
+        return (await response.json()) as { instance: string };
+      }),
     );
     const body = (await (await fetcher('http://localhost/v1/status')).json()) as {
       instance: string;
       clients: Record<string, unknown>;
     };
-    assert.equal(body.instance !== '', true);
-    assert.deepEqual(Object.keys(body.clients).toSorted(), ['claude-hooks', 'cli', 'paseo']);
-    assert.equal(new Set([process.pid]).size, 1);
+    assert.ok(body.instance !== '');
+    for (const health of healths) assert.equal(health.instance, body.instance);
+    assert.ok('claude-hooks' in body.clients);
+    assert.ok('paseo' in body.clients);
   });
 
   it('detects an older TCP gateway without starting another process', async () => {
