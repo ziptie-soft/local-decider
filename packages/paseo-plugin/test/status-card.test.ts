@@ -144,6 +144,30 @@ describe('defaultModelRow', () => {
     assert.equal(row({}, catalog(), 'lifecycle').actionLabel, 'Unload');
   });
 
+  it('says Unload all, and what it also unloads, when a decision has its own model', () => {
+    const own = {
+      ...catalog(),
+      policies: [
+        {
+          id: 'routing',
+          status: 'active' as const,
+          selection: { engine: 'fastflowlm', model: 'd3:nano' },
+        },
+      ],
+    } as EngineCatalog;
+    const r = row({}, own);
+    assert.equal(r.actionLabel, 'Unload all');
+    assert.equal(
+      r.hint,
+      `${NAME}. Loaded. Unload all also unloads the decisions' own models; each loads again on its next decision.`,
+    );
+    const none = {
+      ...own,
+      policies: [{ id: 'routing', status: 'default' as const }],
+    } as EngineCatalog;
+    assert.equal(row({}, none).actionLabel, 'Unload');
+  });
+
   it('keeps the benchmark progress text', () => {
     const r = row({ benchmark: { completed: 3, total: 6 } }, catalog());
     assert.equal(r.hint, `${NAME}. Benchmarking (3 of 6)`);

@@ -90,6 +90,11 @@ export function ownSelection(entry: PolicyModel | undefined): PolicySelection | 
   return entry?.status === 'default' ? undefined : entry?.selection;
 }
 
+/** At least one decision has its own model selected (so unloading touches more than the default). */
+export function hasOwnModels(catalog: EngineCatalog | undefined): boolean {
+  return catalog?.policies?.some((entry) => ownSelection(entry) !== undefined) === true;
+}
+
 export function fallbackOf(entry: PolicyModel | undefined): Fallback {
   return entry?.fallback ?? entry?.selection?.fallback ?? 'default';
 }

@@ -464,15 +464,7 @@ function DecisionRow(props: CardProps): ReactNode {
   );
 }
 
-function Footer({
-  theme,
-  older,
-  note,
-}: {
-  theme: Theme;
-  older: boolean;
-  note: string;
-}): ReactNode {
+function Footer({ theme, older, note }: { theme: Theme; older: boolean; note: string }): ReactNode {
   const style = { color: theme.colors.foregroundMuted, fontSize: 12 } as const;
   return (
     <View

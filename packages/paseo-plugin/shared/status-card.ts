@@ -2,7 +2,7 @@
  * The Status card of the settings page as pure functions: the gateway row and the default model
  * row with its one Load now / Unload button. The components only wire these to the rows.
  */
-import { defaultModelName } from './decision-models.ts';
+import { defaultModelName, hasOwnModels } from './decision-models.ts';
 import { engineTag, type EngineCatalog } from './engines.ts';
 import { engineStateSentence } from './lifecycle.ts';
 import { formatMs } from './stats.ts';
@@ -49,6 +49,9 @@ export interface DefaultModelRow {
   readonly action: 'load' | 'unload';
   readonly disabled: boolean;
 }
+
+const UNLOAD_ALL_HINT =
+  "Unload all also unloads the decisions' own models; each loads again on its next decision.";
 
 const NO_MODEL_HINT = 'None yet. Choose one under Models; until then every decision is skipped.';
 
@@ -117,9 +120,11 @@ function textOf(i: DefaultModelRowInput): { hint: string; error: string | null }
 function buttonOf(
   state: string | null,
   busy: string | null,
+  all: boolean,
 ): Pick<DefaultModelRow, 'action' | 'actionLabel'> {
   if (state === 'ready' || state === 'starting') {
-    const label = state === 'ready' ? 'Unload' : 'Cancel loading';
+    const unload = all ? 'Unload all' : 'Unload';
+    const label = state === 'ready' ? unload : 'Cancel loading';
     return { action: 'unload', actionLabel: busy === 'unload' ? 'Unloading…' : label };
   }
   return { action: 'load', actionLabel: busy === 'load' ? 'Loading…' : 'Load now' };
@@ -129,10 +134,15 @@ function buttonOf(
 export function defaultModelRow(i: DefaultModelRowInput): DefaultModelRow {
   const { status, catalog, busy } = i;
   const chosen = catalog?.active?.engine != null && catalog.active.model != null;
-  const button = buttonOf(liveState(status, catalog), busy);
+  const state = liveState(status, catalog);
+  const all = hasOwnModels(catalog);
+  const button = buttonOf(state, busy, all);
   const blocked = status?.up !== true || busy !== null || !chosen;
+  const text = textOf(i);
+  const unloads = state === 'ready' && all && text.error === null;
   return {
-    ...textOf(i),
+    hint: unloads ? `${text.hint} ${UNLOAD_ALL_HINT}` : text.hint,
+    error: text.error,
     action: button.action,
     actionLabel: button.actionLabel,
     disabled: blocked,
