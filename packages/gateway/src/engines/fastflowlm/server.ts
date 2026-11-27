@@ -1,5 +1,6 @@
 import type { FlmEngineConfig } from '../../config.ts';
 import type { Paths } from '../../paths.ts';
+import { processTitle } from '../../process-title.ts';
 import type { Toolchain } from '../../toolchain.ts';
 import { SupervisedEngine, type ServerSpec } from '../supervised.ts';
 import { FLM_INSTALL_URL } from './status.ts';
@@ -25,6 +26,7 @@ function flmSpec(config: FlmEngineConfig, tools?: Toolchain): ServerSpec {
     env: { ...tools?.env },
     id: 'fastflowlm',
     model: config.model,
+    title: processTitle('fastflowlm', config.model),
     url: config.url,
     startTimeoutSeconds: config.startTimeoutSeconds,
     // FLM has no /health; the decision-model list answers once the model is loaded.

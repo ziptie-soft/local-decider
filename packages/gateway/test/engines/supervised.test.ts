@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type { ChildProcess, spawn } from 'node:child_process';
+import type { ChildProcess, SpawnOptions, spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
@@ -17,6 +17,7 @@ class FakeChild extends EventEmitter {
   readonly stderr = new PassThrough();
   readonly signals: NodeJS.Signals[] = [];
   readonly pid = undefined;
+  argv0: string | undefined;
   exitCode: number | null = null;
   signalCode: NodeJS.Signals | null = null;
   /** Ignore SIGTERM, like a wedged engine; SIGKILL always lands. */
@@ -108,6 +109,7 @@ function makeSpec(timeoutSeconds: number): ServerSpec {
   return {
     id: 'sup-test',
     model: 'm',
+    title: 'local-decider: sup-test m',
     startTimeoutSeconds: timeoutSeconds,
     healthPath: '/health',
     binary: () => ({ path: process.execPath }),
@@ -129,11 +131,12 @@ function harness(timeoutSeconds = 2): Harness {
     now: () => clock.now,
     freePort: (): Promise<number> =>
       fakeFreePort.fail ? Promise.reject(new Error('no port')) : Promise.resolve(4000),
-    spawn: ((): ChildProcess => {
+    spawn: ((_command: string, _args?: readonly string[], options?: SpawnOptions): ChildProcess => {
       if (fakeSpawn.fail) {
         throw new Error('spawn blew up');
       }
       const child = new FakeChild();
+      child.argv0 = options?.argv0;
       child.hangOnTerm = hang.on;
       children.push(child);
       return child as unknown as ChildProcess;
@@ -169,7 +172,18 @@ function harness(timeoutSeconds = 2): Harness {
     },
   };
   const engine = new SupervisedEngine(makeSpec(timeoutSeconds), tempPaths(), deps);
-  return { engine, children, delays, waiting, clock, health, post, fakeFreePort, fakeSpawn, hang };
+  return {
+    engine,
+    children,
+    delays,
+    waiting,
+    clock,
+    health,
+    post,
+    fakeFreePort,
+    fakeSpawn,
+    hang,
+  };
 }
 
 /** Release the oldest pending sleep with this delay. */
@@ -358,9 +372,10 @@ describe('SupervisedEngine stop and orphans', () => {
     h.health.ok = true;
     await h.engine.start();
     assert.equal(h.engine.health().state, 'ready');
+    assert.equal(h.children[0]?.argv0, 'local-decider: sup-test m');
     assert.equal(h.children.length, 2);
 
-    h.children[0]!.die(1, null);
+    h.children[0].die(1, null);
     await settle();
     assert.equal(h.engine.health().state, 'ready');
     assert.equal(h.children.length, 2);

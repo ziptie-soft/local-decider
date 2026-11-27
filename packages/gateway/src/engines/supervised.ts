@@ -77,6 +77,8 @@ function resolveDeps(deps: SupervisorDeps | undefined): ResolvedDeps {
 export interface ServerSpec {
   readonly id: string;
   readonly model: string;
+  /** Best-effort process title for native workers. */
+  readonly title?: string | undefined;
   /** Attach here instead of spawning. */
   readonly url?: string | undefined;
   readonly startTimeoutSeconds: number;
@@ -344,6 +346,7 @@ export class SupervisedEngine implements Engine {
         env: engineChildEnv(process.env, this.#spec.env),
         // Its own process group, so stop and the exit hook reach any grandchildren too.
         detached: process.platform !== 'win32',
+        ...(this.#spec.title === undefined ? {} : { argv0: this.#spec.title }),
       });
     } catch (error) {
       log.destroy();

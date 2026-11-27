@@ -1,7 +1,10 @@
+import { closeSync, openSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import type { StrandsEngineConfig } from '../../config.ts';
 import type { Paths } from '../../paths.ts';
+import { processTitle } from '../../process-title.ts';
 import type { Toolchain } from '../../toolchain.ts';
 import type { Device, HostInfo } from '../descriptor.ts';
 import { SupervisedEngine, type ServerSpec } from '../supervised.ts';
@@ -53,13 +56,24 @@ export function serveArgs(
   return args;
 }
 
-function strandsSpec(
+export function strandsSpec(
   config: StrandsEngineConfig,
   paths: Paths,
   tools?: Toolchain,
   host?: HostInfo,
 ): ServerSpec {
   const binary = tools?.strandsDecider ?? strandsBinary(paths);
+  const python = join(paths.venvs, STRANDS_VENV, 'bin', 'python');
+  const launch = fileURLToPath(
+    new URL('../../../engines/strands-decider/launch.py', import.meta.url),
+  );
+  const title = processTitle('strands', config.model);
+  const managedLauncher = (): string | undefined => {
+    if (tools?.strandsDecider !== undefined || !fileReadable(python) || !fileReadable(launch)) {
+      return undefined;
+    }
+    return python;
+  };
   // Resolved once per launch (refreshed in `binary()`), so argv and health agree.
   const transformers = isTransformersModel(config.model);
   let device: DeviceResolution = resolveStrandsDevice(config.device, host, binary, transformers);
@@ -81,20 +95,34 @@ function strandsSpec(
       }
       device = resolveStrandsDevice(config.device, host, binary, transformers);
       return {
-        path: binary,
+        path: managedLauncher() ?? binary,
         missing: `${binary} not found; run \`local-decider engine install\``,
       };
     },
-    args: (port) =>
-      serveArgs(
+    args: (port) => {
+      const serve = serveArgs(
         config,
         port,
         device.resolved,
         pinnedCheckpoint(hfCacheDir(tools?.env, process.env), config.model),
-      ),
+      );
+      return managedLauncher() === undefined
+        ? serve
+        : ['-I', launch, '--title', title, '--', ...serve];
+    },
     deviceInfo: () => device,
     maxLength: (body) => (typeof body['max_length'] === 'number' ? body['max_length'] : undefined),
   };
+}
+
+function fileReadable(path: string): boolean {
+  try {
+    const fd = openSync(path, 'r');
+    closeSync(fd);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
