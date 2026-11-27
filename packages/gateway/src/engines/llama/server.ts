@@ -3,6 +3,7 @@ import { accessSync, constants, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 
 import type { Paths } from '../../paths.ts';
+import { processTitle } from '../../process-title.ts';
 import type { Toolchain } from '../../toolchain.ts';
 import { SupervisedEngine, type ServerSpec } from '../supervised.ts';
 import { EngineError } from '../types.ts';
@@ -97,6 +98,7 @@ export function llamaSpec(
   return {
     id: 'llama-vulkan',
     model: config.model,
+    title: processTitle('llama', config.model),
     url: config.url,
     startTimeoutSeconds: config.startTimeoutSeconds,
     healthPath: '/health',

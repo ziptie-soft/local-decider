@@ -40,6 +40,7 @@
     "schemas",
     "engines/*/pyproject.toml",
     "engines/*/uv.lock",
+    "engines/*/launch.py",
     "LICENSE",
     "NOTICE",
     "README.md"

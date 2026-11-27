@@ -50,6 +50,12 @@ describe('Strands venv pin check', () => {
     assert.equal(strandsPinMismatch(venvWith('0.4.0'), project('0.4.0')), null);
   });
 
+  it('keeps pin and device checks working when the venv has no setproctitle package', () => {
+    const paths = venvWith('0.4.0');
+    assert.equal(strandsPinMismatch(paths, project('0.4.0')), null);
+    assert.equal(strandsDeviceProblem(paths, 'cpu', 'linux'), null);
+  });
+
   it('reports nothing for a missing venv or a venv without strands-decider', () => {
     assert.equal(strandsPinMismatch(tempPaths(), project('0.4.0')), null);
     assert.equal(strandsPinMismatch(venvWith(null), project('0.4.0')), null);

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import { parseConfig } from '../../src/config.ts';
 import { downloadSteps } from '../../src/downloads.ts';
 import { planCatalogueDownloads } from '../../src/engine-install.ts';
 import type { EngineContext, HostInfo } from '../../src/engines/descriptor.ts';
@@ -10,7 +11,7 @@ import { pinnedCheckpoint } from '../../src/engines/strands/hf-cache.ts';
 import { strandsEngine, hfCached } from '../../src/engines/strands/index.ts';
 import { resolveStrandsDevice } from '../../src/engines/strands/mlx.ts';
 import { hfDownloadArgs } from '../../src/engines/strands/models.ts';
-import { StrandsDeciderEngine, serveArgs } from '../../src/engines/strands/server.ts';
+import { StrandsDeciderEngine, serveArgs, strandsSpec } from '../../src/engines/strands/server.ts';
 import { tempPaths } from '../helpers.ts';
 
 const V2 = 'StrandsAgents/strands-decider-E2B-gemma4-v2-2611';
@@ -51,6 +52,31 @@ function context(data: string, binary?: string, hfCache?: string): EngineContext
 }
 
 describe('strands descriptor', () => {
+  it('uses the managed Python bootstrap when present and falls back without it', () => {
+    const paths = tempPaths();
+    const python = join(paths.venvs, 'strands-decider', 'bin', 'python');
+    mkdirSync(join(paths.venvs, 'strands-decider', 'bin'), { recursive: true });
+    writeFileSync(python, 'python');
+    const parsed = parseConfig({ engine: { type: 'strands-decider', device: 'cpu' } });
+    assert.equal(parsed.engine.type, 'strands-decider');
+    const managed = strandsSpec(parsed.engine, paths);
+    assert.equal(managed.binary().path, python);
+    const args = managed.args(41111);
+    assert.equal(args[0], '-I');
+    assert.equal(args[2], '--title');
+    assert.ok(
+      args[3]?.startsWith('local-decider: strands StrandsAgents/strands-decider-2B-qwen3.5-'),
+    );
+    assert.equal(args[3]?.length, 64);
+    assert.equal(args[4], '--');
+    unlinkSync(python);
+    assert.equal(
+      managed.binary().path,
+      join(paths.venvs, 'strands-decider', 'bin', 'strands-decider'),
+    );
+    assert.equal(managed.args(41111)[0], 'serve');
+  });
+
   it('detects Hugging Face cache snapshots and model presence', async () => {
     const paths = tempPaths();
     const model = strandsEngine.models[0];
