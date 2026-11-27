@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -18,7 +19,8 @@ import { isLoopbackUrl, launchGateway, type ExecFile } from '../src/launch.ts';
 const roots: string[] = [];
 
 function tempRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'ld-launcher-'));
+  // Real path: macOS tmpdir is a symlink (/var -> /private/var) and the launcher resolves the CLI.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'ld-launcher-')));
   roots.push(root);
   return root;
 }
