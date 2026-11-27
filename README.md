@@ -211,18 +211,28 @@ and feedback buttons.
 <details>
 <summary>More screenshots: quick status, settings, service and statistics</summary>
 
-Quick status from the sidebar: engine state, latency and each policy's mode.
+Quick status from the sidebar: the default model's state, latency and each decision's mode.
 
 ![Quick-status popover](docs/assets/screenshots/quick-status.png)
 
-Models section: an engine and model picker with download sizes, memory, latency and the
-FastFlowLM NPU check.
+Status and Decisions: the gateway, the default model, and one row per decision with its mode
+and its model.
+
+![Status and Decisions settings](docs/assets/screenshots/settings-decisions.png)
+
+A decision's model picker. Default follows the default model; any other model loads next to
+it. Each option shows its runtime and the speed measured on this machine.
+
+![Model picker of a decision](docs/assets/screenshots/settings-model-picker.png)
+
+Models section: the recommended setup for this machine, the default model and the benchmark
+results.
 
 ![Models settings](docs/assets/screenshots/settings-models.png)
 
-Policy modes, how decisions show in chat, and the sidebar item.
+How decisions show in chat, and the sidebar item.
 
-![Policy and display settings](docs/assets/screenshots/settings-policies.png)
+![Chat and sidebar settings](docs/assets/screenshots/settings-display.png)
 
 Gateway service controls and shadow statistics.
 
