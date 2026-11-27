@@ -29,6 +29,7 @@ import {
   parsePolicyVariants,
   parseRoutingSettings,
   presetRows,
+  splitPresetRows,
   clampThreshold,
   parseThresholdInput,
   thresholdFloor,
@@ -86,6 +87,36 @@ describe('presetRows', () => {
       { name: 'fast', used: true },
       { name: 'cheap', used: false },
     ]);
+  });
+});
+
+describe('splitPresetRows', () => {
+  const rows = [
+    { name: 'deep', used: true },
+    { name: 'fast', used: true },
+    { name: 'cheap', used: false },
+    { name: 'old', used: false },
+  ];
+
+  it('keeps the active routes and titles the rest by count', () => {
+    assert.deepEqual(splitPresetRows(rows), {
+      active: ['deep', 'fast'],
+      others: ['cheap', 'old'],
+      title: '2 presets for routes not in this policy',
+    });
+    assert.equal(
+      splitPresetRows(rows.slice(0, 3)).title,
+      '1 preset for a route not in this policy',
+    );
+  });
+
+  it('has no title when every preset is a route of the policy', () => {
+    assert.deepEqual(splitPresetRows(rows.slice(0, 2)), {
+      active: ['deep', 'fast'],
+      others: [],
+      title: null,
+    });
+    assert.deepEqual(splitPresetRows([]), { active: [], others: [], title: null });
   });
 });
 
