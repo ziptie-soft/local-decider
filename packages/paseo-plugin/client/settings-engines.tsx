@@ -452,26 +452,13 @@ function EnginePicker({
   const [device, setDevice] = useState('auto');
   const [seed, setSeed] = useState<Seed | null>(null);
   const [advanced, setAdvanced] = useState(false);
-  const [resultsOpen, setResultsOpen] = useState<boolean | null>(null);
   const id = picked ?? initialEngine(catalog);
   const engines = enginesView(catalog.recommendation, namesOf(catalog));
   const engine = catalog.engines.find((e) => e.id === id) ?? null;
   return (
     <>
-      <RecommendedCard
-        theme={theme}
-        catalog={catalog}
-        onOpenAdvanced={() => setAdvanced(true)}
-        // The host gives no way to scroll to card 2, so the link opens its results instead.
-        onGoToBenchmark={view == null ? undefined : () => setResultsOpen(true)}
-      />
-      <BenchmarkCard
-        theme={theme}
-        catalog={catalog}
-        view={view}
-        resultsOpen={resultsOpen}
-        onResultsOpen={setResultsOpen}
-      />
+      <RecommendedCard theme={theme} catalog={catalog} onOpenAdvanced={() => setAdvanced(true)} />
+      <BenchmarkCard theme={theme} catalog={catalog} view={view} />
       <Disclosure
         theme={theme}
         title={allModelsTitle(catalog)}

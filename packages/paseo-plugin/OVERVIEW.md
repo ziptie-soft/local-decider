@@ -120,8 +120,12 @@ checks still run, since Paseo has no equivalent.
     runtimes unmeasured. A single button acts on it: Use, Download, Show install steps, Use
     automatic or Run benchmark. Switching to a specific runtime while Automatic is on says
     "(turns off automatic)" and offers to turn it back on.
-  - **Benchmark this machine:** times every installed model on every runtime, one at a time, with
-    short, typical and long prompts. See Benchmarks below.
+  - **Benchmark:** one table of the installed models (rows) by the processor they run on
+    (columns: NPU, GPU (Vulkan), GPU (ROCm), CPU, …). Each cell holds one number, the median time
+    of one decision on a typical request, with the fastest of each row, the one in use and
+    out-of-date results marked; — means the model has no version for that processor. Failed pairs
+    are listed under the table with their error and a Retry button that names the pair. See
+    Benchmarks below.
   - **All engines and models** (collapsed): the engine, device and model pickers with
     download size, memory and speed (from the benchmark here, or the catalog's figure labelled
     as a reference), Download with progress, Use, the connection form
@@ -173,15 +177,16 @@ migrates to **Agent tools**.
 
 ## Benchmarks
 
-A benchmark runs inside the gateway, one model and runtime at a time, and keeps going if you
-close settings. It measures short, typical (1,024 tokens) and long (3,800 tokens) prompts.
+A benchmark runs inside the gateway, one model and processor at a time, and keeps going if you
+close settings. For each pair it makes one warm-up decision, then times five on a typical request
+(about 1,000 tokens) and keeps the median. Rows stay in name order while results come in.
 
 - **Decisions are passed to you while it runs.** The gateway fails open, so agents are never
   blocked; the status views say "Benchmarking (k of n)".
 - **Your setup comes back when it ends.** In automatic mode the gateway then re-ranks with the
   new results, so it may land on a faster runtime of the same model family. If it cannot switch
   back, the card says so and offers Try again and Use automatic.
-- **Cancel keeps what finished.** Finish benchmark measures only what is missing.
+- **Cancel keeps what finished.** Measure missing only runs the pairs without a current result.
 - **Results are from this machine only.** Each is stamped with the engine version and hardware,
   and goes out of date when either changes; run the benchmark again then. Custom servers are not
   benchmarked.

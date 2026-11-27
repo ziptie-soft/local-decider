@@ -10,12 +10,13 @@ after one warm-up request per size. Latency is measured at the client.
 ## Benchmark your machine
 
 Numbers below are one machine's. Measure yours: a run times every installed model on every
-runtime, one at a time, with short, typical and long prompts, and saves the results for the
-recommendation.
+runtime, one at a time, on a typical request (about 1,000 tokens; the CLI's `--sizes` adds
+others), and saves the results for the recommendation.
 
-**In the Paseo plugin.** Settings, Local decider, **Benchmark this machine**. Run benchmark, Cancel,
-Finish benchmark (measures only what is missing) and Run again live on the card; the results are
-grouped by model family with a Use fastest button each. See the
+**In the Paseo plugin.** Settings, Local decider, **Benchmark**. The card shows one table: installed
+models by processor (NPU, GPU, CPU), each cell the median decision time, the fastest of each row
+marked. Run benchmark, Cancel and Measure missing only live on the card; a failed pair is listed
+with its error and its own Retry. See the
 [plugin overview](../packages/paseo-plugin/OVERVIEW.md#benchmarks).
 
 **On the command line.** The gateway must be running.

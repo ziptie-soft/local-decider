@@ -1,18 +1,19 @@
 /**
- * Card 2, "Benchmark this machine": renders `benchmarkCard()` for the job `useBenchmark` polls and
- * runs its actions through the benchmark, select-engine and selection-mode RPCs.
+ * The "Benchmark" settings card: renders `benchmarkCard()` for the job `useBenchmark` polls — a
+ * models × processors table of decision times — and runs its actions through the benchmark,
+ * select-engine and selection-mode RPCs.
  */
 import { useRpc } from '@getpaseo/plugin/client';
 import { SettingsCard, SettingsRow } from '@getpaseo/plugin/client/ui';
 import { useRef, type ReactNode } from 'react';
-import { Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 
 import {
   benchmarkCard,
   type BenchAction,
   type BenchmarkCard as Card,
-  type ResultGroup,
-  type ResultRow,
+  type Cell,
+  type Row,
 } from '../shared/benchmark-card.ts';
 import type { BenchmarkView } from '../shared/benchmark.ts';
 import type { EngineCatalog } from '../shared/engines.ts';
@@ -23,22 +24,22 @@ import {
   selectionModeRpc,
 } from '../shared/rpc.ts';
 import { outcomeOf, useAction } from './hooks.ts';
-import { Badge, Button, Disclosure, Progress, type Theme, type Tone } from './ui.tsx';
+import { Badge, Button, Progress, type Theme } from './ui.tsx';
 
 /** Presses of Cancel closer together than this are one press. */
 const CANCEL_GUARD_MS = 500;
+const MODEL_WIDTH = 140;
+const CELL_WIDTH = 104;
 
 interface Props {
   readonly theme: Theme;
   readonly catalog: EngineCatalog;
   /** The job from `useBenchmark`: undefined while loading, null when the gateway has none. */
   readonly view: BenchmarkView | null | undefined;
-  /** Whether the results are open; null leaves it to the card (open right after a run). */
-  readonly resultsOpen: boolean | null;
-  readonly onResultsOpen: (open: boolean) => void;
 }
 
 type Runner = ReturnType<typeof useAction>;
+type Press = (a: BenchAction) => void;
 
 function startBody(a: BenchAction): Record<string, unknown> {
   if (a.targets.length > 0) {
@@ -53,53 +54,48 @@ function startBody(a: BenchAction): Record<string, unknown> {
   return { scope: 'installed', ...(a.only === null ? {} : { only: a.only }) };
 }
 
-function useBenchmarkActions(runner: Runner): (a: BenchAction) => void {
+function useBenchmarkActions(runner: Runner): Press {
   const start = useRpc(benchmarkStartRpc);
   const cancel = useRpc(benchmarkCancelRpc);
   const select = useRpc(selectEngineRpc);
   const setMode = useRpc(selectionModeRpc);
   const lastCancel = useRef(0);
-  const startRun = (a: BenchAction): void =>
-    void runner.run('start', async () =>
-      outcomeOf(
-        await start(startBody(a)),
-        'Benchmark started. Decisions are passed to you until it finishes.',
-      ),
+  const cancelRun = (): void => {
+    const now = Date.now();
+    if (now - lastCancel.current < CANCEL_GUARD_MS) return;
+    lastCancel.current = now;
+    void runner.run('cancel', async () =>
+      outcomeOf(await cancel({}), 'Cancelling. Finished results are kept.'),
     );
-  const selectTarget = (a: BenchAction, text: string): void => {
-    const t = a.targets[0];
-    if (t === undefined) return;
-    void runner.run('select', async () =>
+  };
+  const automatic = (a: BenchAction): void => {
+    void runner.run('auto', async () =>
       outcomeOf(
-        await select({ engine: t.engine, model: t.model, device: t.device ?? 'auto' }),
-        text,
+        await setMode({ mode: 'auto', ...(a.family === null ? {} : { family: a.family }) }),
+        'Automatic selection is on.',
       ),
     );
   };
+  const restore = (a: BenchAction): void => {
+    const t = a.targets[0];
+    if (t === undefined) return;
+    void runner.run('restore', async () =>
+      outcomeOf(
+        await select({ engine: t.engine, model: t.model, device: t.device ?? 'auto' }),
+        'Switching back. Decisions are passed to you until it is ready.',
+      ),
+    );
+  };
+  const startRun = (a: BenchAction): void => {
+    void runner.run('start', async () =>
+      outcomeOf(await start(startBody(a)), 'Benchmark started.'),
+    );
+  };
   return (a) => {
-    switch (a.kind) {
-      case 'cancel': {
-        const now = Date.now();
-        if (now - lastCancel.current < CANCEL_GUARD_MS) return;
-        lastCancel.current = now;
-        return void runner.run('cancel', async () =>
-          outcomeOf(await cancel({}), 'Cancelling. Completed results are kept.'),
-        );
-      }
-      case 'auto':
-        return void runner.run('auto', async () =>
-          outcomeOf(
-            await setMode({ mode: 'auto', ...(a.family === null ? {} : { family: a.family }) }),
-            'Automatic selection is on.',
-          ),
-        );
-      case 'use':
-        return selectTarget(a, 'Switching. Decisions fail open until it is ready.');
-      case 'restore':
-        return selectTarget(a, 'Switching back. Decisions fail open until it is ready.');
-      default:
-        return startRun(a);
-    }
+    if (a.kind === 'cancel') cancelRun();
+    else if (a.kind === 'auto') automatic(a);
+    else if (a.kind === 'restore') restore(a);
+    else startRun(a);
   };
 }
 
@@ -114,7 +110,7 @@ function ActionButton({
   action: BenchAction;
   busy: boolean;
   primary?: boolean;
-  onPress: (a: BenchAction) => void;
+  onPress: Press;
 }): ReactNode {
   return (
     <Button
@@ -128,6 +124,36 @@ function ActionButton({
   );
 }
 
+function Muted({ theme, children }: { theme: Theme; children: string }): ReactNode {
+  return (
+    <Text style={{ color: theme.colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>
+      {children}
+    </Text>
+  );
+}
+
+function Plain({ theme, children }: { theme: Theme; children: string }): ReactNode {
+  return (
+    <Text style={{ color: theme.colors.foreground, fontSize: 13, lineHeight: 18 }}>{children}</Text>
+  );
+}
+
+function Live({ theme, card }: { theme: Theme; card: Card }): ReactNode {
+  const p = card.progress;
+  return (
+    <>
+      {card.activity === null ? null : <Plain theme={theme}>{card.activity}</Plain>}
+      {p === null ? null : (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Progress theme={theme} value={p.fraction} />
+          <Muted theme={theme}>{p.text}</Muted>
+        </View>
+      )}
+      {card.note === null ? null : <Muted theme={theme}>{card.note}</Muted>}
+    </>
+  );
+}
+
 function Controls({
   theme,
   card,
@@ -137,51 +163,162 @@ function Controls({
   theme: Theme;
   card: Card;
   busy: boolean;
-  onPress: (a: BenchAction) => void;
+  onPress: Press;
 }): ReactNode {
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-      <ActionButton theme={theme} action={card.primary} busy={busy} primary onPress={onPress} />
-      {card.secondary.map((a) => (
-        <ActionButton key={a.label} theme={theme} action={a} busy={busy} onPress={onPress} />
+    <View style={{ gap: 6 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <ActionButton theme={theme} action={card.primary} busy={busy} primary onPress={onPress} />
+        {card.secondary.map((a) => (
+          <ActionButton key={a.label} theme={theme} action={a} busy={busy} onPress={onPress} />
+        ))}
+      </View>
+      {card.summary === null ? null : <Muted theme={theme}>{card.summary}</Muted>}
+    </View>
+  );
+}
+
+// ── the table ────────────────────────────────────────────────────────────────────────────────
+
+function cellColor(theme: Theme, cell: Cell): string {
+  if (cell.kind === 'failed') return theme.colors.statusDanger;
+  if (cell.fastest) return theme.colors.statusSuccess;
+  return cell.kind === 'time' ? theme.colors.foreground : theme.colors.foregroundMuted;
+}
+
+/** The small line under a cell's value: fastest, in use, out of date, the format. */
+function cellTags(cell: Cell): string | null {
+  const tags = [
+    cell.fastest ? 'fastest' : null,
+    cell.inUse ? 'in use' : null,
+    cell.stale ? 'out of date' : null,
+    cell.format,
+  ].filter((t): t is string => t !== null);
+  return tags.length === 0 ? null : tags.join(' · ');
+}
+
+function TableCell({ theme, cell }: { theme: Theme; cell: Cell }): ReactNode {
+  const tags = cellTags(cell);
+  return (
+    <View accessible accessibilityLabel={cell.accessibleName} style={{ width: CELL_WIDTH, gap: 2 }}>
+      <Text
+        style={{
+          color: cellColor(theme, cell),
+          fontSize: 14,
+          fontWeight: cell.fastest ? '600' : '400',
+          fontVariant: ['tabular-nums'],
+        }}
+      >
+        {cell.text}
+      </Text>
+      {tags === null ? null : (
+        <Text
+          style={{
+            color: cell.stale ? theme.colors.statusWarning : theme.colors.foregroundMuted,
+            fontSize: 11,
+            lineHeight: 14,
+          }}
+        >
+          {tags}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function TableRow({ theme, row, last }: { theme: Theme; row: Row; last: boolean }): ReactNode {
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+        paddingVertical: 8,
+        borderBottomWidth: last ? 0 : 1,
+        borderColor: theme.colors.border,
+      }}
+    >
+      <View style={{ width: MODEL_WIDTH, gap: 4 }}>
+        <Text style={{ color: theme.colors.foreground, fontSize: 14 }}>{row.label}</Text>
+        {row.inUse ? <Badge theme={theme} text="In use" /> : null}
+      </View>
+      {row.cells.map((cell) => (
+        <TableCell key={cell.column} theme={theme} cell={cell} />
       ))}
     </View>
   );
 }
 
-function Muted({ theme, children }: { theme: Theme; children: string }): ReactNode {
+function Table({ theme, card }: { theme: Theme; card: Card }): ReactNode {
+  if (card.rows.length === 0) {
+    return null;
+  }
+  const head = { color: theme.colors.foregroundMuted, fontSize: 12, fontWeight: '600' as const };
   return (
-    <Text style={{ color: theme.colors.foregroundMuted, fontSize: 13, lineHeight: 18 }}>
-      {children}
-    </Text>
+    <View style={{ gap: 6 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View>
+          <View
+            accessibilityRole="header"
+            style={{
+              flexDirection: 'row',
+              gap: 8,
+              paddingBottom: 6,
+              borderBottomWidth: 1,
+              borderColor: theme.colors.border,
+            }}
+          >
+            <Text style={[head, { width: MODEL_WIDTH }]}>Model</Text>
+            {card.columns.map((col) => (
+              <Text key={col.key} style={[head, { width: CELL_WIDTH }]}>
+                {col.label}
+              </Text>
+            ))}
+          </View>
+          {card.rows.map((row, i) => (
+            <TableRow key={row.family} theme={theme} row={row} last={i === card.rows.length - 1} />
+          ))}
+        </View>
+      </ScrollView>
+      {card.legend === null ? null : <Muted theme={theme}>{card.legend}</Muted>}
+    </View>
   );
 }
 
-function Status({ theme, card }: { theme: Theme; card: Card }): ReactNode {
-  const p = card.progress;
+function Problems({
+  theme,
+  card,
+  busy,
+  onPress,
+}: {
+  theme: Theme;
+  card: Card;
+  busy: boolean;
+  onPress: Press;
+}): ReactNode {
+  if (card.problems.length === 0) {
+    return null;
+  }
   return (
-    <>
-      <Muted theme={theme}>{card.description}</Muted>
-      {card.summary === null ? null : (
-        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>{card.summary}</Text>
-      )}
-      {card.detail === null ? null : <Muted theme={theme}>{card.detail}</Muted>}
-      {card.activity === null ? null : (
-        <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>{card.activity}</Text>
-      )}
-      {p === null ? null : (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Progress theme={theme} value={p.fraction} />
-          <Muted theme={theme}>{p.text}</Muted>
+    <View style={{ gap: 8 }}>
+      <Text
+        accessibilityRole="header"
+        style={{ color: theme.colors.foreground, fontSize: 13, fontWeight: '600' }}
+      >
+        Failed
+      </Text>
+      {card.problems.map((p) => (
+        <View key={p.key} style={{ gap: 6 }}>
+          <Text
+            selectable
+            style={{ color: theme.colors.statusDanger, fontSize: 13, lineHeight: 18 }}
+          >
+            {p.text}
+          </Text>
+          <ActionButton theme={theme} action={p.retry} busy={busy} onPress={onPress} />
         </View>
-      )}
-      {card.startedNote === null ? null : <Muted theme={theme}>{card.startedNote}</Muted>}
-      {card.status === null ? null : (
-        <Text style={{ color: theme.colors.foreground, fontSize: 13, lineHeight: 18 }}>
-          {card.status}
-        </Text>
-      )}
-    </>
+      ))}
+    </View>
   );
 }
 
@@ -194,7 +331,7 @@ function RestoreFailure({
   theme: Theme;
   failure: NonNullable<Card['restoreFailure']>;
   busy: boolean;
-  onPress: (a: BenchAction) => void;
+  onPress: Press;
 }): ReactNode {
   return (
     <View
@@ -218,238 +355,25 @@ function RestoreFailure({
   );
 }
 
-// ── results table ────────────────────────────────────────────────────────────────────────────
-
-const BADGE_TONE: Record<string, Tone> = {
-  'fastest': 'success',
-  'stale': 'warning',
-  'failed': 'error',
-  'in-use': 'info',
-};
-
-const FLEX = { runtime: 3, format: 3, number: 2 } as const;
-
-function Cell({
-  theme,
-  text,
-  flex,
-  muted = false,
-}: {
-  theme: Theme;
-  text: string | null;
-  flex: number;
-  muted?: boolean;
-}): ReactNode {
+function Outcome({ theme, runner }: { theme: Theme; runner: Runner }): ReactNode {
+  const o = runner.outcome;
+  if (o === null) {
+    return null;
+  }
   return (
     <Text
+      accessibilityRole={o.tone === 'error' ? 'alert' : 'text'}
       style={{
-        flex,
-        color: muted ? theme.colors.foregroundMuted : theme.colors.foreground,
+        color: o.tone === 'error' ? theme.colors.statusDanger : theme.colors.foregroundMuted,
         fontSize: 13,
       }}
     >
-      {text ?? '—'}
+      {o.text}
     </Text>
   );
 }
 
-interface Columns {
-  readonly showLong: boolean;
-  readonly show256: boolean;
-  readonly showK2: boolean;
-}
-
-function HeaderRow({ theme, columns }: { theme: Theme; columns: Columns }): ReactNode {
-  return (
-    <View style={{ flexDirection: 'row', gap: 8 }}>
-      <Cell theme={theme} text="Runtime" flex={FLEX.runtime} muted />
-      <Cell theme={theme} text="Format" flex={FLEX.format} muted />
-      <Cell theme={theme} text="Typical" flex={FLEX.number} muted />
-      {columns.showLong ? <Cell theme={theme} text="Long" flex={FLEX.number} muted /> : null}
-      {columns.show256 ? <Cell theme={theme} text="256" flex={FLEX.number} muted /> : null}
-      {columns.showK2 ? <Cell theme={theme} text="2k" flex={FLEX.number} muted /> : null}
-    </View>
-  );
-}
-
-function Badges({ theme, row }: { theme: Theme; row: ResultRow }): ReactNode {
-  if (row.badges.length === 0) {
-    return null;
-  }
-  return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
-      {row.badges.map((b) => (
-        <Badge key={b.kind} theme={theme} text={b.label} tone={BADGE_TONE[b.kind] ?? 'info'} />
-      ))}
-    </View>
-  );
-}
-
-function Numbers({
-  theme,
-  row,
-  columns,
-}: {
-  theme: Theme;
-  row: ResultRow;
-  columns: Columns;
-}): ReactNode {
-  if (row.text !== null) {
-    const shown = 1 + [columns.showLong, columns.show256, columns.showK2].filter(Boolean).length;
-    return (
-      <Text
-        style={{
-          flex: FLEX.number * shown,
-          color: theme.colors.foregroundMuted,
-          fontSize: 13,
-        }}
-      >
-        {row.text}
-      </Text>
-    );
-  }
-  return (
-    <>
-      <Cell theme={theme} text={row.typical} flex={FLEX.number} />
-      {columns.showLong ? <Cell theme={theme} text={row.long} flex={FLEX.number} /> : null}
-      {columns.show256 ? <Cell theme={theme} text={row.p256} flex={FLEX.number} /> : null}
-      {columns.showK2 ? <Cell theme={theme} text={row.k2} flex={FLEX.number} /> : null}
-    </>
-  );
-}
-
-function Row({
-  theme,
-  row,
-  columns,
-  busy,
-  onPress,
-}: {
-  theme: Theme;
-  row: ResultRow;
-  columns: Columns;
-  busy: boolean;
-  onPress: (a: BenchAction) => void;
-}): ReactNode {
-  return (
-    <View style={{ gap: 4 }}>
-      <View
-        accessible
-        accessibilityLabel={row.accessibleName}
-        style={{ flexDirection: 'row', gap: 8 }}
-      >
-        <View style={{ flex: FLEX.runtime, gap: 4 }}>
-          <Text style={{ color: theme.colors.foreground, fontSize: 13 }}>{row.runtime}</Text>
-          <Badges theme={theme} row={row} />
-        </View>
-        <Cell theme={theme} text={row.format} flex={FLEX.format} muted />
-        <Numbers theme={theme} row={row} columns={columns} />
-      </View>
-      {row.hint === null ? null : <Muted theme={theme}>{row.hint}</Muted>}
-      {row.error === null ? null : <Muted theme={theme}>{row.error}</Muted>}
-      {row.action === null ? null : (
-        <ActionButton theme={theme} action={row.action} busy={busy} onPress={onPress} />
-      )}
-    </View>
-  );
-}
-
-function Group({
-  theme,
-  group,
-  columns,
-  busy,
-  onPress,
-}: {
-  theme: Theme;
-  group: ResultGroup;
-  columns: Columns;
-  busy: boolean;
-  onPress: (a: BenchAction) => void;
-}): ReactNode {
-  return (
-    <View style={{ gap: 8 }}>
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 8,
-        }}
-      >
-        <Text
-          accessibilityRole="header"
-          style={{ color: theme.colors.foreground, fontSize: 14, fontWeight: '600' }}
-        >
-          {group.label}
-        </Text>
-        {group.useFastest === null ? null : (
-          <ActionButton theme={theme} action={group.useFastest} busy={busy} onPress={onPress} />
-        )}
-      </View>
-      <HeaderRow theme={theme} columns={columns} />
-      {group.rows.map((row) => (
-        <Row
-          key={row.key}
-          theme={theme}
-          row={row}
-          columns={columns}
-          busy={busy}
-          onPress={onPress}
-        />
-      ))}
-    </View>
-  );
-}
-
-function Results({
-  theme,
-  card,
-  busy,
-  open,
-  onOpen,
-  onPress,
-}: {
-  theme: Theme;
-  card: Card;
-  busy: boolean;
-  open: boolean | null;
-  onOpen: (open: boolean) => void;
-  onPress: (a: BenchAction) => void;
-}): ReactNode {
-  if (card.groups.length === 0) {
-    return null;
-  }
-  return (
-    <Disclosure
-      theme={theme}
-      title="Results"
-      expanded={open ?? card.resultsExpanded}
-      onExpandedChange={onOpen}
-    >
-      <View style={{ gap: 16 }}>
-        {card.groups.map((g) => (
-          <Group
-            key={g.family}
-            theme={theme}
-            group={g}
-            columns={card}
-            busy={busy}
-            onPress={onPress}
-          />
-        ))}
-      </View>
-    </Disclosure>
-  );
-}
-
-export function BenchmarkCard({
-  theme,
-  catalog,
-  view,
-  resultsOpen,
-  onResultsOpen,
-}: Props): ReactNode {
+export function BenchmarkCard({ theme, catalog, view }: Props): ReactNode {
   const runner = useAction();
   const perform = useBenchmarkActions(runner);
   if (view == null) {
@@ -460,11 +384,13 @@ export function BenchmarkCard({
   const busy = runner.busy !== null;
   return (
     <SettingsCard>
-      <SettingsRow label="Benchmark this machine">
+      <SettingsRow label="Benchmark">
         {card.stateLabel === null ? null : <Badge theme={theme} text={card.stateLabel} />}
       </SettingsRow>
-      <View style={{ gap: 8, paddingHorizontal: 16, paddingVertical: 8 }}>
-        <Status theme={theme} card={card} />
+      <View style={{ gap: 12, paddingHorizontal: 16, paddingVertical: 8 }}>
+        <Muted theme={theme}>{card.description}</Muted>
+        <Live theme={theme} card={card} />
+        {card.status === null ? null : <Plain theme={theme}>{card.status}</Plain>}
         <Controls theme={theme} card={card} busy={busy} onPress={perform} />
         {card.restoreFailure === null ? null : (
           <RestoreFailure
@@ -474,28 +400,9 @@ export function BenchmarkCard({
             onPress={perform}
           />
         )}
-        {runner.outcome === null ? null : (
-          <Text
-            accessibilityRole={runner.outcome.tone === 'error' ? 'alert' : 'text'}
-            style={{
-              color:
-                runner.outcome.tone === 'error'
-                  ? theme.colors.statusDanger
-                  : theme.colors.foregroundMuted,
-              fontSize: 13,
-            }}
-          >
-            {runner.outcome.text}
-          </Text>
-        )}
-        <Results
-          theme={theme}
-          card={card}
-          busy={busy}
-          open={resultsOpen}
-          onOpen={onResultsOpen}
-          onPress={perform}
-        />
+        <Outcome theme={theme} runner={runner} />
+        <Table theme={theme} card={card} />
+        <Problems theme={theme} card={card} busy={busy} onPress={perform} />
         {card.footer.map((line) => (
           <Muted key={line} theme={theme}>
             {line}
