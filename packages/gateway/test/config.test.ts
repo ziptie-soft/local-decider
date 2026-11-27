@@ -103,7 +103,7 @@ describe('config', () => {
     const policies = loadPolicies(loadConfig(paths));
     assert.equal(policies.get('routing')?.policy.description, 'mine');
     assert.equal(policies.get('routing')?.mode, 'off');
-    assert.equal(policies.size, 6, 'replaced, not added');
+    assert.equal(policies.size, 7, 'replaced, not added');
   });
 
   it('recognises loopback hosts', () => {

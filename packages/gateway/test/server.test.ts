@@ -453,6 +453,7 @@ describe('gateway HTTP', () => {
     const policies = (await (await fetch(`${gw.url}/v1/policies`)).json()) as { id: string }[];
     assert.deepEqual(policies.map((p) => p.id).toSorted(), [
       'command-risk',
+      'command-risk-binary',
       'permission',
       'routing',
       'routing-budget',

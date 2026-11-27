@@ -4,6 +4,10 @@
     "caution": 0.8,
     "safe": 0.85
   },
+  "command-risk-binary": {
+    "true": 0.8,
+    "false": 0.7
+  },
   "permission": {
     "allow": 0.35,
     "ask": 1.0,
