@@ -860,14 +860,22 @@ export class EngineControl implements BenchmarkHost {
     }
   }
 
-  /** A strands-decider device this machine cannot run (no CUDA, say) is a 409. */
+  /**
+   * A strands-decider device this machine cannot run (no CUDA, say) is a 409. `auto` (or no device,
+   * as a policy selection from the settings sends) runs where it resolves to, or, before that is
+   * known, wherever the engine is eligible at all.
+   */
   async #checkDevice(next: EngineSelection): Promise<void> {
     if (next.engine !== 'strands-decider') {
       return;
     }
     const { ranking } = await this.#inventorySources();
     const eligible = ranking.candidates.filter((c) => c.engine === next.engine && c.eligible);
-    if (!eligible.some((c) => c.device === next.device)) {
+    const auto = next.device === null || next.device === 'auto';
+    const device = auto ? this.#deviceResolution(next)?.resolved : next.device;
+    const runs =
+      device === undefined ? eligible.length > 0 : eligible.some((c) => c.device === device);
+    if (!runs) {
       throw new EngineSwitchError(409, `device ${next.device ?? 'auto'} is not available here`);
     }
   }
