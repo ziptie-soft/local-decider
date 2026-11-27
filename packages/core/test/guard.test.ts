@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 
 import { guardCommand } from '../src/guard.ts';
 import { parseShell, splitShell } from '../src/shell.ts';
+import { LINEAR_BOUND_MS, cpuMs } from './cpu-time.ts';
 
 const WRAPPERS: ReadonlyArray<readonly [string, string]> = [
   ['bash -c "bash -c \\"rm -rf /\\""', 'rm-root'],
@@ -277,7 +278,6 @@ describe('guardCommand fork bombs and adversarial input', () => {
   });
 
   const MIB3 = 3 * 1024 * 1024;
-  const LINEAR_BOUND_MS = 5000;
   const ADVERSARIAL: ReadonlyArray<readonly [string, string]> = [
     ['x', 'x'.repeat(MIB3)],
     [':', ':'.repeat(MIB3)],
@@ -311,9 +311,8 @@ describe('guardCommand fork bombs and adversarial input', () => {
   ];
   for (const [name, command] of ADVERSARIAL) {
     it(`scans a 3 MiB ${name} input in linear time`, () => {
-      const start = performance.now();
-      guardCommand(command);
-      assert.ok(performance.now() - start < LINEAR_BOUND_MS, `${name} took too long`);
+      const ms = cpuMs(() => guardCommand(command));
+      assert.ok(ms < LINEAR_BOUND_MS, `${name} took ${ms} ms`);
     });
   }
 });

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { writeGuard } from '../src/write-guard.ts';
+import { LINEAR_BOUND_MS, cpuMs } from './cpu-time.ts';
 
-const LINEAR_BOUND_MS = 5000;
 const CWD = '/work/repo';
 const rule = (path: string): string | undefined =>
   writeGuard('Write', { file_path: path }, CWD)?.rule;
@@ -90,9 +90,8 @@ describe('writeGuard', () => {
 
   it('scans a 3 MiB redirect-heavy command in linear time', () => {
     for (const command of ['> .git/x '.repeat(349_525), '> x '.repeat(786_432), '>'.repeat(3e6)]) {
-      const start = performance.now();
-      bash(command);
-      assert.ok(performance.now() - start < LINEAR_BOUND_MS);
+      const ms = cpuMs(() => bash(command));
+      assert.ok(ms < LINEAR_BOUND_MS, `took ${ms} ms`);
     }
   });
 });
