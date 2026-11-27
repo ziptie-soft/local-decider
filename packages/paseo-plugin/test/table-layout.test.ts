@@ -6,6 +6,7 @@ import {
   COLUMN_LABELS,
   CONTROLS_WIDTH,
   STACK_BELOW,
+  TABLE,
   tableStacked,
 } from '../shared/table-layout.ts';
 
@@ -19,6 +20,13 @@ describe('table layout', () => {
     assert.equal(tableStacked(601), true);
     assert.equal(tableStacked(602), false);
     assert.equal(tableStacked(700), false);
+  });
+});
+
+describe('model chip size', () => {
+  it('shrinks to 120 px at least, and never past its normal width', () => {
+    assert.equal(TABLE.minModelChip, 120);
+    assert.ok(TABLE.minModelChip < TABLE.model);
   });
 });
 

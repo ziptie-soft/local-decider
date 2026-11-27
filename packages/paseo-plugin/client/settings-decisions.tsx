@@ -223,10 +223,34 @@ function Column({
   if (!stacked) {
     return <Cell width={width}>{children}</Cell>;
   }
+  // The Model chip shrinks to the line (never past the card) down to `minModelChip`; the pair
+  // wraps below that and may take the whole line up to its normal width.
+  const flexible = width === TABLE.model;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        ...(flexible ? { flexGrow: 1, flexShrink: 1, maxWidth: '100%' } : {}),
+      }}
+    >
       <Head theme={theme} text={label} />
-      <Cell width={width}>{children}</Cell>
+      <View
+        style={
+          flexible
+            ? {
+                flexGrow: 1,
+                flexShrink: 1,
+                flexBasis: TABLE.minModelChip,
+                minWidth: 0,
+                maxWidth: width,
+              }
+            : { width }
+        }
+      >
+        {children}
+      </View>
     </View>
   );
 }
