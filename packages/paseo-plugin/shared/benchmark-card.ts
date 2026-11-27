@@ -145,6 +145,8 @@ interface Source {
   readonly family: { id: string; label: string };
   readonly format: string;
   readonly installed: boolean;
+  /** Why a run cannot measure this row now (model removed, runtime unavailable), or null. */
+  readonly blocked: string | null;
   readonly measured: Measured | null;
 }
 
@@ -174,6 +176,24 @@ function engineCalibrated(catalog: EngineCatalog, id: string): boolean {
   return catalog.engines.find((e) => e.id === id)?.calibrated !== false;
 }
 
+/** Why a benchmark run skips this model on this device, mirroring the gateway's target filter. */
+function blockedReason(
+  catalog: EngineCatalog,
+  m: EngineModel,
+  device: string | null,
+): string | null {
+  const engine = catalog.engines.find((e) => e.id === m.engine);
+  if (engine === undefined || !engine.supported) return 'runtime not supported here';
+  if (!engine.installed || !engine.available) return `${engine.label} isn't available`;
+  if (!m.installed) return 'model not installed';
+  if (!m.fits) return "model doesn't fit in memory";
+  const devices = engine.devices.filter((d) => d !== 'auto');
+  if (device !== null && devices.length > 0 && !devices.includes(device)) {
+    return `device ${device} isn't available here`;
+  }
+  return null;
+}
+
 function sourcesOf(catalog: EngineCatalog): Source[] {
   const out: Source[] = [];
   for (const m of catalog.models) {
@@ -185,11 +205,12 @@ function sourcesOf(catalog: EngineCatalog): Source[] {
       installed: m.installed,
     };
     for (const measured of m.measured) {
-      out.push({ ...base, device: measured.device, measured });
+      const device = measured.device;
+      out.push({ ...base, device, blocked: blockedReason(catalog, m, device), measured });
     }
     const listable = m.installed && m.fits && engineCalibrated(catalog, m.engine);
     if (m.measured.length === 0 && listable) {
-      out.push({ ...base, device: null, measured: null });
+      out.push({ ...base, device: null, blocked: null, measured: null });
     }
   }
   return out;
@@ -205,6 +226,7 @@ function sourceOfTarget(t: BenchmarkTarget, label: string | undefined): Source {
     family: { id, label: label ?? id },
     format: '—',
     installed: true,
+    blocked: null,
     measured: null,
   };
 }
@@ -371,10 +393,14 @@ function retryAction(c: Ctx, s: Source, kind: 'measure' | 'retry' | null): Bench
   return lockable(c, action(kind, label, { targets: [targetKey(s)] }));
 }
 
+const RERUN_HINT = 'Out of date — run again.';
+
 function hintOf(s: Source, b: Built): string | null {
-  return b.state === 'measured' && s.measured?.freshness === 'stale'
-    ? 'Out of date — run again.'
-    : null;
+  if (b.state !== 'measured' || s.measured?.freshness !== 'stale') {
+    return null;
+  }
+  // A run skips this row, so asking to run again would never clear the badge.
+  return s.blocked === null ? RERUN_HINT : `Out of date — ${s.blocked}, so a run skips it.`;
 }
 
 function accessible(
@@ -722,8 +748,9 @@ function runAction(v: BenchmarkView | null, label: string): BenchAction {
   return action('run', label);
 }
 
+/** Whether a run would refresh an out-of-date row. */
 function hasStale(groups: readonly ResultGroup[]): boolean {
-  return groups.some((g) => g.rows.some((r) => r.badges.some((b) => b.kind === 'stale')));
+  return groups.some((g) => g.rows.some((r) => r.hint === RERUN_HINT));
 }
 
 function hasResults(groups: readonly ResultGroup[]): boolean {
