@@ -201,6 +201,20 @@ back to the next one if it fails, then retries the better one after a cooldown. 
 in the settings page or with `engine use` is manual and is never replaced. See
 [engines.md](engines.md#5a-automatic-selection-and-fallback).
 
+### A model per decision
+
+One model answers every decision unless a decision has its own. Add it under the policy and the
+gateway applies it within a second, or run `local-decider engine use <engine> <model> --policy
+<id>`. Keep the decision in `shadow` first: its thresholds were set for the default model. The
+limits are in [models.md](models.md#6-switching-the-model-for-one-decision):
+
+```yaml
+policies:
+  command-risk:
+    mode: shadow
+    selection: { engine: llama-vulkan, model: d3-lite-q8_0 }   # this decision's own model; omit for the default
+```
+
 ### Apple Silicon
 
 `local-decider engine install` picks the `mlx` flavour on an M-series Mac. With `device: auto`

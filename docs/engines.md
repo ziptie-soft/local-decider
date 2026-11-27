@@ -251,7 +251,8 @@ ranking but still probes the hardware for the strands-decider flavor (above).
 start or dies, not a low-confidence answer) moves the gateway to the next installed, eligible
 candidate:
 
-- The failed engine is stopped before the replacement starts, so one model is loaded at a time.
+- The failed engine is stopped before the replacement starts, so only one default-model engine
+  is loaded at a time.
 - Nothing is downloaded during a decision. A candidate whose model is missing is skipped.
 - Decisions fail open while the replacement loads. Decision caches are cleared on every switch.
 - The failed candidate cools down for 30 s, doubling per repeated failure up to 15 min. A
@@ -275,6 +276,15 @@ and persists it. Going manual keeps the engine, model and device that are runnin
 page drives it with the "Automatic" option of its Engine select. `active.fallback` also carries the
 failed `engine` and `device`, and each ranking candidate has a stable `code` (`available`,
 `no-hardware`, `not-confirmed`, `unsupported-platform`, `no-memory`, `uncalibrated`).
+
+**A decision's own model stays out of all of this.** A policy can have its own engine and model
+(`policies.<id>.selection`, [models.md](models.md#6-switching-the-model-for-one-decision)). Automatic
+selection, the ranking and the fallback above concern the default model only: an own model is never
+chosen automatically, never ranked and never a fallback candidate, and its failures never count
+against the default model's crash budget. When the default model changes, whether by you or by a
+fallback, it keeps its memory and a decision's own model that no longer fits next to it becomes
+unavailable (the config is not changed). What answers meanwhile is that decision's `fallback`
+setting.
 
 ## 5b. Model families and the recommendation
 

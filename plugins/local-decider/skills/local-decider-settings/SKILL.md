@@ -1,6 +1,6 @@
 ---
 name: local-decider-settings
-description: View or change local-decider settings (policy modes, the routing policy variant, which model each routing preset maps to for Paseo, Claude Code or Codex, engine lifecycle, tool paths, pricing). Use when the user asks to configure local-decider, turn a policy on, off or to act mode, switch routing policy, or map routing presets to models.
+description: View or change local-decider settings (policy modes, the routing policy variant, which model each routing preset maps to for Paseo, Claude Code or Codex, engine lifecycle, tool paths, pricing, the model one decision uses). Use when the user asks to configure local-decider, turn a policy on, off or to act mode, switch routing policy, map routing presets to models, or give one decision its own model.
 ---
 
 # local-decider settings
@@ -45,3 +45,22 @@ the hooks then change behaviour (auto-allowing permission requests, denying risk
 Claude Code and Codex cannot switch the session model from a hook: a mapped routing preset is
 passed to the session as advice naming the model and, when mapped, the thinking level (the user
 sets it with `/model` and the harness's effort or reasoning control).
+
+## Model per decision
+
+A decision can use its own engine and model instead of the default one. Details, limits and the
+failure behaviour are in `docs/models.md` ("Switching the model for one decision").
+
+- Config key: `policies.<id>.selection: { engine, model, device?, fallback? }`. The gateway
+  applies an edit within a second, and a choice that cannot run becomes unavailable with a reason
+  instead of stopping it. `fallback: default` (the default) lets the default model answer
+  meanwhile; `fallback: open` skips the decision, never enforced.
+- Commands, which check the choice first: `local-decider engine use <engine> <model> --policy <id>
+  [--fallback default|open] [--device D]` and `local-decider engine use default --policy <id>`.
+  `local-decider engine list` ends with a `Decisions:` block.
+- Start the decision in `shadow`: its thresholds were set for the default model. Do not switch it
+  to `act` without asking the user.
+- Budgets: the default model and the own models that run locally share 80% of the machine's
+  memory, and the default model wins. At most 3 different own models run at once (a model equal to
+  the default, or a decision in mode `off`, takes no slot), and FastFlowLM runs one model in
+  total. A decision in mode `off` loads nothing but keeps its memory.
