@@ -1,9 +1,23 @@
-import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import {
+  closeSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import type { Paths } from './paths.ts';
+import { ensurePrivatePaths } from './private-paths.ts';
+import { processStartToken } from './process-start.ts';
 
 const SERVICE_NAME = 'local-decider';
 const LAUNCHD_LABEL = 'dev.local-decider.gateway';
@@ -176,6 +190,10 @@ function pidFile(paths: Paths): string {
   return join(paths.run, 'gateway.pid');
 }
 
+function stoppedFile(paths: Paths): string {
+  return join(paths.run, 'stopped');
+}
+
 function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -185,37 +203,132 @@ function pidAlive(pid: number): boolean {
   }
 }
 
-function readPid(paths: Paths): number | undefined {
+interface GatewayPidfile {
+  readonly pid: number;
+  readonly start: string | null;
+  readonly port: number;
+}
+
+function readPidfile(paths: Paths): GatewayPidfile | undefined {
+  return readPidfileAt(pidFile(paths), true);
+}
+
+function parsePidfile(value: unknown): GatewayPidfile | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const row = value as Record<string, unknown>;
+  const validPid = Number.isSafeInteger(row['pid']) && (row['pid'] as number) > 0;
+  const validPort = Number.isInteger(row['port']) && (row['port'] as number) > 0;
+  const validStart =
+    row['start'] === undefined || row['start'] === null || typeof row['start'] === 'string';
+  if (!validPid || !validPort || !validStart) return undefined;
+  return {
+    pid: row['pid'] as number,
+    start: typeof row['start'] === 'string' ? row['start'] : null,
+    port: row['port'] as number,
+  };
+}
+
+function pidfileOwnerIsLive(pidfile: GatewayPidfile): boolean {
+  if (!pidAlive(pidfile.pid)) return false;
+  const current = processStartToken(pidfile.pid);
+  return pidfile.start === null || current === undefined || pidfile.start === current;
+}
+
+function readPidfileAt(file: string, verifyOwner = false): GatewayPidfile | undefined {
+  let text: string;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch {
+    return undefined;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const pidfile = parsePidfile(value);
+  if (pidfile === undefined || (verifyOwner && !pidfileOwnerIsLive(pidfile))) return undefined;
+  return pidfile;
+}
+
+function atomicWrite(file: string, content: string): void {
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  const temp = `${file}.${randomBytes(12).toString('hex')}.tmp`;
+  const fd = openSync(temp, 'wx', 0o600);
+  try {
+    writeFileSync(fd, content, 'utf8');
+  } finally {
+    closeSync(fd);
+  }
+  // rename replaces an old pidfile atomically after the complete contents are written.
+  renameSync(temp, file);
+}
+
+/** Record this gateway only after its listener is ready. */
+export function writeGatewayPidfile(paths: Paths, pid: number, port: number): void {
+  atomicWrite(pidFile(paths), JSON.stringify({ pid, start: processStartToken(pid) ?? null, port }));
+}
+
+/** Remove the pidfile only when it still describes this process incarnation. */
+export function removeGatewayPidfile(paths: Paths, pid = process.pid): void {
   const file = pidFile(paths);
-  const pid = existsSync(file) ? Number.parseInt(readFileSync(file, 'utf8'), 10) : Number.NaN;
-  return Number.isInteger(pid) && pidAlive(pid) ? pid : undefined;
+  const moved = `${file}.${randomBytes(12).toString('hex')}.remove`;
+  try {
+    renameSync(file, moved);
+  } catch {
+    return;
+  }
+  const saved = readPidfileAt(moved);
+  if (saved?.pid === pid && saved.start === (processStartToken(pid) ?? null)) {
+    unlinkSync(moved);
+    return;
+  }
+  let restored = false;
+  try {
+    linkSync(moved, file);
+    restored = true;
+  } catch {
+    // A replacement pidfile already owns the canonical path; preserve the displaced file.
+  }
+  if (restored) {
+    try {
+      unlinkSync(moved);
+    } catch {
+      /* canonical hard link remains valid */
+    }
+  }
 }
 
-function startPidfile(paths: Paths): string {
-  if (readPid(paths) !== undefined) {
-    return 'already running';
+export function clearGatewayStopped(paths: Paths): void {
+  try {
+    unlinkSync(stoppedFile(paths));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
-  mkdirSync(paths.run, { recursive: true });
-  mkdirSync(paths.logs, { recursive: true });
-  const out = openSync(join(paths.logs, 'gateway.log'), 'a');
-  const [cmd, ...args] = gatewayCommand();
-  const child = spawn(cmd ?? process.execPath, args, {
-    detached: true,
-    stdio: ['ignore', out, out],
-  });
-  child.unref();
-  writeFileSync(pidFile(paths), String(child.pid));
-  return `started (pid ${String(child.pid)})`;
 }
 
-function stopPidfile(paths: Paths): string {
-  const pid = readPid(paths);
-  rmSync(pidFile(paths), { force: true });
-  if (pid === undefined) {
-    return 'not running';
+export function gatewayWasStopped(paths: Paths): boolean {
+  try {
+    readFileSync(stoppedFile(paths));
+    return true;
+  } catch {
+    return false;
   }
-  process.kill(pid, 'SIGTERM');
-  return `stopped (pid ${String(pid)})`;
+}
+
+function markGatewayStopped(paths: Paths): void {
+  atomicWrite(stoppedFile(paths), `${new Date().toISOString()}\n`);
+}
+
+function stopPidfile(
+  paths: Paths,
+  kill: (pid: number, signal: NodeJS.Signals) => void = (pid, signal) => process.kill(pid, signal),
+): string {
+  const owner = readPidfile(paths);
+  if (owner === undefined) return 'not running';
+  kill(owner.pid, 'SIGTERM');
+  return `stopped (pid ${String(owner.pid)})`;
 }
 
 /** Write `content` to `file` only if it differs; true when it changed. */
@@ -341,6 +454,10 @@ export function startLaunchd(
  * meanwhile. `restart` forces one (e.g. after rebuilding the gateway).
  */
 export function startService(manager: ServiceManager, paths: Paths, restart = false): string {
+  if (manager === 'pidfile')
+    throw new Error('pidfile gateway starts must use the gateway ensure path');
+  ensurePrivatePaths(paths);
+  clearGatewayStopped(paths);
   const command = gatewayCommand();
   mkdirSync(paths.logs, { recursive: true });
   if (manager === 'systemd') {
@@ -349,24 +466,32 @@ export function startService(manager: ServiceManager, paths: Paths, restart = fa
   if (manager === 'launchd') {
     return startLaunchd(command, paths, restart);
   }
-  if (restart) {
-    stopPidfile(paths);
-  }
-  return startPidfile(paths);
+  throw new Error('pidfile gateway starts must use the gateway ensure path');
 }
 
-export function stopService(manager: ServiceManager, paths: Paths): string {
+export interface ServiceRuntimeDeps {
+  readonly systemdTryRun?: (args: readonly string[]) => string | undefined;
+  readonly launchctl?: LaunchctlDeps;
+  readonly kill?: (pid: number, signal: NodeJS.Signals) => void;
+}
+
+export function stopService(
+  manager: ServiceManager,
+  paths: Paths,
+  deps: ServiceRuntimeDeps = {},
+): string {
+  ensurePrivatePaths(paths);
+  markGatewayStopped(paths);
   if (manager === 'systemd') {
-    tryRun('systemctl', ['--user', 'stop', SERVICE_NAME]);
-    return 'stopped';
+    (deps.systemdTryRun ?? ((args) => tryRun('systemctl', args)))(['--user', 'stop', SERVICE_NAME]);
+  } else if (manager === 'launchd') {
+    const launchctl = deps.launchctl ?? defaultLaunchctl;
+    const target = `gui/${String(launchctl.uid)}/${LAUNCHD_LABEL}`;
+    launchctl.tryRun(['bootout', target]);
+    waitUnloaded(target, launchctl);
   }
-  if (manager === 'launchd') {
-    const target = `gui/${String(defaultLaunchctl.uid)}/${LAUNCHD_LABEL}`;
-    defaultLaunchctl.tryRun(['bootout', target]);
-    waitUnloaded(target, defaultLaunchctl);
-    return 'stopped';
-  }
-  return stopPidfile(paths);
+  stopPidfile(paths, deps.kill);
+  return 'stopped';
 }
 
 /** Remove the unit/plist (after stopping). */
@@ -385,16 +510,66 @@ export function uninstallService(manager: ServiceManager, paths: Paths): string 
   return 'nothing to remove';
 }
 
-export function serviceState(manager: ServiceManager, paths: Paths): string {
+export function serviceState(
+  manager: ServiceManager,
+  paths: Paths,
+  deps: ServiceRuntimeDeps = {},
+): string {
+  ensurePrivatePaths(paths);
+  const pidfile = readPidfile(paths);
+  const pidfileState =
+    pidfile === undefined ? undefined : `pidfile running (pid ${String(pidfile.pid)})`;
   if (manager === 'systemd') {
-    return tryRun('systemctl', ['--user', 'is-active', SERVICE_NAME]) ?? 'inactive';
+    const state =
+      (deps.systemdTryRun ?? ((args) => tryRun('systemctl', args)))([
+        '--user',
+        'is-active',
+        SERVICE_NAME,
+      ]) ?? 'inactive';
+    return pidfileState === undefined ? state : `${state}; ${pidfileState}`;
   }
   if (manager === 'launchd') {
-    const out = tryRun('launchctl', ['print', `gui/${String(userInfo().uid)}/${LAUNCHD_LABEL}`]);
-    return out === undefined ? 'not loaded' : (/state = (\w+)/.exec(out)?.[1] ?? 'loaded');
+    const launchctl = deps.launchctl ?? defaultLaunchctl;
+    const out = launchctl.tryRun(['print', `gui/${String(launchctl.uid)}/${LAUNCHD_LABEL}`]);
+    const state = out === undefined ? 'not loaded' : (/state = (\w+)/.exec(out)?.[1] ?? 'loaded');
+    return pidfileState === undefined ? state : `${state}; ${pidfileState}`;
   }
-  const pid = readPid(paths);
-  return pid === undefined ? 'not running' : `running (pid ${String(pid)})`;
+  return pidfileState ?? 'not running';
+}
+
+/** Whether a service definition already exists; uses read errors instead of path prechecks. */
+export function installedService(
+  manager: ServiceManager,
+  files: { unit?: string; plist?: string } = {},
+): boolean {
+  if (manager === 'pidfile') return false;
+  const file = manager === 'systemd' ? (files.unit ?? unitPath()) : (files.plist ?? plistPath());
+  try {
+    readFileSync(file, 'utf8');
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+/** Start an existing service definition without writing or refreshing it. */
+export function startInstalledService(
+  manager: Exclude<ServiceManager, 'pidfile'>,
+  deps: { readonly systemdStart?: () => void; readonly launchctl?: LaunchctlDeps } = {},
+): void {
+  if (manager === 'systemd') {
+    if (deps.systemdStart !== undefined) deps.systemdStart();
+    else run('systemctl', ['--user', 'start', SERVICE_NAME]);
+    return;
+  }
+  const launchctl = deps.launchctl ?? defaultLaunchctl;
+  const target = `gui/${String(launchctl.uid)}/${LAUNCHD_LABEL}`;
+  if (launchctl.tryRun(['print', target]) !== undefined) {
+    launchctl.run(['kickstart', target]);
+  } else {
+    bootstrap(`gui/${String(launchctl.uid)}`, launchctl.plist ?? plistPath(), launchctl);
+  }
 }
 
 /** The first argument of a unit's `ExecStart=` line (the Node binary), unquoted; read-only. */

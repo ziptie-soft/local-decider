@@ -295,6 +295,18 @@ local-decider gateway start       # systemd user unit (Linux) or launchd agent (
 local-decider gateway status
 ```
 
+`local-decider gateway ensure` is the automatic-start path for clients and scripts. It checks the
+configured local URL, starts an installed user service when one exists, or launches this CLI in the
+background and waits for `/health`. It does not install the gateway package or download an engine.
+Use `--json` for a result object, `--timeout 45` to wait up to 45 seconds, or `--force` to clear a
+previous `gateway stop` request. A stopped marker remains in effect until `gateway start`,
+`gateway restart`, `gateway run`, or `gateway ensure --force`.
+
+```sh
+local-decider gateway ensure --timeout 30
+local-decider gateway ensure --json
+```
+
 - `gateway start` writes `~/.config/systemd/user/local-decider.service` or
   `~/Library/LaunchAgents/dev.local-decider.gateway.plist` and starts it. It is a no-op when the
   gateway already runs. Without systemd it starts a detached process with a pid file.
@@ -308,6 +320,18 @@ local-decider gateway status
   rotate at 10 MiB and retain one previous file.
 - When upgrading from a release that logged unfiltered engine output, delete old engine logs:
   `~/.local/share/local-decider/logs/engine-*.log`.
+
+### Process names
+
+Process titles are best-effort and vary by platform:
+
+| Process | Linux | macOS |
+| --- | --- | --- |
+| Gateway | `ps` shows `local-decider gateway`; the kernel `comm` field truncates it to 15 characters (`local-decider g`). | `ps` shows `local-decider gateway`; Activity Monitor may show it as a Node application. |
+| Managed strands / MLX | `ps` shows `local-decider: strands <model-id>`. | `ps` shows the title; Activity Monitor may show `python3.x`. |
+| `llama-server` and `flm` | `ps` shows the descriptive argv name; `comm` remains the executable name. | `ps` shows the argv name; Activity Monitor continues to show `llama-server` or `flm`. |
+
+A user-configured strands executable is left unchanged.
 
 ## 4. Harness plugins
 

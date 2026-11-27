@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -7,10 +7,16 @@ import {
   launchdEnv,
   launchdExecBinary,
   launchdPlist,
+  installedService,
+  removeGatewayPidfile,
   staleServiceExec,
   startLaunchd,
   systemdExecBinary,
   systemdUnit,
+  writeGatewayPidfile,
+  serviceState,
+  startInstalledService,
+  stopService,
   type LaunchctlDeps,
 } from '../src/service.ts';
 import { tempPaths } from './helpers.ts';
@@ -192,5 +198,115 @@ describe('stale service ExecStart', () => {
       undefined,
     );
     assert.equal(staleServiceExec('pidfile'), undefined);
+  });
+});
+
+describe('gateway pidfile ownership', () => {
+  it('writes JSON after listen and removes only the matching process record', () => {
+    const paths = tempPaths();
+    writeGatewayPidfile(paths, process.pid, 43210);
+    const file = join(paths.run, 'gateway.pid');
+    const owner = JSON.parse(readFileSync(file, 'utf8')) as {
+      pid: number;
+      start: string;
+      port: number;
+    };
+    assert.equal(owner.pid, process.pid);
+    assert.equal(owner.port, 43210);
+    assert.equal(typeof owner.start, 'string');
+    removeGatewayPidfile(paths);
+    assert.throws(() => readFileSync(file), { code: 'ENOENT' });
+  });
+
+  it('preserves a foreign pidfile and covers pidfile gateways under each manager', () => {
+    const paths = tempPaths();
+    writeGatewayPidfile(paths, process.pid, 43210);
+    const foreign = JSON.stringify({
+      pid: process.pid,
+      start: 'different-incarnation',
+      port: 43211,
+    });
+    writeFileSync(join(paths.run, 'gateway.pid'), foreign, { mode: 0o600 });
+    removeGatewayPidfile(paths);
+    assert.equal(readFileSync(join(paths.run, 'gateway.pid'), 'utf8'), foreign);
+
+    writeGatewayPidfile(paths, process.pid, 43210);
+    assert.match(serviceState('pidfile', paths), /pidfile running/);
+    const pidfileSignal: number[] = [];
+    stopService('pidfile', paths, {
+      kill: (pid) => {
+        pidfileSignal.push(pid);
+      },
+    });
+    assert.deepEqual(pidfileSignal, [process.pid]);
+
+    writeGatewayPidfile(paths, process.pid, 43210);
+    const systemdCalls: string[] = [];
+    assert.match(
+      serviceState('systemd', paths, {
+        systemdTryRun: (args) => (systemdCalls.push(args.join(' ')), 'inactive'),
+      }),
+      /pidfile running/,
+    );
+    assert.deepEqual(systemdCalls, ['--user is-active local-decider']);
+    const launchCalls: string[] = [];
+    const launchctl: LaunchctlDeps = {
+      uid: 501,
+      tryRun: (args) => (
+        launchCalls.push(args.join(' ')),
+        args[0] === 'print' ? 'state = running' : undefined
+      ),
+      run: () => '',
+      sleep: () => undefined,
+    };
+    assert.match(serviceState('launchd', paths, { launchctl }), /pidfile running/);
+    assert.deepEqual(launchCalls, ['print gui/501/dev.local-decider.gateway']);
+
+    const launchSignal: number[] = [];
+    stopService('launchd', paths, {
+      launchctl,
+      kill: (pid) => {
+        launchSignal.push(pid);
+      },
+    });
+    assert.deepEqual(launchSignal, [process.pid]);
+
+    const signalled: number[] = [];
+    writeGatewayPidfile(paths, process.pid, 43210);
+    const stopped = stopService('systemd', paths, {
+      systemdTryRun: (args) => (systemdCalls.push(args.join(' ')), ''),
+      kill: (pid) => {
+        signalled.push(pid);
+      },
+    });
+    assert.equal(stopped, 'stopped');
+    assert.deepEqual(signalled, [process.pid]);
+  });
+});
+
+describe('starting an installed service', () => {
+  it('uses the manager and leaves the existing definition untouched', () => {
+    const paths = tempPaths();
+    const plist = join(paths.data, 'installed.plist');
+    const content = launchdPlist(COMMAND, paths);
+    writeFileSync(plist, content, { mode: 0o600 });
+    assert.equal(installedService('launchd', { plist }), true);
+    const calls: string[] = [];
+    const launchctl: LaunchctlDeps = {
+      uid: 501,
+      plist,
+      tryRun: (args) => (calls.push(args.join(' ')), undefined),
+      run: (args) => (calls.push(args.join(' ')), ''),
+      sleep: () => undefined,
+    };
+    startInstalledService('launchd', { launchctl });
+    assert.deepEqual(calls, [
+      'print gui/501/dev.local-decider.gateway',
+      `bootstrap gui/501 ${plist}`,
+    ]);
+    assert.equal(readFileSync(plist, 'utf8'), content);
+
+    startInstalledService('systemd', { systemdStart: () => calls.push('systemd start') });
+    assert.equal(calls.at(-1), 'systemd start');
   });
 });

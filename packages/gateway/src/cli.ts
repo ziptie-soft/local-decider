@@ -10,6 +10,7 @@ import {
 } from '@ziptie-soft/local-decider-core';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
 
 import { authoringPrompt } from './authoring.ts';
@@ -61,6 +62,7 @@ import { hasVulkanDevice } from './engines/llama/status.ts';
 import { ENGINES } from './engines/registry.ts';
 import { rankEngines } from './engines/selector.ts';
 import { strandsBinary } from './engines/strands/server.ts';
+import { configuredGatewayUrl, ensureExitCode, ensureGateway } from './ensure.ts';
 import {
   EvalPolicyOffError,
   formatEvalSummary,
@@ -72,11 +74,15 @@ import { installLlamaModel } from './llama-install.ts';
 import { parseMcpPolicies, serveMcpStdio, type McpBackend } from './mcp.ts';
 import { resolvePaths, type Paths } from './paths.ts';
 import { loadPolicies, loadPolicyFile, policyDirs } from './policies.ts';
+import { ensurePrivatePaths } from './private-paths.ts';
 import { installProcessGuards } from './process-guards.ts';
 import { readControlToken } from './report-token.ts';
 import { startGateway } from './runtime.ts';
 import {
+  clearGatewayStopped,
   detectManager,
+  removeGatewayPidfile,
+  writeGatewayPidfile,
   serviceState,
   staleServiceExec,
   startService,
@@ -93,6 +99,8 @@ const USAGE = `local-decider — local decision models for coding-agent harnesse
 
 Usage:
   local-decider gateway run [--host H] [--port N]   run in the foreground
+  local-decider gateway ensure [--url URL] [--timeout S] [--force] [--json]
+                                                    start or find the configured local gateway
   local-decider gateway start|restart|stop|status|uninstall  user service (start is a no-op if running)
   local-decider engine install [--flavor cpu|mlx|cuda|rocm] [--model ID] [--no-download]
   local-decider engine install --engine fastflowlm [--model d3:nano]  AMD NPU (Linux): uses your flm
@@ -132,7 +140,10 @@ to policy files as they happen.
 Environment: LOCAL_DECIDER_URL (default http://127.0.0.1:${String(DEFAULT_PORT)}), LOCAL_DECIDER_TOKEN
 (bearer for a remote gateway, sent only over https or to loopback; never logged),
 LOCAL_DECIDER_HOME, LOCAL_DECIDER_CONFIG_DIR. Control commands read the control-token file next
-to config.yaml.`;
+to config.yaml.
+
+gateway ensure exit codes: 0 running/started/service-started, 1 stopped or failed,
+2 remote URL/mismatch/unsafe path, 3 configured port is busy.`;
 
 interface Context {
   readonly paths: Paths;
@@ -140,16 +151,11 @@ interface Context {
   readonly args: readonly string[];
 }
 
-function gatewayUrl(config: GatewayConfig): string {
-  const host = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
-  return process.env['LOCAL_DECIDER_URL'] ?? `http://${host}:${String(config.port)}`;
-}
-
 function client(ctx: Context, timeoutMs: number): GatewayClient {
   const token = process.env['LOCAL_DECIDER_TOKEN'];
   const controlToken = readControlToken(ctx.paths);
   return new GatewayClient({
-    baseUrl: gatewayUrl(ctx.config),
+    baseUrl: configuredGatewayUrl(ctx.config, process.env['LOCAL_DECIDER_URL']),
     timeoutMs,
     ...(token === undefined ? {} : { token }),
     ...(controlToken === undefined ? {} : { controlToken }),
@@ -174,7 +180,7 @@ function gatewayFetch(
   path: string,
   init: { method?: string; body?: string; timeoutMs: number },
 ): Promise<Response> {
-  const url = `${gatewayUrl(ctx.config)}${path}`;
+  const url = `${configuredGatewayUrl(ctx.config, process.env['LOCAL_DECIDER_URL'])}${path}`;
   return fetch(url, {
     method: init.method ?? 'GET',
     headers: {
@@ -205,6 +211,9 @@ async function gatewayRun(ctx: Context): Promise<void> {
     log: (line) => console.error(line),
     exit: (code) => process.exit(code),
   });
+  process.title = 'local-decider gateway';
+  ensurePrivatePaths(ctx.paths);
+  clearGatewayStopped(ctx.paths);
   const store = ConfigFile.open(ctx.paths);
   const config: GatewayConfig = {
     ...store.current,
@@ -217,6 +226,14 @@ async function gatewayRun(ctx: Context): Promise<void> {
     paths: ctx.paths,
     log: (line) => console.log(line),
   });
+  const port = Number(new URL(gateway.url).port);
+  try {
+    writeGatewayPidfile(ctx.paths, process.pid, port);
+  } catch (error) {
+    await gateway.close();
+    throw error;
+  }
+  process.once('exit', () => removeGatewayPidfile(ctx.paths));
   console.log(
     `local-decider gateway on ${gateway.url} (engine ${config.engine.type}, model ${config.engine.model})`,
   );
@@ -234,22 +251,106 @@ async function gatewayRun(ctx: Context): Promise<void> {
 async function gatewayService(ctx: Context, action: string): Promise<void> {
   const manager = detectManager();
   if (action === 'start' || action === 'restart') {
-    console.log(startService(manager, ctx.paths, action === 'restart'));
-  } else if (action === 'stop') {
-    console.log(stopService(manager, ctx.paths));
-  } else if (action === 'uninstall') {
-    console.log(uninstallService(manager, ctx.paths));
-  } else {
-    const health = await client(ctx, 2000).health();
-    console.log(`service (${manager}): ${serviceState(manager, ctx.paths)}`);
-    console.log(
-      `gateway ${gatewayUrl(ctx.config)}: ${health === null ? 'unreachable' : JSON.stringify(health)}`,
-    );
-    const stale = staleServiceExec(manager);
-    if (stale !== undefined) {
-      console.log(stale);
-    }
+    await startGatewayService(ctx, manager, action);
+    return;
   }
+  if (action === 'stop') {
+    console.log(stopService(manager, ctx.paths));
+    return;
+  }
+  if (action === 'uninstall') {
+    console.log(uninstallService(manager, ctx.paths));
+    return;
+  }
+  const health = await client(ctx, 2000).health();
+  console.log(`service (${manager}): ${serviceState(manager, ctx.paths)}`);
+  console.log(
+    `gateway ${configuredGatewayUrl(ctx.config, process.env['LOCAL_DECIDER_URL'])}: ${health === null ? 'unreachable' : JSON.stringify(health)}`,
+  );
+  const stale = staleServiceExec(manager);
+  if (stale !== undefined) console.log(stale);
+}
+
+async function startGatewayService(
+  ctx: Context,
+  manager: ReturnType<typeof detectManager>,
+  action: 'start' | 'restart',
+): Promise<void> {
+  if (manager !== 'pidfile') {
+    console.log(startService(manager, ctx.paths, action === 'restart'));
+    return;
+  }
+  if (action === 'restart' && !(await restartPidfileGateway(ctx))) return;
+  clearGatewayStopped(ctx.paths);
+  const ensured = await ensureGateway({ paths: ctx.paths, config: ctx.config, force: true });
+  printEnsure(ensured, false);
+  process.exitCode = ensureExitCode(ensured);
+}
+
+async function restartPidfileGateway(ctx: Context): Promise<boolean> {
+  stopService('pidfile', ctx.paths);
+  if (await waitForGatewayExit(ctx.config)) return true;
+  printEnsure(
+    { listener: 'failed', engine: null, message: 'gateway did not stop within 5 seconds' },
+    false,
+  );
+  process.exitCode = 1;
+  return false;
+}
+
+async function waitForGatewayExit(config: GatewayConfig): Promise<boolean> {
+  const host = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
+  const formattedHost = host.includes(':') ? `[${host}]` : host;
+  const url = `http://${formattedHost}:${String(config.port)}/health`;
+  const end = Date.now() + 5000;
+  while (Date.now() < end) {
+    try {
+      await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(250) });
+    } catch {
+      return true;
+    }
+    await sleep(100);
+  }
+  return false;
+}
+
+function printEnsure(outcome: Awaited<ReturnType<typeof ensureGateway>>, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify(outcome));
+    return;
+  }
+  const engineSummary =
+    outcome.engine === null
+      ? ''
+      : `; engine ${outcome.engine.status}/${outcome.engine.engineState ?? 'unknown'}${outcome.engine.detail === null ? '' : `: ${outcome.engine.detail}`}`;
+  console.log(
+    `${outcome.listener}: ${outcome.message}${engineSummary}`.replaceAll(/[\r\n\t]+/g, ' '),
+  );
+}
+
+async function gatewayEnsure(ctx: Context): Promise<void> {
+  const { values } = parseArgs({
+    args: [...ctx.args],
+    options: {
+      url: { type: 'string' },
+      timeout: { type: 'string' },
+      force: { type: 'boolean' },
+      json: { type: 'boolean' },
+    },
+  });
+  const timeoutSeconds = Number(values.timeout ?? 30);
+  if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 0) {
+    throw new UsageError('gateway ensure --timeout must be a non-negative number of seconds');
+  }
+  const outcome = await ensureGateway({
+    paths: ctx.paths,
+    config: ctx.config,
+    url: values.url ?? configuredGatewayUrl(ctx.config, process.env['LOCAL_DECIDER_URL']),
+    timeoutSeconds,
+    ...(values.force === undefined ? {} : { force: values.force }),
+  });
+  printEnsure(outcome, values.json === true);
+  process.exitCode = ensureExitCode(outcome);
 }
 
 /**
@@ -277,7 +378,7 @@ function installFastFlowLM(ctx: Context, model: string | undefined, noDownload: 
 }
 
 async function listEngines(ctx: Context): Promise<void> {
-  const url = gatewayUrl(ctx.config);
+  const url = configuredGatewayUrl(ctx.config, process.env['LOCAL_DECIDER_URL']);
   const response = await gatewayFetch(ctx, '/v1/engines', { timeoutMs: 5000 }).catch(() => null);
   if (response?.status === 401) {
     console.error(refusedMessage(ctx));
@@ -332,7 +433,7 @@ async function useEngine(ctx: Context, args: readonly string[]): Promise<void> {
   const command = parseUseCommand(args);
   if (command.kind !== 'engine') {
     const outcome = await runPolicyUse(client(ctx, 30_000), command, {
-      url: gatewayUrl(ctx.config),
+      url: configuredGatewayUrl(ctx.config, process.env['LOCAL_DECIDER_URL']),
       refused: refusedMessage(ctx),
     });
     if (outcome.ok) {
@@ -350,7 +451,9 @@ async function useEngine(ctx: Context, args: readonly string[]): Promise<void> {
   };
   const result = await client(ctx, 30_000).selectEngine(selection);
   if (result === null) {
-    console.error(`gateway unreachable at ${gatewayUrl(ctx.config)}`);
+    console.error(
+      `gateway unreachable at ${configuredGatewayUrl(ctx.config, process.env['LOCAL_DECIDER_URL'])}`,
+    );
     process.exitCode = 1;
     return;
   }
@@ -533,7 +636,7 @@ async function decide(ctx: Context): Promise<void> {
   });
   if (result === null) {
     throw new Error(
-      `no decision: gateway at ${gatewayUrl(ctx.config)} unreachable or returned an error`,
+      `no decision: gateway at ${configuredGatewayUrl(ctx.config, process.env['LOCAL_DECIDER_URL'])} unreachable or returned an error`,
     );
   }
   console.log(JSON.stringify(result, null, 2));
@@ -691,7 +794,7 @@ async function policies(ctx: Context): Promise<void> {
 async function benchCmd(ctx: Context): Promise<void> {
   process.exitCode = await runBench({
     args: ctx.args,
-    url: gatewayUrl(ctx.config),
+    url: configuredGatewayUrl(ctx.config, process.env['LOCAL_DECIDER_URL']),
     request: (path, init) => gatewayFetch(ctx, path, init),
     refused: `local-decider: ${refusedMessage(ctx)}`,
     out: (line) => console.log(line),
@@ -705,6 +808,7 @@ async function benchCmd(ctx: Context): Promise<void> {
 }
 
 async function mcp(ctx: Context): Promise<void> {
+  process.title = 'local-decider mcp';
   const backend: McpBackend = {
     decide: (policy, request) =>
       fetchAgentDecision(
@@ -726,6 +830,9 @@ async function dispatch(command: string, ctx: Context): Promise<void> {
     const [action, ...rest] = ctx.args;
     if (action === 'run') {
       return gatewayRun({ ...ctx, args: rest });
+    }
+    if (action === 'ensure') {
+      return gatewayEnsure({ ...ctx, args: rest });
     }
     if (
       action === 'start' ||
@@ -749,7 +856,7 @@ async function dispatch(command: string, ctx: Context): Promise<void> {
       console.log(
         await labelCommand({
           ...c,
-          url: gatewayUrl(c.config),
+          url: configuredGatewayUrl(c.config, process.env['LOCAL_DECIDER_URL']),
           isTty: process.stdin.isTTY && process.stderr.isTTY,
         }),
       ),
