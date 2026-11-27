@@ -43,6 +43,15 @@ export interface EngineSelectionRequest {
   readonly device?: string;
 }
 
+/** A model for one decision (policy), as `POST /v1/policies/:id/selection` takes it. */
+export interface PolicySelectionRequest {
+  readonly engine: string;
+  readonly model: string;
+  readonly device?: string;
+  /** What answers while the model cannot: the default model, or nothing (`open`). */
+  readonly fallback?: 'default' | 'open';
+}
+
 export interface GatewayRequestResult {
   readonly status: number;
   readonly body: unknown;
@@ -288,6 +297,25 @@ export class GatewayClient {
   /** Select a model and retain its HTTP status and body for CLI error reporting. */
   async selectEngine(selection: EngineSelectionRequest): Promise<GatewayRequestResult | null> {
     return this.#requestWithStatus('POST', '/v1/engine', selection);
+  }
+
+  /** Give one policy its own model; the HTTP status and body are kept for CLI error reporting. */
+  async setPolicySelection(
+    policy: string,
+    selection: PolicySelectionRequest,
+  ): Promise<GatewayRequestResult | null> {
+    return this.#requestWithStatus(
+      'POST',
+      `/v1/policies/${encodeURIComponent(policy)}/selection`,
+      selection,
+    );
+  }
+
+  /** Put one policy back on the default model. */
+  async clearPolicySelection(policy: string): Promise<GatewayRequestResult | null> {
+    return this.#requestWithStatus('POST', `/v1/policies/${encodeURIComponent(policy)}/selection`, {
+      clear: true,
+    });
   }
 
   async #request<T>(method: string, path: string, body?: unknown): Promise<T | null> {

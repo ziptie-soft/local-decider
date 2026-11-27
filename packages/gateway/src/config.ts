@@ -78,7 +78,7 @@ const routingSchema = z
   .default({ presets: {} })
   .describe('How each harness applies `route:<preset>` decisions.');
 
-const policySelectionSchema = z
+export const policySelectionSchema = z
   .strictObject({
     engine: z.enum(SELECTABLE_IDS),
     model: z.string().min(1).max(300),

@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import { MemoryConfigStore } from '../src/config-file.ts';
+import { parseConfig } from '../src/config.ts';
 import { ENGINE_BENCHMARK_RUNNING_ERROR } from '../src/engine-busy.ts';
 import { EngineControl } from '../src/engine-control.ts';
 import { startGateway, type Gateway } from '../src/runtime.ts';
@@ -817,6 +818,7 @@ describe('control token', () => {
       ['POST', '/v1/policies/permission/mode'],
       ['POST', '/v1/policies/permission/variant'],
       ['POST', '/v1/policies/permission/thresholds'],
+      ['POST', '/v1/policies/permission/selection'],
       ['GET', '/v1/config'],
       ['POST', '/v1/config/reload'],
       ['POST', '/v1/config/engine'],
@@ -1058,6 +1060,326 @@ describe('HTTP server hardening', () => {
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
+interface Rig {
+  readonly gw: Gateway;
+  readonly paths: ReturnType<typeof tempPaths>;
+  readonly engines: Map<string, FakeEngine>;
+}
+
+/** A gateway on a 2B CPU default model (8 GB of a 20 GB budget); engines are fakes keyed by model. */
+async function rig(
+  policies: Record<string, unknown>,
+  engine: Record<string, unknown> = { type: 'strands-decider', device: 'cpu' },
+  binaries: readonly string[] = ['llama-server', 'flm'],
+): Promise<Rig> {
+  const paths = tempPaths();
+  const bin = join(paths.data, 'bin');
+  mkdirSync(bin, { recursive: true });
+  for (const name of binaries) {
+    writeFileSync(join(bin, name), `#!${process.execPath}\nconsole.log('FLM v1.0.12')\n`);
+    chmodSync(join(bin, name), 0o755);
+  }
+  const venv = join(paths.venvs, 'strands-decider', 'bin');
+  mkdirSync(venv, { recursive: true });
+  writeFileSync(join(venv, 'strands-decider'), `#!${process.execPath}\n`);
+  chmodSync(join(venv, 'strands-decider'), 0o755);
+  const env = { PATH: bin, HF_HUB_CACHE: join(paths.data, 'hf') };
+  const config = parseConfig({ port: 0, engine, lifecycle: { mode: 'eager' }, policies });
+  const store = new MemoryConfigStore(config);
+  const engines = new Map<string, FakeEngine>();
+  const control = new EngineControl({
+    store,
+    paths,
+    env,
+    totalMemory: 25e9,
+    capabilities: async () => NO_CAPABILITIES,
+    installed: async (ids) => new Map(ids.map((id) => [id, true])),
+    create: (c) => {
+      const fake = new FakeEngine();
+      fake.id = c.type;
+      fake.model = c.model;
+      engines.set(c.model, fake);
+      return fake;
+    },
+  });
+  const gw = await startGateway({ config, store, paths, env, engineControl: control });
+  await control.idle();
+  return { gw, paths, engines };
+}
+
+const post = (
+  r: Rig,
+  id: string,
+  body: unknown,
+  headers = controlHeaders(r.paths),
+): Promise<Response> =>
+  fetch(`${r.gw.url}/v1/policies/${id}/selection`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+
+async function listed(r: Rig, id: string): Promise<Record<string, unknown>> {
+  const policies = (await (await fetch(`${r.gw.url}/v1/policies`)).json()) as Record<
+    string,
+    unknown
+  >[];
+  return policies.find((policy) => policy['id'] === id) ?? {};
+}
+
+describe('policy selection routes', () => {
+  const OWN = { engine: 'llama-vulkan', model: 'd3-lite-q8_0' };
+  const HOBSON = 'StrandsAgents/strands-decider-2B-hobson-v21';
+  const HOBSON_V19 = 'StrandsAgents/strands-decider-2B-hobson-v19';
+  const DECISION = {
+    harness: 'claude-code',
+    input: {
+      project: '/p',
+      tool: 'Bash',
+      command: 'echo 1',
+      request: { command: 'echo 1' },
+      history: 'user: 1',
+    },
+  };
+
+  it('sets and clears a model, and reports it on /v1/policies, /v1/engines and /health', async () => {
+    const r = await rig({ 'command-risk': { mode: 'act' }, 'permission': { mode: 'act' } });
+    try {
+      const unset = await listed(r, 'command-risk');
+      assert.equal(unset['selection'], null);
+      assert.equal(unset['selectionStatus'], 'default');
+      assert.equal(unset['modelSource'], 'default');
+
+      const set = await post(r, 'command-risk', OWN);
+      assert.equal(set.status, 200);
+      const body = await json(set);
+      assert.equal(body['ok'], true);
+      assert.equal(body['policy'], 'command-risk');
+      assert.equal(body['status'], 'active');
+      assert.equal('reason' in body, false, 'no reason while active');
+      assert.equal((body['selection'] as Record<string, unknown>)['model'], OWN.model);
+
+      const chosen = await listed(r, 'command-risk');
+      assert.equal(chosen['engine'], 'llama-vulkan');
+      assert.equal(chosen['model'], OWN.model);
+      assert.equal(chosen['modelSource'], 'policy');
+      assert.equal(chosen['selectionStatus'], 'active');
+      assert.equal((chosen['selection'] as Record<string, unknown>)['model'], OWN.model);
+
+      const engines = await json(
+        await fetch(`${r.gw.url}/v1/engines`, { headers: controlHeaders(r.paths) }),
+      );
+      const [row] = engines['policies'] as Record<string, unknown>[];
+      assert.equal(row?.['id'], 'command-risk');
+      assert.equal(row?.['fallback'], 'default');
+      assert.equal(typeof row?.['label'], 'string');
+      assert.equal(row?.['status'], 'active');
+
+      const health = await json(await fetch(`${r.gw.url}/health`));
+      const [own] = health['policyEngines'] as Record<string, unknown>[];
+      assert.equal(own?.['policy'], 'command-risk');
+      assert.equal(own?.['model'], OWN.model);
+      assert.equal(own?.['fallback'], 'default');
+      assert.equal(own?.['status'], 'active');
+
+      const cleared = await post(r, 'command-risk', { clear: true });
+      assert.equal(cleared.status, 200);
+      assert.deepEqual(await json(cleared), {
+        ok: true,
+        policy: 'command-risk',
+        selection: null,
+        status: 'default',
+      });
+      assert.equal((await listed(r, 'command-risk'))['modelSource'], 'default');
+      assert.deepEqual((await json(await fetch(`${r.gw.url}/health`)))['policyEngines'], []);
+    } finally {
+      await r.gw.close();
+    }
+  });
+
+  it('answers each refusal with its status', async () => {
+    const r = await rig({
+      'command-risk': {
+        mode: 'act',
+        selection: { engine: 'strands-decider', model: HOBSON, device: 'cpu' },
+      },
+      'permission': { mode: 'act' },
+    });
+    try {
+      const expectations: [string, unknown, number, RegExp][] = [
+        ['permission', '{', 400, /./],
+        ['permission', [], 400, /./],
+        ['permission', { engine: 'nope', model: 'x' }, 400, /engine/],
+        ['permission', { model: 'x' }, 400, /engine/],
+        ['permission', { engine: 'llama-vulkan' }, 400, /model/],
+        ['permission', { clear: true, engine: 'llama-vulkan', model: 'x' }, 400, /clear: true/],
+        [
+          'permission',
+          { engine: 'llama-vulkan', model: 'x' },
+          400,
+          /unknown llama-vulkan model "x"/,
+        ],
+        ['nope', OWN, 404, /unknown policy "nope"/],
+        [
+          'permission',
+          { engine: 'strands-decider', model: HOBSON_V19, device: 'cpu' },
+          409,
+          /needs ~\d+(\.\d+)? GB with the other models loaded; this machine allows ~20 GB/,
+        ],
+      ];
+      for (const [id, body, status, message] of expectations) {
+        const res = await post(r, id, body);
+        assert.equal(res.status, status, `${id} ${JSON.stringify(body)}`);
+        assert.match(String((await json(res))['error']), message);
+      }
+      const missing = await post(r, 'permission', OWN, {});
+      assert.equal(missing.status, 401, 'the control token is required');
+      assert.equal((await listed(r, 'permission'))['selection'], null, 'nothing was saved');
+    } finally {
+      await r.gw.close();
+    }
+  });
+
+  it('refuses a fourth own model and a second fastflowlm model', async () => {
+    const r = await rig({
+      'command-risk': { mode: 'act', selection: OWN },
+      'permission': { mode: 'act', selection: { ...OWN, model: 'd3-mini-q8_0' } },
+      'routing': { mode: 'act', selection: { ...OWN, model: 'd3-nano-q8_0' } },
+      'routing-budget': { mode: 'act' },
+    });
+    try {
+      const res = await post(r, 'routing-budget', { ...OWN, model: 'd3-flash-q4_k_m' });
+      assert.equal(res.status, 409);
+      assert.match(
+        String((await json(res))['error']),
+        /too many decisions with their own model \(max 3\)/,
+      );
+    } finally {
+      await r.gw.close();
+    }
+    const flm = await rig({
+      'command-risk': { mode: 'act', selection: { engine: 'fastflowlm', model: 'd3:nano' } },
+      'permission': { mode: 'act' },
+    });
+    try {
+      const res = await post(flm, 'permission', { engine: 'fastflowlm', model: 'd3:lite' });
+      assert.equal(res.status, 409);
+      assert.match(
+        String((await json(res))['error']),
+        /fastflowlm serves one model at a time; command-risk already uses d3:nano/,
+      );
+    } finally {
+      await flm.gw.close();
+    }
+  });
+
+  it('refuses a set when the default model cannot switch', async () => {
+    const r = await rig(
+      { 'command-risk': { mode: 'act', selection: OWN }, 'permission': { mode: 'act' } },
+      { type: 'systemone-remote', url: 'http://127.0.0.1:1' },
+    );
+    try {
+      const res = await post(r, 'permission', OWN);
+      assert.equal(res.status, 409);
+      assert.match(String((await json(res))['error']), /cannot switch/);
+      const stale = await listed(r, 'command-risk');
+      assert.equal(stale['selectionStatus'], 'unavailable');
+      assert.equal(stale['selectionReason'], 'the default model cannot switch');
+    } finally {
+      await r.gw.close();
+    }
+  });
+
+  it('shows a generic reason on open surfaces, keeping the detail behind the token', async () => {
+    const r = await rig(
+      { 'command-risk': { mode: 'act', selection: OWN } },
+      { type: 'strands-decider', device: 'cpu' },
+      ['flm'],
+    );
+    try {
+      const open = await listed(r, 'command-risk');
+      assert.equal(open['selectionStatus'], 'unavailable');
+      assert.equal(open['selectionReason'], 'llama-vulkan is not available');
+      assert.ok(!JSON.stringify(open).includes(r.paths.data), 'no path on /v1/policies');
+      const health = JSON.stringify(await json(await fetch(`${r.gw.url}/health`)));
+      assert.ok(!health.includes(r.paths.data), 'no path on /health');
+
+      const refused = await post(r, 'permission', { ...OWN, model: 'd3-nano-q8_0' });
+      assert.equal(refused.status, 409);
+      assert.match(String((await json(refused))['error']), /llama-vulkan is not available/);
+    } finally {
+      await r.gw.close();
+    }
+  });
+
+  it('lets only one of two simultaneous sets take the last lane', async () => {
+    const r = await rig({
+      'command-risk': { mode: 'act', selection: OWN },
+      'permission': { mode: 'act', selection: { ...OWN, model: 'kev-0.8b-q8_0' } },
+      'routing': { mode: 'act' },
+      'routing-budget': { mode: 'act' },
+    });
+    try {
+      const answers = await Promise.all([
+        post(r, 'routing', { ...OWN, model: 'd3-nano-q8_0' }),
+        post(r, 'routing-budget', { ...OWN, model: 'd3-mini-q4_k_m' }),
+      ]);
+      assert.deepEqual(
+        answers.map((res) => res.status).toSorted((a, b) => a - b),
+        [200, 409],
+      );
+      const refused = answers.find((res) => res.status === 409);
+      assert.match(
+        String((await json(refused as Response))['error']),
+        /too many decisions with their own model \(max 3\)/,
+      );
+    } finally {
+      await r.gw.close();
+    }
+  });
+
+  it('sums engine counters over every lane and counts decisions held by a lane', async () => {
+    const r = await rig({ 'command-risk': { mode: 'act', selection: OWN } });
+    try {
+      const lane = r.engines.get(OWN.model);
+      assert.ok(lane);
+      const release = Promise.withResolvers<void>();
+      lane.counters = () => ({ engineRestarts: 2, engineHangs: 1 });
+      lane.respond = async (decision) => {
+        await release.promise;
+        return {
+          model: OWN.model,
+          answers: Object.fromEntries(
+            Object.keys(decision.questions).map((id) => [id, { type: 'choice', choice: 'done' }]),
+          ),
+        } as never;
+      };
+      const primary = r.engines.get(HOBSON) ?? [...r.engines.values()].find((e) => e !== lane);
+      assert.ok(primary);
+      primary.counters = () => ({ engineRestarts: 1, engineHangs: 0 });
+
+      const held = fetch(`${r.gw.url}/v1/decide/command-risk`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(DECISION),
+      });
+      let health: Record<string, unknown> = {};
+      for (let i = 0; i < 50 && health['queueDepth'] !== 1; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        health = await json(await fetch(`${r.gw.url}/health`));
+      }
+      assert.equal(health['queueDepth'], 1, 'the lane decision counts toward the global depth');
+      const counters = health['counters'] as Record<string, number>;
+      assert.equal(counters['engineRestarts'], 3);
+      assert.equal(counters['engineHangs'], 1);
+      release.resolve();
+      await held;
+    } finally {
+      await r.gw.close();
     }
   });
 });

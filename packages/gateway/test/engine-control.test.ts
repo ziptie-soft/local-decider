@@ -30,7 +30,7 @@ import {
 } from '../src/benchmark-store.ts';
 import { ConfigFile, MemoryConfigStore } from '../src/config-file.ts';
 import { parseConfig, type EngineConfig } from '../src/config.ts';
-import { Decider } from '../src/decider.ts';
+import { Decider, UnknownPolicyError } from '../src/decider.ts';
 import { EngineBusyError } from '../src/engine-busy.ts';
 import {
   EngineControl,
@@ -3079,6 +3079,376 @@ describe('policy lanes', () => {
       const permission = decider.engineOf('permission');
       assert.equal(permission?.source, 'unavailable');
       assert.match(permission?.reason ?? '', /plan exploded/);
+    });
+  });
+});
+
+/** A 2B default model on the CPU (8 GB), 25 GB of memory (20 GB budget), no override yet. */
+function selectionSetup(extra: SetupOptions = {}): Setup {
+  return setup({
+    engine: { device: 'cpu' },
+    llamaServer: true,
+    totalMemory: 25e9,
+    eager: true,
+    policies: { 'command-risk': { mode: 'act' }, 'permission': { mode: 'act' } },
+    ...extra,
+  });
+}
+
+const switchError =
+  (code: number, pattern: RegExp) =>
+  (error: unknown): boolean =>
+    error instanceof EngineSwitchError && error.status === code && pattern.test(error.message);
+
+function fitsSetup(primary: Record<string, unknown>): Setup {
+  const paths = tempPaths();
+  mkdirSync(join(paths.venvs, 'strands-decider', 'lib', 'python3.12', 'site-packages', 'mlx_lm'), {
+    recursive: true,
+  });
+  return setup({ paths, host: DARWIN_HOST, totalMemory: 20e9, llamaServer: true, ...primary });
+}
+const rowOf = async (
+  control: EngineControl,
+  id: string,
+): Promise<{ id: string; fits: boolean; memoryGb: number } | undefined> => {
+  const models = (await control.status())['models'] as {
+    id: string;
+    fits: boolean;
+    memoryGb: number;
+  }[];
+  return models.find((model) => model.id === id);
+};
+
+describe('policy selection over the control API', () => {
+  const OWN = { engine: 'llama-vulkan', model: 'd3-lite-q8_0' } as const;
+  const HOBSON = 'StrandsAgents/strands-decider-2B-hobson-v21';
+  const HOBSON_V19 = 'StrandsAgents/strands-decider-2B-hobson-v19';
+
+  it('reports a policy without its own model as default', async () => {
+    const { control, decider } = selectionSetup();
+    await settled(control);
+    assert.deepEqual(control.policyChoice('command-risk'), { selection: null, status: 'default' });
+    assert.deepEqual(control.policyModels(), []);
+    assert.equal(decider.engineOf('command-risk')?.source, 'default');
+  });
+
+  it('sets a model: persists it, starts the lane and reports it active', async () => {
+    const { control, decider, created } = selectionSetup();
+    await settled(control);
+
+    const choice = await control.setPolicySelection('command-risk', {
+      ...OWN,
+      fallback: 'default',
+    });
+    await settled(control);
+
+    assert.equal(choice.status, 'active');
+    assert.equal(choice.selection?.model, OWN.model);
+    assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+    assert.equal(decider.engineOf('command-risk')?.model, OWN.model);
+    assert.equal(control.settings.policies['command-risk']?.selection?.model, OWN.model);
+    assert.equal(control.policyChoice('command-risk').status, 'active');
+    assert.equal(created.filter((engine) => engine.model === OWN.model).length, 1);
+    const [row] = control.policyModels();
+    assert.equal(row?.id, 'command-risk');
+    assert.equal(row?.status, 'active');
+    assert.equal(row?.engine, 'llama-vulkan');
+    assert.equal(row?.model, OWN.model);
+    assert.ok(row !== undefined && row.label.length > 0);
+    const listed = ((await control.status())['policies'] as { id: string; label: string }[]).map(
+      (entry) => entry.id,
+    );
+    assert.deepEqual(listed, ['command-risk']);
+  });
+
+  it('clears the model: default again, the lane stopped, the selection gone', async () => {
+    const { control, decider, created } = selectionSetup();
+    await control.setPolicySelection('command-risk', { ...OWN, fallback: 'default' });
+    await settled(control);
+
+    const choice = await control.clearPolicySelection('command-risk');
+    await settled(control);
+
+    assert.deepEqual(choice, { selection: null, status: 'default' });
+    assert.equal(decider.engineOf('command-risk')?.source, 'default');
+    assert.equal(control.settings.policies['command-risk']?.selection, undefined);
+    assert.equal(created.find((engine) => engine.model === OWN.model)?.stopped, 1);
+    assert.deepEqual(control.policyModels(), []);
+    // Clearing a policy that has none is fine.
+    assert.deepEqual(await control.clearPolicySelection('permission'), {
+      selection: null,
+      status: 'default',
+    });
+  });
+
+  it('answers an unknown policy with UnknownPolicyError', async () => {
+    const { control } = selectionSetup();
+    await settled(control);
+    await assert.rejects(
+      control.setPolicySelection('nope', { ...OWN, fallback: 'default' }),
+      (error: unknown) =>
+        error instanceof UnknownPolicyError && /unknown policy "nope"/.test(error.message),
+    );
+    await assert.rejects(control.clearPolicySelection('nope'), UnknownPolicyError);
+  });
+
+  it('refuses an unknown model with 400 and saves nothing', async () => {
+    const { control } = selectionSetup();
+    await settled(control);
+    await assert.rejects(
+      control.setPolicySelection('command-risk', {
+        engine: 'llama-vulkan',
+        model: 'x',
+        fallback: 'default',
+      }),
+      switchError(400, /unknown llama-vulkan model "x"/),
+    );
+    assert.equal(control.settings.policies['command-risk']?.selection, undefined);
+  });
+
+  it('refuses a model that is not downloaded with 400 and saves nothing', async () => {
+    const { control } = selectionSetup({ downloaded: (id) => id !== OWN.model });
+    await settled(control);
+    await assert.rejects(
+      control.setPolicySelection('command-risk', { ...OWN, fallback: 'default' }),
+      switchError(400, /d3-lite-q8_0 is not downloaded yet/),
+    );
+    assert.equal(control.settings.policies['command-risk']?.selection, undefined);
+  });
+
+  it('refuses a model that does not fit with the others loaded, saving nothing', async () => {
+    const { control, decider } = selectionSetup({
+      policies: {
+        'command-risk': {
+          mode: 'act',
+          selection: { engine: 'strands-decider', model: HOBSON, device: 'cpu' },
+        },
+        'permission': { mode: 'act' },
+      },
+    });
+    await settled(control);
+    assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+
+    await assert.rejects(
+      control.setPolicySelection('permission', {
+        engine: 'strands-decider',
+        model: HOBSON_V19,
+        device: 'cpu',
+        fallback: 'default',
+      }),
+      switchError(
+        409,
+        /needs ~\d+(\.\d+)? GB with the other models loaded; this machine allows ~20 GB/,
+      ),
+    );
+    assert.equal(control.settings.policies['permission']?.selection, undefined);
+    assert.equal(decider.engineOf('command-risk')?.source, 'policy', 'the lane that runs is kept');
+    assert.equal(control.policyChoice('command-risk').status, 'active');
+  });
+
+  it('refuses a fourth decision with its own model', async () => {
+    const { control } = selectionSetup({
+      totalMemory: 1e12,
+      policies: {
+        'command-risk': { mode: 'act', selection: OWN },
+        'permission': { mode: 'act', selection: { ...OWN, model: 'd3-mini-q8_0' } },
+        'routing': { mode: 'act', selection: { ...OWN, model: 'd3-nano-q8_0' } },
+        'routing-budget': { mode: 'act' },
+      },
+    });
+    await settled(control);
+    await assert.rejects(
+      control.setPolicySelection('routing-budget', {
+        ...OWN,
+        model: 'd3-flash-q4_k_m',
+        fallback: 'default',
+      }),
+      switchError(409, /too many decisions with their own model \(max 3\)/),
+    );
+    assert.equal(control.settings.policies['routing-budget']?.selection, undefined);
+  });
+
+  it('refuses a device this machine does not have, saving nothing', async () => {
+    const { control } = selectionSetup();
+    await settled(control);
+    await assert.rejects(
+      control.setPolicySelection('permission', {
+        engine: 'strands-decider',
+        model: HOBSON_V19,
+        device: 'cuda',
+        fallback: 'default',
+      }),
+      switchError(409, /device cuda is not available here/),
+    );
+    assert.equal(control.settings.policies['permission']?.selection, undefined);
+  });
+
+  it('checks a model set on an off policy as if the policy were on', async () => {
+    const { control } = selectionSetup({
+      policies: {
+        'command-risk': {
+          mode: 'act',
+          selection: { engine: 'strands-decider', model: HOBSON, device: 'cpu' },
+        },
+        'permission': { mode: 'off' },
+      },
+    });
+    await settled(control);
+    await assert.rejects(
+      control.setPolicySelection('permission', {
+        engine: 'strands-decider',
+        model: HOBSON_V19,
+        device: 'cpu',
+        fallback: 'default',
+      }),
+      switchError(409, /needs ~\d+(\.\d+)? GB with the other models loaded/),
+    );
+    assert.equal(control.settings.policies['permission']?.selection, undefined);
+
+    // A model that fits is accepted, and the policy reports `off` while it is off.
+    const choice = await control.setPolicySelection('permission', { ...OWN, fallback: 'default' });
+    assert.equal(choice.status, 'off');
+  });
+
+  it('counts a model set on an off policy toward the cap', async () => {
+    const { control } = selectionSetup({
+      totalMemory: 1e12,
+      policies: {
+        'command-risk': { mode: 'act', selection: OWN },
+        'permission': { mode: 'act', selection: { ...OWN, model: 'd3-nano-q8_0' } },
+        'routing': { mode: 'act', selection: { ...OWN, model: 'kev-0.8b-q8_0' } },
+        'routing-budget': { mode: 'off' },
+      },
+    });
+    await settled(control);
+    await assert.rejects(
+      control.setPolicySelection('routing-budget', {
+        ...OWN,
+        model: 'd3-mini-q8_0',
+        fallback: 'default',
+      }),
+      switchError(409, /too many decisions with their own model \(max 3\)/),
+    );
+    assert.equal(control.settings.policies['routing-budget']?.selection, undefined);
+  });
+
+  it('never reports a stale active when the plan after the save fails', async (t) => {
+    const { control } = selectionSetup();
+    await settled(control);
+    const plan = countPlans(t);
+    plan.mock.mockImplementationOnce(async () => {
+      throw new Error('plan exploded');
+    }, 1);
+    t.mock.method(console, 'warn', () => undefined);
+
+    const choice = await control.setPolicySelection('command-risk', {
+      ...OWN,
+      fallback: 'default',
+    });
+
+    assert.equal(plan.mock.callCount(), 2, 'the strict check, then the transition');
+    assert.equal(choice.status, 'unavailable');
+    assert.ok((choice.reason ?? '').length > 0);
+    assert.equal(control.settings.policies['command-risk']?.selection?.model, OWN.model);
+  });
+
+  it('reports unavailable, and warns with the message only, when the transition throws', async (t) => {
+    const { control, decider } = selectionSetup();
+    await settled(control);
+    const warn = t.mock.method(console, 'warn', () => undefined);
+    t.mock.method(decider, 'setPolicyRoutes', () => {
+      throw new Error('routes exploded');
+    });
+
+    const choice = await control.setPolicySelection('command-risk', {
+      ...OWN,
+      fallback: 'default',
+    });
+
+    assert.deepEqual(
+      { status: choice.status, reason: choice.reason },
+      { status: 'unavailable', reason: 'routes exploded' },
+    );
+    assert.deepEqual(warn.mock.calls.at(-1)?.arguments, [
+      'local-decider: reconciling policy models failed: routes exploded',
+    ]);
+  });
+
+  it('answers an unknown policy after the queue, for both set and clear', async () => {
+    const { control } = selectionSetup();
+    await settled(control);
+    const pending = control.setPolicySelection('command-risk', { ...OWN, fallback: 'default' });
+    const unknownSet = control.setPolicySelection('nope', { ...OWN, fallback: 'default' });
+    const unknownClear = control.clearPolicySelection('nope');
+    await pending;
+    await assert.rejects(unknownSet, UnknownPolicyError);
+    await assert.rejects(unknownClear, UnknownPolicyError);
+  });
+
+  it('refuses a set while a benchmark owns the machine', async () => {
+    const { control } = selectionSetup();
+    await settled(control);
+    const lease = control.beginBenchmark();
+    await settled(control);
+    await assert.rejects(
+      control.setPolicySelection('command-risk', { ...OWN, fallback: 'default' }),
+      switchError(409, /an engine benchmark is running; cancel it first/),
+    );
+    await control.endBenchmark(lease, { restore: true });
+  });
+
+  it('cannot switch on a gateway whose default model cannot switch', async () => {
+    const { control, decider } = setup({
+      engine: { type: 'systemone-remote', url: 'http://127.0.0.1:1' },
+      llamaServer: true,
+      policies: { 'command-risk': { mode: 'act', selection: OWN } },
+    });
+    await settled(control);
+    await assert.rejects(
+      control.setPolicySelection('permission', { ...OWN, fallback: 'default' }),
+      switchError(409, /cannot switch/),
+    );
+    const choice = control.policyChoice('command-risk');
+    assert.equal(choice.status, 'unavailable');
+    assert.equal(choice.reason, 'the default model cannot switch');
+    assert.notEqual(decider.engineOf('command-risk')?.source, 'policy');
+  });
+
+  describe('fits per engine', () => {
+    it("judges a strands model on strands' own device, not the llama primary's", async () => {
+      const { control } = fitsSetup({
+        selection: { engine: 'llama-vulkan', model: 'd3-mini-q4_k_m' },
+      });
+      await settled(control);
+      const row = await rowOf(control, E2B);
+      assert.equal(row?.memoryGb, 10);
+      assert.equal(row?.fits, true);
+    });
+
+    it('counts a benchmark inventory model on the device of its own engine', async () => {
+      const llamaPrimary = fitsSetup({
+        selection: { engine: 'llama-vulkan', model: 'd3-mini-q4_k_m' },
+      });
+      await settled(llamaPrimary.control);
+      const onMlx = (await llamaPrimary.control.benchmarkInventory()).models.find(
+        (model) => model.id === E2B,
+      );
+      assert.equal(onMlx?.fits, true);
+
+      const cpuPrimary = fitsSetup({ engine: { device: 'cpu' } });
+      await settled(cpuPrimary.control);
+      const onCpu = (await cpuPrimary.control.benchmarkInventory()).models.find(
+        (model) => model.id === E2B,
+      );
+      assert.equal(onCpu?.fits, false);
+    });
+
+    it('keeps the CPU figure for a strands primary pinned to the CPU', async () => {
+      const { control } = fitsSetup({ engine: { device: 'cpu' } });
+      await settled(control);
+      const row = await rowOf(control, E2B);
+      assert.equal(row?.memoryGb, 19);
+      assert.equal(row?.fits, false);
     });
   });
 });
