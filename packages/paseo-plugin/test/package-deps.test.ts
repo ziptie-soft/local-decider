@@ -102,3 +102,23 @@ describe('server/core', () => {
     });
   }
 });
+
+describe('server/launcher', () => {
+  const vendored = readdirSync(join(root, 'server/launcher'));
+
+  it('vendors launcher sources', () => {
+    assert.ok(vendored.length > 0);
+  });
+
+  for (const file of vendored) {
+    it(`${file} is a verbatim copy of packages/launcher/src/${file}`, () => {
+      const copy = readFileSync(join(root, 'server/launcher', file), 'utf8');
+      const original = readFileSync(join(root, '../launcher/src', file), 'utf8');
+      assert.equal(
+        copy,
+        original,
+        `run: cp packages/launcher/src/${file} packages/paseo-plugin/server/launcher/`,
+      );
+    });
+  }
+});

@@ -22,7 +22,9 @@ ignorePatterns = [
   "plugins/local-decider/hooks/local-decider-auto-mode.mjs",
   "plugins/local-decider/tests/**",
   "packages/paseo-plugin/server/core/**",
+  "packages/paseo-plugin/server/launcher/**",
   "packages/pi-plugin/extension/core/**",
+  "packages/pi-plugin/extension/launcher/**",
 ]
 
 [health]
