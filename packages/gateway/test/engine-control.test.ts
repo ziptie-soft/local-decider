@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
-import { describe, it, type TestContext } from 'node:test';
+import { describe, it, type Mock, type TestContext } from 'node:test';
 import { stringify } from 'yaml';
 
 import {
@@ -2514,6 +2514,18 @@ async function settled(control: EngineControl): Promise<void> {
   await control.idle();
 }
 
+/** Counts lane plans, running the real planner. */
+function countPlans(t: TestContext): Mock<typeof PolicyEngines.plan> {
+  return t.mock.method(PolicyEngines, 'plan');
+}
+
+/** One benchmark job over everything installed, at one size and one run. */
+function startJob(control: EngineControl): ReturnType<EngineControl['benchmark']['start']> {
+  return control.benchmark.start(
+    parseBenchmarkRequest({ scope: 'installed', sizes: [256], runs: 1 }),
+  );
+}
+
 describe('policy lanes', () => {
   const OVERRIDE = { engine: 'llama-vulkan', model: 'd3-lite-q8_0' };
   const HOBSON = 'StrandsAgents/strands-decider-2B-hobson-v21';
@@ -2752,5 +2764,321 @@ describe('policy lanes', () => {
     await gw.close();
     assert.equal(lane.stopped >= 1, true);
     assert.equal((created[0]?.stopped ?? 0) >= 1, true, 'the default engine stops too');
+  });
+
+  describe('during a benchmark lease', () => {
+    const SWAP = { engine: 'strands-decider', model: E2B, device: 'cpu' } as const;
+    const JOB_CAPABILITIES: HostCapabilities = {
+      ...NO_CAPABILITIES,
+      vulkan: { status: 'available', evidence: 'Vulkan0: lease test' },
+    };
+
+    /** A lane setup whose only benchmarkable model is the override's own, so the job has one target. */
+    function jobSetup(extra: SetupOptions = {}): Setup & { readonly events: string[] } {
+      return laneSetup({
+        host: LINUX_HOST,
+        capabilities: () => Promise.resolve(JOB_CAPABILITIES),
+        downloaded: (id) => id === OVERRIDE.model,
+        ...extra,
+      });
+    }
+
+    it('retires every lane for the lease and plans once after the restore', async (t) => {
+      const { control, decider, created } = laneSetup();
+      await settled(control);
+      const [lane] = laneEngines(created);
+      assert.ok(lane);
+      const plan = countPlans(t);
+
+      const lease = control.beginBenchmark();
+      await settled(control);
+      assert.equal(lane.stopped, 1, 'the lane stops before the benchmark loads anything');
+      const suspended = decider.engineOf('command-risk');
+      assert.equal(suspended?.source, 'fallback');
+      assert.equal(suspended?.reason, 'benchmark running');
+      await control.benchmarkSwap(lease, SWAP);
+      control.setPolicyMode('command-risk', 'act');
+      await settled(control);
+      assert.equal(plan.mock.callCount(), 0, 'nothing plans lanes during the lease');
+      assert.equal(laneEngines(created).length, 1);
+
+      assert.deepEqual(await control.endBenchmark(lease, { restore: true }), {
+        ok: true,
+        error: null,
+      });
+      await settled(control);
+      assert.equal(plan.mock.callCount(), 1);
+      assert.equal(control.current()?.model, TWOB_MODEL);
+      assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+      assert.equal(laneEngines(created).length, 2, 'the lane is rebuilt once');
+    });
+
+    it('plans once when the benchmark never changed the default model', async (t) => {
+      const { control, decider, created } = laneSetup();
+      await settled(control);
+      const plan = countPlans(t);
+
+      const lease = control.beginBenchmark();
+      await settled(control);
+      assert.deepEqual(await control.endBenchmark(lease, { restore: true }), {
+        ok: true,
+        error: null,
+      });
+      await settled(control);
+      assert.equal(plan.mock.callCount(), 1);
+      assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+      assert.equal(laneEngines(created).length, 2);
+    });
+
+    it('plans once after an automatic restore', async (t) => {
+      const { control, decider } = laneSetup({ selection: { mode: 'auto' } });
+      await settled(control);
+      const plan = countPlans(t);
+
+      const lease = control.beginBenchmark();
+      await settled(control);
+      await control.benchmarkSwap(lease, SWAP);
+      await control.endBenchmark(lease, { restore: true });
+      await settled(control);
+      assert.equal(plan.mock.callCount(), 1);
+      assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+    });
+
+    it('plans once after a benchmark job whose target failed', async (t) => {
+      const { control, decider, created } = jobSetup({ failing: { on: false, ready: true } });
+      await settled(control);
+      const plan = countPlans(t);
+      const [lane] = laneEngines(created);
+      assert.ok(lane);
+
+      await startJob(control);
+      await control.benchmark.settled();
+      await settled(control);
+
+      const view = await control.benchmark.view();
+      assert.equal(view.restoredOk, true);
+      assert.equal(view.failed, 1, 'the fake engine cannot answer');
+      assert.equal(lane.stopped >= 1, true);
+      assert.equal(plan.mock.callCount(), 1);
+      assert.equal(control.current()?.model, TWOB_MODEL);
+      assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+    });
+
+    it('plans once after a cancelled benchmark job', async (t) => {
+      const gate = deferred<void>();
+      const flags: Flags = { on: false, ready: true, answers: true, gate: gate.promise };
+      const { control, decider } = jobSetup({ failing: flags });
+      await settled(control);
+      const plan = countPlans(t);
+
+      await startJob(control);
+      await untilMeasuring(control);
+      assert.equal(decider.engineOf('command-risk')?.source, 'fallback');
+      control.benchmark.cancel('user');
+      gate.resolve();
+      await control.benchmark.settled();
+      await settled(control);
+
+      assert.equal((await control.benchmark.view()).state, 'cancelled');
+      assert.equal(plan.mock.callCount(), 1);
+      assert.equal(control.current()?.model, TWOB_MODEL);
+      assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+    });
+
+    it('lets the change that preempts the lease plan the lanes, once', async (t) => {
+      const { control, decider, created } = laneSetup();
+      await settled(control);
+      const plan = countPlans(t);
+
+      const lease = control.beginBenchmark();
+      await settled(control);
+      await control.benchmarkSwap(lease, SWAP);
+      const gate = deferred<void>();
+      const runner = endingRunner(control, lease, gate.promise);
+
+      const selecting = control.select({ engine: 'strands-decider', model: HOBSON, device: 'cpu' });
+      await settleEventLoop();
+      assert.equal(plan.mock.callCount(), 0, 'the lease has not ended yet');
+      gate.resolve();
+      await selecting;
+      await runner;
+      await settled(control);
+
+      assert.equal(plan.mock.callCount(), 1);
+      assert.equal(control.current()?.model, HOBSON);
+      assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+      assert.equal(laneEngines(created).length, 2);
+    });
+
+    it('plans once for a preempting change that keeps the default model', async (t) => {
+      const { control, decider } = laneSetup({ selection: { mode: 'auto' } });
+      await settled(control);
+      const plan = countPlans(t);
+      // What the route says at the moment decisions are released.
+      const atRelease: (string | undefined)[] = [];
+      const hold = decider.hold.bind(decider);
+      t.mock.method(decider, 'hold', (reason: string | null) => {
+        if (reason === null) atRelease.push(decider.engineOf('command-risk')?.reason);
+        hold(reason);
+      });
+      const lease = control.beginBenchmark();
+      await settled(control);
+      await control.benchmarkSwap(lease, control.current() ?? SWAP);
+      const gate = deferred<void>();
+      const runner = endingRunner(control, lease, gate.promise);
+
+      const switching = control.setSelectionMode('auto');
+      await settleEventLoop();
+      gate.resolve();
+      await switching;
+      await runner;
+      await settled(control);
+
+      assert.equal(plan.mock.callCount(), 1);
+      assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+      assert.deepEqual(atRelease, [undefined], 'released only after the lanes were planned');
+    });
+
+    it('plans once when the preempting change outlives the cap', async (t) => {
+      const { control, decider } = laneSetup({ preemptCapMs: 30 });
+      await settled(control);
+      const plan = countPlans(t);
+      const lease = control.beginBenchmark();
+      await settled(control);
+      await control.benchmarkSwap(lease, SWAP);
+
+      await control.select({ engine: 'strands-decider', model: HOBSON, device: 'cpu' });
+      await settled(control);
+
+      assert.equal(plan.mock.callCount(), 1);
+      assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+    });
+
+    it('stops everything on shutdown during the lease and plans nothing', async (t) => {
+      const { control, paths, created } = laneSetup({ bind: false });
+      const gw = await startGateway({
+        config: testConfig(),
+        paths,
+        engineControl: control,
+        env: {},
+      });
+      await settled(control);
+      const [lane] = laneEngines(created);
+      assert.ok(lane);
+      const plan = countPlans(t);
+
+      const lease = control.beginBenchmark();
+      await settled(control);
+      assert.equal(lane.stopped, 1);
+      await control.endBenchmark(lease, { restore: false });
+      await gw.close();
+
+      assert.equal(plan.mock.callCount(), 0);
+      assert.equal(laneEngines(created).length, 1, 'no lane is built again');
+      assert.equal((created[0]?.stopped ?? 0) >= 1, true, 'the default engine stops too');
+    });
+
+    it('defers a hot-reloaded selection during the lease and applies it once at the end', async (t) => {
+      const paths = tempPaths();
+      mkdirSync(paths.config, { recursive: true });
+      const file = join(paths.config, 'config.yaml');
+      writeFileSync(file, stringify({ policies: { 'command-risk': { mode: 'act' } } }));
+      const { control, decider, created } = setup({ paths, persist: true, llamaServer: true });
+      await settled(control);
+      const plan = countPlans(t);
+
+      const lease = control.beginBenchmark();
+      await settled(control);
+      writeFileSync(
+        file,
+        stringify({ policies: { 'command-risk': { mode: 'act', selection: OVERRIDE } } }),
+      );
+      assert.deepEqual(await control.reloadConfig(), { changed: true, notes: [] });
+      await settled(control);
+      assert.equal(plan.mock.callCount(), 0, 'the reconcile waits for the end of the lease');
+      assert.equal(laneEngines(created).length, 0);
+      assert.equal(lease.signal.aborted, false);
+
+      await control.endBenchmark(lease, { restore: true });
+      await settled(control);
+      assert.equal(plan.mock.callCount(), 1);
+      assert.equal(laneEngines(created).length, 1);
+      assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+    });
+
+    it('plans once with the latest config after two reloads during the lease', async (t) => {
+      const paths = tempPaths();
+      mkdirSync(paths.config, { recursive: true });
+      const file = join(paths.config, 'config.yaml');
+      writeFileSync(file, stringify({ policies: { 'command-risk': { mode: 'act' } } }));
+      const { control, decider, created } = setup({ paths, persist: true, llamaServer: true });
+      await settled(control);
+      const plan = countPlans(t);
+      const first = { engine: 'llama-vulkan', model: 'd3-mini-q8_0' };
+
+      const lease = control.beginBenchmark();
+      await settled(control);
+      for (const selection of [first, OVERRIDE]) {
+        writeFileSync(
+          file,
+          stringify({ policies: { 'command-risk': { mode: 'act', selection } } }),
+        );
+        await control.reloadConfig();
+      }
+      await settled(control);
+      assert.equal(plan.mock.callCount(), 0);
+
+      await control.endBenchmark(lease, { restore: true });
+      await settled(control);
+      assert.equal(plan.mock.callCount(), 1);
+      assert.equal(decider.engineOf('command-risk')?.model, OVERRIDE.model);
+      assert.equal(laneEngines(created).length, 1);
+      assert.equal(created.filter((engine) => engine.model === first.model).length, 0);
+    });
+
+    it('applies a mode change made during the lease at the end', async (t) => {
+      const { control, decider, created } = laneSetup();
+      await settled(control);
+      const plan = countPlans(t);
+
+      const lease = control.beginBenchmark();
+      await settled(control);
+      control.setPolicyMode('command-risk', 'off');
+      await settled(control);
+      assert.equal(plan.mock.callCount(), 0);
+
+      await control.endBenchmark(lease, { restore: true });
+      await settled(control);
+      assert.equal(plan.mock.callCount(), 1);
+      assert.equal(decider.effectiveMode('command-risk'), 'off');
+      assert.equal(laneEngines(created).length, 1, 'an off policy gets no lane back');
+      assert.equal(decider.engineOf('command-risk')?.source, 'default');
+    });
+
+    it('answers by fallback, not "benchmark running", when the plan after the lease fails', async (t) => {
+      const { control, decider } = laneSetup({
+        policies: {
+          'command-risk': { mode: 'act', selection: OVERRIDE },
+          'permission': { mode: 'act', selection: { ...OVERRIDE, fallback: 'open' } },
+        },
+      });
+      await settled(control);
+      t.mock.method(console, 'warn', () => undefined);
+      const lease = control.beginBenchmark();
+      await settled(control);
+      t.mock.method(PolicyEngines, 'plan', async () => {
+        throw new Error('plan exploded');
+      });
+
+      await control.endBenchmark(lease, { restore: true });
+      await settled(control);
+
+      const risk = decider.engineOf('command-risk');
+      assert.equal(risk?.source, 'fallback');
+      assert.match(risk?.reason ?? '', /plan exploded/);
+      const permission = decider.engineOf('permission');
+      assert.equal(permission?.source, 'unavailable');
+      assert.match(permission?.reason ?? '', /plan exploded/);
+    });
   });
 });

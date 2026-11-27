@@ -22,6 +22,30 @@ export function laneSelections(
   );
 }
 
+/**
+ * The routes while a benchmark owns the machine: every override answers as its `fallback` says,
+ * never as a lane. Decisions are held for the lease anyway; this keeps the routes truthful, and
+ * never empty, for anything that reads them meanwhile.
+ * Computed once, at suspend time; the plan at the end of the lease refreshes them.
+ */
+export function suspendedRoutes(
+  selections: ReadonlyMap<string, PolicySelection>,
+  reason: string,
+): Map<string, PolicyRoute> {
+  return new Map(
+    [...selections].map(([id, selection]) => [
+      id,
+      {
+        laneKey: selection.fallback === 'default' ? PRIMARY_LANE : null,
+        source: selection.fallback === 'default' ? 'fallback' : 'unavailable',
+        fallback: selection.fallback,
+        configured: { engine: selection.engine, model: selection.model },
+        reason,
+      },
+    ]),
+  );
+}
+
 /** The policies whose own model is `model` on `engine`, in id order. */
 export function policiesUsing(
   selections: ReadonlyMap<string, PolicySelection>,
@@ -69,6 +93,11 @@ function messageOf(error: unknown): string {
  */
 export class PolicyLanes {
   readonly #engines = new Map<string, ManagedEngine>();
+
+  /** Every lane that exists, healthy or not. */
+  keys(): string[] {
+    return this.#keys(() => true);
+  }
 
   /** The lanes the planner may keep; a failed lane is left out so it is rebuilt. */
   healthyKeys(): Set<string> {

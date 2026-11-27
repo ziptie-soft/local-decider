@@ -92,7 +92,13 @@ import {
   type LanePlanInput,
   type PlanSelection,
 } from './policy-engines.ts';
-import { degradedPlan, laneSelections, PolicyLanes, policiesUsing } from './policy-lanes.ts';
+import {
+  degradedPlan,
+  laneSelections,
+  PolicyLanes,
+  policiesUsing,
+  suspendedRoutes,
+} from './policy-lanes.ts';
 import { StampCache, stampKey } from './stamp-cache.ts';
 import {
   checkPath,
@@ -569,6 +575,10 @@ export class EngineControl implements BenchmarkHost {
   #decider: Decider | undefined;
   #pending: Promise<void> = Promise.resolve();
   #lease: ControlLease | null = null;
+  /** A benchmark lease owns the machine: the policy lanes are retired and no transition plans them. */
+  #lanesSuspended = false;
+  /** The lanes need a plan: they were suspended, or a reconcile asked for one while they were. */
+  #reconcileDirty = false;
   /** Engines built for a benchmark: they never feed fallback accounting. */
   readonly #leasedEngines = new WeakSet<ManagedEngine>();
   readonly #preemptCapMs: number;
@@ -675,7 +685,46 @@ export class EngineControl implements BenchmarkHost {
     clearTimeout(this.#retryTimer);
     this.#retryTimer = undefined;
     this.#decider?.hold('engine benchmark running');
+    void this.#enqueue(() => this.#suspendPolicyLanes()).catch(() => undefined);
     return lease;
+  }
+
+  /**
+   * Retire every policy lane, so the benchmark has the machine's memory, and route each override
+   * to its fallback. A lease that ended before this ran has nothing to suspend. Runs on `#pending`
+   * after every transition queued earlier, so it never overlaps one.
+   */
+  async #suspendPolicyLanes(): Promise<void> {
+    const decider = this.#decider;
+    if (this.#lease === null) {
+      return;
+    }
+    this.#lanesSuspended = true;
+    this.#reconcileDirty = true;
+    if (decider === undefined) {
+      return;
+    }
+    await this.#lanes.retire(decider, this.#lanes.keys());
+    decider.setPolicyRoutes(
+      suspendedRoutes(
+        laneSelections(this.#config.policies, (id) => decider.policies.has(id)),
+        'benchmark running',
+      ),
+    );
+  }
+
+  /** Lanes may be planned again, unless another lease took the machine meanwhile. */
+  #resumeLanes(): void {
+    if (this.#lease === null) {
+      this.#lanesSuspended = false;
+    }
+  }
+
+  /** Plan the lanes once more when a benchmark left them unplanned and nothing else did. */
+  async #replanIfDirty(): Promise<void> {
+    if (this.#reconcileDirty && !this.#lanesSuspended && this.#lease === null) {
+      await this.#queueLanes();
+    }
   }
 
   /** Installs `target` for the lease and resolves to the engine now serving. */
@@ -714,12 +763,15 @@ export class EngineControl implements BenchmarkHost {
     try {
       if (options.restore && lease.snapshot.mode === 'auto') {
         this.#lease = null;
+        await this.#enqueue(async () => this.#resumeLanes());
         await this.reconcileAuto();
         error = this.#reconcileProblem;
       } else if (options.restore) {
-        const run = this.#pending.then(() => this.#apply(lease.snapshot.selection, false, false));
-        this.#pending = run.catch(() => undefined);
-        await run;
+        this.#lease = null;
+        await this.#enqueue(() => {
+          this.#resumeLanes();
+          return this.#apply(lease.snapshot.selection, false, false);
+        });
       } else {
         this.#lease = null;
       }
@@ -727,6 +779,11 @@ export class EngineControl implements BenchmarkHost {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
       if (this.#lease === lease) this.#lease = null;
+      this.#resumeLanes();
+      // The restore plans the lanes when it changes the default model, and this does when it did
+      // not (or failed). Without a restore, the change that preempted the lease, or the shutdown,
+      // owns the lanes.
+      if (options.restore) await this.#replanIfDirty();
       if (options.restore && this.#lease === null) this.#decider?.hold(null);
       if (options.restore) this.#leasedEngines.delete(this.#engine);
       lease.finish();
@@ -844,6 +901,7 @@ export class EngineControl implements BenchmarkHost {
     clearTimeout(timer);
     if (this.#lease === lease) {
       this.#lease = null;
+      this.#resumeLanes();
     }
     return lease;
   }
@@ -861,6 +919,9 @@ export class EngineControl implements BenchmarkHost {
     try {
       return await mutate(ended);
     } finally {
+      // A change that did not plan the lanes (it kept the default model) still must, once, and
+      // before the release: no decision may meet routes that still say "benchmark running".
+      if (ended !== null) await this.#replanIfDirty();
       if (ended !== null && this.#lease === null) {
         this.#leasedEngines.delete(this.#engine);
         this.#decider?.hold(null);
@@ -1927,11 +1988,13 @@ export class EngineControl implements BenchmarkHost {
    */
   async #transition(change: PrimaryChange | undefined): Promise<void> {
     const decider = this.#decider;
-    const plan = await this.#planLanes(
-      decider,
-      change?.next ?? this.#selected,
-      change !== undefined,
-    );
+    // While a benchmark owns the machine no lane is planned: a lane-only request waits for its end,
+    // and the benchmark's own swaps of the default model run without lanes.
+    if (this.#lanesSuspended && change === undefined) {
+      this.#reconcileDirty = true;
+      return;
+    }
+    const plan = this.#lanesSuspended ? undefined : await this.#planNow(decider, change);
     const swap = change === undefined ? undefined : this.#switchPrimary(change);
     if (plan === undefined && swap === undefined) {
       return;
@@ -1956,6 +2019,36 @@ export class EngineControl implements BenchmarkHost {
       this.#startTracked(swap.engine);
     }
     this.#lanes.start(started);
+  }
+
+  /**
+   * The lane plan for this transition, which settles whether the lanes still need one. Lanes left
+   * suspended by a benchmark count as a change: a failed plan then answers every override as its
+   * `fallback` says, instead of leaving the routes at "benchmark running".
+   */
+  async #planNow(
+    decider: Decider | undefined,
+    change: PrimaryChange | undefined,
+  ): Promise<LanePlan | undefined> {
+    const plan = await this.#planLanes(
+      decider,
+      change?.next ?? this.#selected,
+      change !== undefined || this.#reconcileDirty,
+    );
+    if (plan !== undefined) {
+      this.#reconcileDirty = false;
+    }
+    return plan;
+  }
+
+  /** Runs `job` on `#pending`, after every change queued so far and before any queued later. */
+  #enqueue<T>(job: () => Promise<T>): Promise<T> {
+    const run = this.#pending.then(job);
+    this.#pending = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   /** Synchronous: the new default engine takes its place, so status reads "starting" at once. */
