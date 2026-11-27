@@ -348,6 +348,11 @@ function unavailableLead(f: Facts): string {
   return f.entry?.reason === undefined ? 'Unavailable' : `Unavailable: ${sentence(f.entry.reason)}`;
 }
 
+/** Where to fix a model that is not downloaded; nothing for any other reason. */
+function downloadHint(f: Facts): string {
+  return f.entry?.reason?.includes('not downloaded') === true ? ' Download it under Models.' : '';
+}
+
 function tooSlowText(f: Facts): string {
   const p50 = f.p50 ?? 0;
   const paseo = DECISION_KINDS[f.kind].budgets.paseo;
@@ -378,13 +383,13 @@ function sameAsDefault(f: Facts): boolean {
   return device === (active.resolvedDevice ?? active.device);
 }
 
-/** ` Needs about {n} GB on top of the default model.`, or nothing when the size is unknown. */
-function memoryNote(f: Facts): string {
+/** `, about {n} GB of extra memory`, or nothing when the size is unknown. */
+function memoryClause(f: Facts): string {
   const memoryGb =
     f.own === undefined
       ? null
       : (findModel(f.catalog, f.own.engine, f.own.model)?.memoryGb ?? null);
-  return memoryGb === null ? '' : ` Needs about ${gb(memoryGb)} on top of the default model.`;
+  return memoryGb === null ? '' : `, about ${gb(memoryGb)} of extra memory`;
 }
 
 /** The problems, which also give the badge next to the decision's title. */
@@ -393,7 +398,7 @@ const PROBLEM_RULES: readonly Rule[] = [
     id: 'unavailable-default',
     tone: 'warning',
     applies: (f) => f.entry?.status === 'unavailable' && fallbackOf(f.entry) === 'default',
-    text: (f) => `${unavailableLead(f)}. The default model answers instead.`,
+    text: (f) => `${unavailableLead(f)}. The default model answers instead.${downloadHint(f)}`,
   },
   {
     id: 'unavailable-open',
@@ -415,18 +420,15 @@ const PROBLEM_RULES: readonly Rule[] = [
   },
 ];
 
-/** `Own model on {runtime}, {speed}. ` and the memory note: what an own model costs. */
+/** `Own model on {runtime}, about {n} GB of extra memory. {lifecycle} {speed}.` */
 function ownModelText(f: Facts, lifecycle: string): string {
-  const model =
-    f.target === null ? undefined : findModel(f.catalog, f.target.engine, f.target.model);
   const where =
     f.target === null
       ? 'its runtime'
       : runtimeName(f.catalog, { engine: f.target.engine, device: f.target.device, backend: null });
   const speed =
-    model === undefined ? 'speed not measured here' : speedHere(model, f.target?.device ?? null);
-  const bench = f.p50 === null ? ' Benchmark it under Models.' : '';
-  return `Own model on ${where}, ${speed}. ${lifecycle}${memoryNote(f)}${bench}`;
+    f.p50 === null ? 'Speed not measured here.' : `About ${ms(f.p50)} per decision here.`;
+  return `Own model on ${where}${memoryClause(f)}. ${lifecycle} ${speed}`;
 }
 
 /** The rules after the problems, in order; a decision on the default model matches none. */
@@ -453,13 +455,13 @@ const OTHER_RULES: readonly Rule[] = [
     id: 'own-lazy',
     tone: 'muted',
     applies: (f) => f.own !== undefined && f.catalog.active?.lifecycle !== 'eager',
-    text: (f) => ownModelText(f, 'Loads on its first decision and unloads when idle.'),
+    text: (f) => ownModelText(f, 'Loads on its first decision.'),
   },
   {
     id: 'own-eager',
     tone: 'muted',
     applies: (f) => f.own !== undefined,
-    text: (f) => ownModelText(f, 'Kept loaded.'),
+    text: (f) => ownModelText(f, 'Stays loaded.'),
   },
 ];
 
