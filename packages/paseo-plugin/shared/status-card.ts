@@ -52,7 +52,7 @@ export interface DefaultModelRow {
 const NO_MODEL_HINT = 'None yet. Choose one under Models; until then every decision is skipped.';
 
 /** What the row says when the gateway is up but gave no model list. */
-export const MODELS_UNKNOWN_HINT = 'Unknown: the gateway did not list its models.';
+const MODELS_UNKNOWN_HINT = 'Unknown: the gateway did not list its models.';
 
 /** The state the sentence describes: health is the live source, the catalog adds the lifecycle. */
 function stateSentence(status: StatusLike, catalog: EngineCatalog): string {
