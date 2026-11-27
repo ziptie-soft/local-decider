@@ -12,9 +12,13 @@ until you switch a policy to `act`.
 
 - Paseo `>=0.15.3 <1.0.0`, with plugins enabled on the daemon (**Settings → Plugins → Enable
   plugins**).
-- The **local-decider gateway** running on the daemon machine. The plugin is a thin client and
-  never runs a model itself. Install the gateway first:
-  [docs/install.md](https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md).
+- The **local-decider gateway** on the daemon machine. The plugin is a thin client and never runs
+  a model itself. Install the gateway first:
+  [docs/install.md](https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md), or
+  hand an agent
+  [docs/install-paseo.ai.md](https://github.com/ziptie-soft/local-decider/blob/master/docs/install-paseo.ai.md).
+  Once installed, the plugin starts the gateway when it is not running; see Auto-start in
+  [OVERVIEW.md](OVERVIEW.md).
 
 ## Install
 
