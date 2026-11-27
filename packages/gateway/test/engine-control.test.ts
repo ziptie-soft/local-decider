@@ -965,6 +965,8 @@ describe('EngineControl benchmark host', () => {
     const { control } = hostSetup();
     await control.checkBenchmarkTarget({ engine: 'fastflowlm', model: 'd3:mini', device: null });
     await control.checkBenchmarkTarget({ engine: 'strands-decider', model: TWOB, device: 'cpu' });
+    // No device is auto, the default target: it runs wherever strands can.
+    await control.checkBenchmarkTarget({ engine: 'strands-decider', model: TWOB, device: null });
     await refused({ engine: 'nope', model: 'x', device: null }, /not selectable/)();
     await refused(
       { engine: 'fastflowlm', model: 'nope', device: null },
@@ -973,10 +975,6 @@ describe('EngineControl benchmark host', () => {
     await refused(
       { engine: 'strands-decider', model: TWOB, device: 'cuda' },
       /device cuda is not available/,
-    )();
-    await refused(
-      { engine: 'strands-decider', model: TWOB, device: null },
-      /device auto is not available/,
     )();
     const missing = hostSetup({ installed: false });
     await assert.rejects(
