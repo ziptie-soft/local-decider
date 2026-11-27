@@ -198,9 +198,19 @@ function Cell({
   return <View style={{ width }}>{children}</View>;
 }
 
+/**
+ * The Mode and Model cells. Stacked, they take the whole line under the description, so a pair
+ * that does not fit wraps inside the card instead of running past its edge.
+ */
 function Controls({ wrap, children }: { wrap: boolean; children: ReactNode }): ReactNode {
   return (
-    <View style={{ flexDirection: 'row', flexWrap: wrap ? 'wrap' : 'nowrap', gap: TABLE.gap }}>
+    <View
+      style={{
+        flexDirection: 'row',
+        gap: TABLE.gap,
+        ...(wrap ? { flexWrap: 'wrap', width: '100%' } : { flexWrap: 'nowrap' }),
+      }}
+    >
       {children}
     </View>
   );
