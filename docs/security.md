@@ -168,6 +168,18 @@ Only the name of the token's environment variable is stored in `config.yaml`. Ne
 form nor `local-decider engine configure` accepts the token value itself. Setup steps are in
 [install.md](install.md#openai-compatible-servers).
 
+## Automatic install
+
+Auto-install is opt-in (`LOCAL_DECIDER_AUTOINSTALL=1`). It installs only the exact version the
+plugin pins, only from registry.npmjs.org, only after the release is 72 hours old, with install
+scripts disabled and dev and optional dependencies omitted.
+
+Residual risk: the gateway's own transitive dependencies are resolved by npm from version ranges
+and are not hash-pinned, so a compromised dependency release older than 72 hours would be
+installed. The `--before` cutoff limits this to releases that existed 72 hours before the install.
+A zero-dependency bundled gateway release is a planned follow-up. Installing by hand with
+`npm install -g` carries the same dependency risk.
+
 ## What it does not protect against
 
 - **Prompt injection.** The model reads attacker-controllable text. It cannot run tools, but it
@@ -189,6 +201,17 @@ form nor `local-decider engine configure` accepts the token value itself. Setup 
 
 ## Known limits
 
+- **Listener trust.** Default local clients talk to the gateway over a Unix socket in the 0700 run
+  directory (`~/.local/share/local-decider/run/gateway.sock`), so another local user cannot pose
+  as the gateway. A client given an explicit TCP URL (`LOCAL_DECIDER_URL` or a plugin URL setting)
+  trusts whatever listens on that port; the TCP listener is unauthenticated for reads, and a local
+  process that binds the port first could answer in its place. Windows has no socket and always
+  uses TCP.
+- **Symlinked data directory.** A symlinked data directory (for example a dotfiles-managed
+  `~/.local/share/local-decider`) is reported as `unsafe-path`, and clients do not auto-start the
+  gateway there. Start it by hand or point `LOCAL_DECIDER_HOME` at a real directory.
+- **Socket path length.** The socket is disabled when its path would exceed 100 bytes (a deep
+  `LOCAL_DECIDER_HOME`); clients then use TCP.
 - **CPU latency.** On CPU the 2B model takes seconds per decision, longer than the hooks' 1.5 s
   budget. There it suits shadow logging, turn outcomes and routing hints.
 - **Claude Code auto mode** ignores a hook `allow`

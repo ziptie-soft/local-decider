@@ -313,6 +313,31 @@ listener for explicit URLs, `curl`, and remote clients. Windows uses TCP only. `
 includes the gateway version, its per-run instance id, and the bounded `clients` map of harness
 versions and request counts.
 
+### Automatic start and install
+
+The Claude Code and Codex hooks (at SessionStart), the pi extension (at session start) and the
+Paseo plugin (when its first check finds no gateway) run `local-decider gateway ensure` in the
+background when the gateway URL is loopback. Remote URLs are never started. Clients fail open: if
+the launch fails, the harness behaves as without local-decider.
+
+`LOCAL_DECIDER_AUTOSTART=0` (also `off` or `false`) turns this off.
+
+`LOCAL_DECIDER_AUTOINSTALL=1` is opt-in and off by default. It lets a client install the gateway
+when none is found: the exact version pinned by that plugin, from registry.npmjs.org, only if that
+release is at least 72 hours old. The client runs
+`npm install --ignore-scripts --omit=dev --omit=optional --before=<72 h ago>` into
+`~/.local/share/local-decider/gateway/`. Without it, the client tells you the
+`npm install -g @ziptie-soft/local-decider@<version>` command to run. See
+[security.md](security.md#automatic-install) for the residual risk.
+
+```fish
+set -gx LOCAL_DECIDER_AUTOSTART 0
+set -gx LOCAL_DECIDER_AUTOINSTALL 1
+```
+
+Several harnesses share one gateway per data directory. A second client finds the running gateway
+over the socket instead of starting another.
+
 - `gateway start` writes `~/.config/systemd/user/local-decider.service` or
   `~/Library/LaunchAgents/dev.local-decider.gateway.plist` and starts it. It is a no-op when the
   gateway already runs. Without systemd it starts a detached process with a pid file.
