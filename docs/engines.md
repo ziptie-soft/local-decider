@@ -65,6 +65,30 @@ still runs. Use `b12359` or newer. `/v1/systemone` answers from `b12110` and `b1
 0.005 on the same GGUF. The 1.0.0 FP8 KV cache (`-ctk/-ctv f8_e4m3`) aborts at startup on the
 Vulkan backend, so the engine keeps the default f16 cache.
 
+### CPU: set `engines.llama-vulkan.gpuLayers: 0`
+
+The Vulkan-enabled build (`b11572` or newer) is still the supported one; `gpuLayers: 0` only keeps
+the layers off the GPU.
+
+The Vulkan probe does not gate selection. An explicit selection only needs a `llama-server` binary
+(or `engines.llama-vulkan.url`), the model on disk and enough memory. `hasVulkanDevice` only
+produces a warning in `engine install --engine llama-vulkan`, and `vulkaninfo` feeds the automatic
+ranking only. The warning reads `<binary> lists no Vulkan device; a Vulkan build is required`. The
+gateway passes `gpuLayers` straight to `llama-server` as `-ngl`, so `0` keeps the layers off the
+GPU:
+
+```yaml
+engines:
+  llama-vulkan:
+    gpuLayers: 0
+```
+
+Measured on an AMD Ryzen AI 9 365 w/ Radeon 880M with the Vulkan build of `llama-server` `b12110`
+and `-ngl 0`, so this was a Vulkan build with no layers offloaded, not a build compiled without
+Vulkan. `local-decider bench --engines llama-vulkan:kev-0.8b-q8_0 --sizes 256 --runs 3`: load
+1.1 s, 256-token p50 225 ms and p95 308 ms. A llama.cpp build without Vulkan was not tried, and
+there is no GPU run to compare against, so no speed-up or slow-down is claimed.
+
 ### Configure an OpenAI-compatible server
 
 In Paseo, open the engine settings, enter the API base URL, choose **Find local servers** to
