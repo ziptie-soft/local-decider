@@ -17,6 +17,12 @@ export type Health = () => Promise<GatewayHealth | null>;
 const HEALTH_TIMEOUT_MS = 1000;
 const MAX_DETAIL = 120;
 const MAX_STATUS = 20;
+const GUIDE_URL_BASE = 'https://github.com/ziptie-soft/local-decider/blob/master/docs/';
+export const LEGACY_DETAIL_PREFIX = 'an older gateway runs on';
+
+export function guideUrl(harness: HookHarness): string {
+  return `${GUIDE_URL_BASE}install-${harness}.ai.md`;
+}
 
 export function healthFromEnv(
   env: Env,
@@ -59,7 +65,7 @@ async function legacyHealth(url: string, harness: HookHarness): Promise<GatewayH
     const port = new URL(url).port || '8765';
     return {
       status: 'down',
-      detail: `an older gateway runs on :${port} without a socket; run \`local-decider gateway restart\``,
+      detail: `${LEGACY_DETAIL_PREFIX} :${port} without a socket; run \`local-decider gateway restart\``,
     };
   } catch {
     return null;
@@ -111,17 +117,24 @@ export async function sessionStart(
   startGateway?: () => void,
 ): Promise<string> {
   const url = gatewayConfig(env).url;
-  const found = problem(await health(), `gateway at ${originOf(url)}`);
+  const healthResult = await health();
+  const found = problem(healthResult, `gateway at ${originOf(url)}`);
+  const legacy =
+    healthResult?.status === 'down' &&
+    typeof healthResult.detail === 'string' &&
+    healthResult.detail.startsWith(LEGACY_DETAIL_PREFIX);
   if (found === null) return '';
   const autostart = env['LOCAL_DECIDER_AUTOSTART']?.toLowerCase();
   const shouldStart =
+    !legacy &&
     startGateway !== undefined &&
     isLoopbackUrl(url) &&
     autostart !== '0' &&
     autostart !== 'off' &&
     autostart !== 'false';
   if (shouldStart) startGateway();
-  return harness === 'claude'
-    ? message(shouldStart ? `${found}; the gateway is starting in the background` : found)
-    : '';
+  if (harness !== 'claude') return '';
+  if (shouldStart) return message(`${found}; the gateway is starting in the background`);
+  if (legacy) return message(found);
+  return message(`${found}. Setup guide: ${guideUrl(harness)}`);
 }

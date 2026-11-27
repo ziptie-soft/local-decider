@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createExtension, FLAG_NAME, STATUS_KEY } from '../extension/index.ts';
+import { createExtension, FLAG_NAME, PI_GUIDE_URL, STATUS_KEY } from '../extension/index.ts';
 import type {
   PiAPI,
   PiCommandOptions,
@@ -172,6 +172,30 @@ test('health failure sets ld: offline', async () => {
   assert.match(s.ui.notes.at(-1)?.message ?? '', /gateway offline/);
 });
 
+test('shows the setup guide once after repeated failing health checks in one session', async () => {
+  const s = setup({}, false);
+  await start(s);
+  await start(s);
+  const guideNotes = s.ui.notes.filter(
+    (note) => note.level === 'warning' && note.message.includes(`Setup guide: ${PI_GUIDE_URL}`),
+  );
+  assert.equal(guideNotes.length, 1);
+});
+
+test('shows the setup guide again after a new session starts', async () => {
+  const s = setup({}, false);
+  await start(s);
+  await s.fake.handlers.get('session_shutdown')?.(
+    { type: 'session_shutdown', reason: 'new' },
+    s.ui.ctx,
+  );
+  await start(s);
+  const guideNotes = s.ui.notes.filter(
+    (note) => note.level === 'warning' && note.message.includes(`Setup guide: ${PI_GUIDE_URL}`),
+  );
+  assert.equal(guideNotes.length, 2);
+});
+
 test('a reachable gateway with status down reports ld: down', async () => {
   const s = setup({}, 'down');
   await start(s);
@@ -200,6 +224,18 @@ test('command without args reports state and never the token', async () => {
     'local-decider: mode guard · http://127.0.0.1:8765 · gateway ok · last decision none',
   );
   assert.ok(!message.includes('sekret'));
+});
+
+test('describe includes the setup guide offline and omits it when the gateway is ok', async () => {
+  const offline = setup({}, false);
+  await start(offline);
+  await run(offline, '');
+  assert.ok((offline.ui.notes.at(-1)?.message ?? '').includes(`setup guide ${PI_GUIDE_URL}`));
+
+  const healthy = setup();
+  await start(healthy);
+  await run(healthy, '');
+  assert.ok(!(healthy.ui.notes.at(-1)?.message ?? '').includes(PI_GUIDE_URL));
 });
 
 test('command mode sets an override; invalid and unknown input notify', async () => {

@@ -93,6 +93,8 @@ function log(message: string): void {
 /** A failed check is trusted for this long; afterwards hooks try the gateway again. */
 const DOWN_TTL_MS = 60_000;
 const AUTO_LAUNCH_TTL_MS = 5 * 60_000;
+const GUIDE_URL_BASE = 'https://github.com/ziptie-soft/local-decider/blob/master/docs/';
+const PASEO_GUIDE_URL = `${GUIDE_URL_BASE}install-paseo.ai.md`;
 
 function readManifest(): Record<string, unknown> | null {
   try {
@@ -162,7 +164,7 @@ function createAutoLauncher(): (url: string, attempt?: boolean) => Promise<Launc
         env: process.env,
         pinnedVersion: version,
         clientId: `paseo/${pluginVersion()}`,
-        guideUrl: 'https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md',
+        guideUrl: PASEO_GUIDE_URL,
       });
       previousLaunch = launchSummary(outcome);
       return previousLaunch;
