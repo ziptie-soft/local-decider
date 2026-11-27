@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { chmodSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { describe, it } from 'node:test';
@@ -24,6 +25,12 @@ async function ephemeralPort(): Promise<number> {
 
 function healthy(status = 'degraded'): Response {
   return new Response(JSON.stringify({ status, engineState: 'starting', detail: 'loading' }));
+}
+
+function fakeChild(onUnref?: (child: EventEmitter) => void): ChildProcess {
+  const child = new EventEmitter();
+  Object.assign(child, { unref: () => onUnref?.(child) });
+  return child as unknown as ChildProcess;
 }
 
 describe('gateway ensure', () => {
@@ -121,8 +128,102 @@ describe('gateway ensure', () => {
       paths,
       config: config(await ephemeralPort()),
       force: false,
+      deps: { fetch: async () => new Response('{}', { status: 503 }) },
     });
     assert.equal(result.listener, 'stopped');
+
+    let launched = false;
+    const forced = await ensureGateway({
+      paths,
+      config: config(await ephemeralPort()),
+      force: true,
+      timeoutSeconds: 0,
+      deps: {
+        manager: 'pidfile',
+        installed: () => false,
+        fetch: async () => new Response('{}', { status: 503 }),
+        portOpen: async () => false,
+        spawn: (() => {
+          launched = true;
+          return fakeChild();
+        }) as never,
+      },
+    });
+    assert.equal(forced.listener, 'failed');
+    assert.equal(launched, true);
+    assert.equal(gatewayWasStopped(paths), false);
+  });
+
+  it('reports a healthy gateway even when the stop marker exists', async () => {
+    const paths = tempPaths();
+    stopService('pidfile', paths);
+    const result = await ensureGateway({
+      paths,
+      config: config(await ephemeralPort()),
+      deps: {
+        fetch: async () => healthy('ok'),
+        manager: 'pidfile',
+        spawn: () => {
+          throw new Error('must not spawn');
+        },
+      },
+    });
+    assert.equal(result.listener, 'running');
+    assert.equal(gatewayWasStopped(paths), true);
+  });
+
+  it('reports an asynchronous spawn error without waiting for the health timeout', async () => {
+    const paths = tempPaths();
+    let probes = 0;
+    let errorListenerBeforeUnref = false;
+    const startedAt = Date.now();
+    const result = await ensureGateway({
+      paths,
+      config: config(await ephemeralPort()),
+      timeoutSeconds: 10,
+      deps: {
+        manager: 'pidfile',
+        installed: () => false,
+        fetch: async () => {
+          probes += 1;
+          return probes < 3 ? new Response('{}', { status: 503 }) : new Promise<Response>(() => {});
+        },
+        portOpen: async () => false,
+        spawn: (() =>
+          fakeChild((child) => {
+            errorListenerBeforeUnref = child.listenerCount('error') === 1;
+            queueMicrotask(() => child.emit('error', new Error('spawn EACCES')));
+          })) as never,
+      },
+    });
+    assert.equal(result.listener, 'failed');
+    assert.equal(result.message, 'spawn EACCES');
+    assert.equal(errorListenerBeforeUnref, true);
+    assert.ok(Date.now() - startedAt < 1000);
+  });
+
+  it('reports a child exit before health with the gateway log path', async () => {
+    const paths = tempPaths();
+    let probes = 0;
+    const result = await ensureGateway({
+      paths,
+      config: config(await ephemeralPort()),
+      timeoutSeconds: 10,
+      deps: {
+        manager: 'pidfile',
+        installed: () => false,
+        fetch: async () => {
+          probes += 1;
+          return probes < 3 ? new Response('{}', { status: 503 }) : new Promise<Response>(() => {});
+        },
+        portOpen: async () => false,
+        spawn: (() =>
+          fakeChild((child) => queueMicrotask(() => child.emit('exit', 1, null)))) as never,
+      },
+    });
+    assert.equal(result.listener, 'failed');
+    assert.match(result.message, /gateway exited before \/health answered \(code 1\)/);
+    assert.match(result.message, /gateway\.log/);
   });
 
   it('starts one detached process with isolated Node flags and a private log', async () => {
@@ -146,7 +247,7 @@ describe('gateway ensure', () => {
         spawn: ((_command: string, args: readonly string[] = [], options?: SpawnOptions) => {
           spawnArgs = args;
           spawnOptions = options as Record<string, unknown>;
-          return { unref() {} } as ChildProcess;
+          return fakeChild();
         }) as never,
       },
     });
@@ -178,7 +279,7 @@ describe('gateway ensure', () => {
     assert.equal(starts, 1);
   });
 
-  it('reports a busy port and an unsafe data directory without launching', async () => {
+  it('reports a busy port and repairs writable owned paths without launching', async () => {
     const paths = tempPaths();
     const busy = await ensureGateway({
       paths,
@@ -198,7 +299,21 @@ describe('gateway ensure', () => {
     assert.equal(ensureExitCode(busy), 3);
 
     chmodSync(paths.data, 0o770);
-    const unsafe = await ensureGateway({ paths, config: config(await ephemeralPort()) });
-    assert.equal(unsafe.listener, 'unsafe-path');
+    const repaired = await ensureGateway({
+      paths,
+      config: config(await ephemeralPort()),
+      timeoutSeconds: 0,
+      deps: {
+        manager: 'pidfile',
+        installed: () => false,
+        fetch: async () => new Response('{}', { status: 503 }),
+        portOpen: async () => true,
+        spawn: () => {
+          throw new Error('must not spawn');
+        },
+      },
+    });
+    assert.equal(repaired.listener, 'port-busy');
+    assert.equal(statSync(paths.data).mode & 0o777, 0o700);
   });
 });

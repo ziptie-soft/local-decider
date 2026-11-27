@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { fchmodSync, openSync, closeSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join } from 'node:path';
@@ -62,6 +62,14 @@ interface Probe {
   readonly health: Record<string, unknown> | null;
 }
 
+type StartupFailure =
+  | { readonly kind: 'error'; readonly message: string }
+  | { readonly kind: 'exit'; readonly code: number | null; readonly signal: NodeJS.Signals | null };
+
+type StartupResult =
+  | { readonly kind: 'health'; readonly health: Record<string, unknown> | null }
+  | { readonly kind: 'failure'; readonly failure: StartupFailure };
+
 function engineFrom(health: Record<string, unknown> | null): EnsureResult['engine'] {
   if (health === null) return null;
   return {
@@ -71,12 +79,15 @@ function engineFrom(health: Record<string, unknown> | null): EnsureResult['engin
   };
 }
 
-async function probe(url: URL, fetcher: typeof fetch): Promise<Probe> {
+async function probe(url: URL, fetcher: typeof fetch, signal?: AbortSignal): Promise<Probe> {
   try {
     const response = await fetcher(new URL('/health', url), {
       method: 'GET',
       redirect: 'error',
-      signal: AbortSignal.timeout(1000),
+      signal:
+        signal === undefined
+          ? AbortSignal.timeout(1000)
+          : AbortSignal.any([AbortSignal.timeout(1000), signal]),
     });
     const value: unknown = await response.json();
     if (typeof value !== 'object' || value === null) return { health: null };
@@ -159,7 +170,7 @@ function childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return out;
 }
 
-function spawnGateway(paths: Paths, deps: EnsureDeps): ChildProcess {
+function spawnGateway(paths: Paths, deps: EnsureDeps): Promise<StartupFailure> {
   const log = join(paths.logs, 'gateway.log');
   const fd = openSync(log, 'a', 0o600);
   try {
@@ -170,8 +181,12 @@ function spawnGateway(paths: Paths, deps: EnsureDeps): ChildProcess {
       env: childEnv(deps.env ?? process.env),
       stdio: ['ignore', fd, fd],
     });
+    const startupFailure = new Promise<StartupFailure>((resolve) => {
+      child.once('error', (error) => resolve({ kind: 'error', message: error.message }));
+      child.once('exit', (code, signal) => resolve({ kind: 'exit', code, signal }));
+    });
     child.unref();
-    return child;
+    return startupFailure;
   } finally {
     closeSync(fd);
   }
@@ -181,17 +196,48 @@ async function waitForHealth(
   url: URL,
   timeoutMs: number,
   deps: EnsureDeps,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown> | null> {
   const fetcher = deps.fetch ?? globalThis.fetch;
   const end = (deps.now ?? Date.now)() + timeoutMs;
   while ((deps.now ?? Date.now)() < end) {
-    const found = await probe(url, fetcher);
+    const found = await probe(url, fetcher, signal);
+    if (signal?.aborted) return null;
     if (found.health !== null) return found.health;
     await (deps.sleep ?? ((ms) => sleep(ms)))(
       Math.min(200, Math.max(1, end - (deps.now ?? Date.now)())),
     );
+    if (signal?.aborted) return null;
   }
-  return (await probe(url, fetcher)).health;
+  return (await probe(url, fetcher, signal)).health;
+}
+
+async function waitForStartup(
+  url: URL,
+  timeoutMs: number,
+  deps: EnsureDeps,
+  startupFailure: Promise<StartupFailure>,
+): Promise<StartupResult> {
+  const controller = new AbortController();
+  const health = waitForHealth(url, timeoutMs, deps, controller.signal).then((value) => ({
+    kind: 'health' as const,
+    health: value,
+  }));
+  const failure = startupFailure.then((value) => {
+    controller.abort();
+    return { kind: 'failure' as const, failure: value };
+  });
+  return Promise.race([health, failure]);
+}
+
+function startupFailureResult(paths: Paths, failure: StartupFailure): EnsureResult {
+  if (failure.kind === 'error') return result('failed', failure.message);
+  const status =
+    failure.signal === null ? `code ${String(failure.code)}` : `signal ${failure.signal}`;
+  return result(
+    'failed',
+    `gateway exited before /health answered (${status}); see ${join(paths.logs, 'gateway.log')}`,
+  );
 }
 
 function safePaths(paths: Paths): EnsureResult | undefined {
@@ -262,8 +308,9 @@ async function startWithLock(
     return result('running', 'gateway is already answering /health', before.health);
   if (await (deps.portOpen ?? isPortOpen)(url))
     return result('port-busy', 'the configured port is open but /health did not answer');
-  spawnGateway(paths, deps);
-  const health = await waitForHealth(url, timeoutMs, deps);
+  const startup = await waitForStartup(url, timeoutMs, deps, spawnGateway(paths, deps));
+  if (startup.kind === 'failure') return startupFailureResult(paths, startup.failure);
+  const health = startup.health;
   if (health !== null) return result('started', 'gateway started and is answering /health', health);
   if (await (deps.portOpen ?? isPortOpen)(url))
     return result('port-busy', 'the configured port is open but /health did not answer');
@@ -294,10 +341,13 @@ async function ensureAtEndpoint(
   paths: Paths,
   timeoutMs: number,
   deps: EnsureDeps,
+  force: boolean,
 ): Promise<EnsureResult> {
   const initial = await probe(url, deps.fetch ?? globalThis.fetch);
   if (initial.health !== null)
     return result('running', 'gateway is already answering /health', initial.health);
+  const stopResult = stopped(paths, force);
+  if (stopResult !== undefined) return stopResult;
   const manager = deps.manager ?? detectManager();
   const installed = (deps.installed ?? ((value) => installedService(value)))(manager);
   if (installed && manager !== 'pidfile')
@@ -343,10 +393,8 @@ export async function ensureGateway(options: {
   if ('error' in endpoint) return endpoint.error;
   const safety = safePaths(paths);
   if (safety !== undefined) return safety;
-  const stopResult = stopped(paths, options.force === true);
-  if (stopResult !== undefined) return stopResult;
   const timeoutMs = Math.max(0, (options.timeoutSeconds ?? 30) * 1000);
-  return ensureAtEndpoint(endpoint.url, paths, timeoutMs, deps);
+  return ensureAtEndpoint(endpoint.url, paths, timeoutMs, deps, options.force === true);
 }
 
 export function ensureExitCode(outcome: EnsureResult): number {

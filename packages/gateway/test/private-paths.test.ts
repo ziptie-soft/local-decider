@@ -16,11 +16,12 @@ describe('private runtime paths', () => {
     }
   });
 
-  it('rejects a group or world writable runtime directory', () => {
+  it('repairs a group or world writable owned runtime directory', () => {
     const data = mkdtempSync(join(tmpdir(), 'unsafe-'));
     const paths = { ...tempPaths(), data, run: join(data, 'run'), logs: join(data, 'logs') };
     mkdirSync(paths.run);
     chmodSync(paths.run, 0o770);
-    assert.throws(() => ensurePrivatePaths(paths), /unsafe private directory/);
+    ensurePrivatePaths(paths);
+    assert.equal(statSync(paths.run).mode & 0o777, 0o700);
   });
 });
