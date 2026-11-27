@@ -94,7 +94,6 @@ const policySelectionSchema = z
     "This decision's own engine and model. Absent: the default model (top-level selection).",
   );
 
-// fallow-ignore-next-line unused-type -- the lane planner and routes take it (P2.6+).
 export type PolicySelection = z.infer<typeof policySelectionSchema>;
 
 const policySettingsSchema = z

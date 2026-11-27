@@ -24,6 +24,7 @@ export {
   type DecisionModels,
   type Harness,
   type LogRecord,
+  type ModelSource,
   type OutcomeRecord,
   type OutcomeSource,
   type PermissionMode,

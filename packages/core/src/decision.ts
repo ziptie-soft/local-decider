@@ -84,6 +84,13 @@ export interface RouteTarget {
   readonly profile?: string;
 }
 
+/**
+ * Which model answered a decision: `default` the default model with no override, `policy` the
+ * decision's own model, `fallback` the default model for an own model that is unavailable, and
+ * `unavailable` no model at all (the decision failed open).
+ */
+export type ModelSource = 'default' | 'policy' | 'fallback' | 'unavailable';
+
 export interface DecideResponse {
   readonly decisionId: string;
   readonly policy: string;
@@ -106,6 +113,8 @@ export interface DecideResponse {
   readonly rule: number;
   readonly engine: string;
   readonly model: string;
+  /** Which model answered; absent when no model was consulted (mode `off`) or on older gateways. */
+  readonly modelSource?: ModelSource;
   readonly latencyMs: number;
   readonly cached: boolean;
   /** Exact-match precedent count used to evaluate this decision, when configured. */
@@ -158,6 +167,8 @@ export interface ShadowRecord {
   readonly enforced: boolean;
   readonly engine: string;
   readonly model: string;
+  /** Which model answered; absent on rows written before it was recorded. */
+  readonly modelSource?: ModelSource;
   readonly latencyMs: number;
   /** Time from admission to an engine slot starting the job; absent for cached answers. */
   readonly queueMs?: number;
