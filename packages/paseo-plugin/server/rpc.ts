@@ -78,7 +78,9 @@ export function createStatusHandler(
   return async () => {
     const gateway = await deps.gateway();
     const health = gateway === null ? null : await gateway.health({ timeoutMs: STATUS_TIMEOUT_MS });
-    const up = health !== null && health.status !== 'down';
+    // Reachable is up: `status: 'down'` means its engine failed, and the gateway still answers.
+    // Calling that down offered Start (a no-op on a running service) and launched another gateway.
+    const up = health !== null;
     downStreak = up ? 0 : downStreak + 1;
     onResult(up);
     const gatewayUrl = gateway?.baseUrl ?? (await deps.settings()).gatewayUrl;

@@ -1376,6 +1376,27 @@ describe('rpc handlers', () => {
     assert.deepEqual(statusSchema.parse(result).launch, result.launch);
   });
 
+  it('calls a gateway whose engine failed up, so it offers Restart and never auto-launches', async () => {
+    const gw = fakeGateway(() => null);
+    gw.health = async () => ({ status: 'down', engineState: 'failed', detail: 'engine exited' });
+    let launches = 0;
+    const status = createStatusHandler(
+      deps(settings(), gw),
+      () => new Date(0),
+      () => {},
+      async (_url, attempt) => {
+        if (attempt) launches++;
+        return null;
+      },
+    );
+    const result = await status();
+    assert.equal(result.up, true);
+    assert.equal(result.status, 'down');
+    assert.equal(result.engineState, 'failed');
+    assert.equal(result.downStreak, 0);
+    assert.equal(launches, 0);
+  });
+
   it('reads the benchmark progress from health, leniently', async () => {
     const gw = fakeGateway(() => null);
     let benchmark: unknown = { completed: 3, total: 6 };
