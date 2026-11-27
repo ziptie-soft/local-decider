@@ -13,13 +13,29 @@ export interface GatewaySourceOptions {
   readonly create?: typeof createGateway;
 }
 
-/** Builds the Gateway for a URL with scoped credentials, cached per URL. */
-export function gatewaySource(options: GatewaySourceOptions): (url: string) => Gateway | null {
+/**
+ * The Unix socket the plugin talks to the gateway over, or null for TCP: only for the default
+ * URL (and no `LOCAL_DECIDER_URL` override), with the socket setting on, on POSIX.
+ */
+export function localSocketFor(
+  url: string,
+  useSocket: boolean,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const defaultEndpoint =
+    url === DEFAULT_GATEWAY_URL && (env['LOCAL_DECIDER_URL']?.trim() ?? '') === '';
+  return useSocket && defaultEndpoint ? gatewaySocketPathForEnv(env) : null;
+}
+
+/** Builds the Gateway for a URL and transport with scoped credentials, cached per both. */
+export function gatewaySource(
+  options: GatewaySourceOptions,
+): (url: string, useSocket?: boolean) => Gateway | null {
   const env = options.env ?? process.env;
   const create = options.create ?? createGateway;
   let report: string | undefined;
   let control: string | undefined;
-  let cached: { url: string; gateway: Gateway | null } | null = null;
+  let cached: { key: string; gateway: Gateway | null } | null = null;
   const warned = new Set<string>();
 
   function refreshTokens(): boolean {
@@ -64,13 +80,11 @@ export function gatewaySource(options: GatewaySourceOptions): (url: string) => G
     warned.add(origin);
   }
 
-  function build(url: string): Gateway | null {
+  function build(url: string, useSocket: boolean): Gateway | null {
     const token = env[TOKEN_ENV] || undefined;
     const tokenOrigin = env[TOKEN_ORIGIN_ENV] || undefined;
     warnWithheld(url, token, tokenOrigin);
-    const defaultEndpoint =
-      url === DEFAULT_GATEWAY_URL && (env['LOCAL_DECIDER_URL']?.trim() ?? '') === '';
-    const socketPath = defaultEndpoint ? gatewaySocketPathForEnv(env) : null;
+    const socketPath = localSocketFor(url, useSocket, env);
     const gatewayOptions: GatewayOptions = {
       baseUrl: url,
       token,
@@ -84,10 +98,11 @@ export function gatewaySource(options: GatewaySourceOptions): (url: string) => G
     return create(gatewayOptions);
   }
 
-  return (url) => {
+  return (url, useSocket = true) => {
     const changed = refreshTokens();
-    if (changed || cached?.url !== url) {
-      cached = { url, gateway: build(url) };
+    const key = `${useSocket ? 'unix' : 'tcp'} ${url}`;
+    if (changed || cached?.key !== key) {
+      cached = { key, gateway: build(url, useSocket) };
     }
     return cached.gateway;
   };

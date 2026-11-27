@@ -21,6 +21,7 @@ export function tempDir(prefix: string): string {
 export function settings(overrides: Partial<DeciderSettings> = {}): DeciderSettings {
   return {
     gatewayUrl: 'http://127.0.0.1:8765',
+    useSocket: true,
     modes: { 'turn-outcome': 'shadow', 'permission': 'shadow', 'routing': 'shadow' },
     presets: {
       fast: { model: '', modeId: '' },

@@ -141,8 +141,11 @@ checks still run, since Paseo has no equivalent.
   the gateway's log. The details line and feedback buttons can be turned off separately.
 - **Sidebar:** the status item at the top or bottom of the sidebar, or hidden; what its label
   shows; and whether pressing it opens a quick status popover or the status screen.
-- **Advanced:** the gateway URL; an **Agent tools** switch (off by default); and a switch that
-  loads the model when Paseo starts.
+- **Advanced:** the gateway URL; **Connect over the Unix socket** (on by default: with the
+  default URL on Linux and macOS the daemon uses the owner-only
+  `~/.local/share/local-decider/run/gateway.sock`; off forces TCP, and other URLs always use
+  TCP; the Status gateway row says which is in use); an **Agent tools** switch (off by default);
+  and a switch that loads the model when Paseo starts.
 - **Decision thresholds** (collapsed): a slider and number field for each rule of each policy,
   such as "auto-allow when verdict is allow" at p(allow) ≥ 0.85, in steps of 0.01, with Reset.
   Below 0.90 it warns that more requests are auto-allowed without asking. An auto-allow rule

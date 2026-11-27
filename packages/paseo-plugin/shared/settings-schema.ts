@@ -46,6 +46,11 @@ const rows = z
 
 export const settingsSchema = z.object({
   gatewayUrl: z.string().max(500).default(DEFAULT_GATEWAY_URL),
+  /**
+   * Reach the default local gateway over its Unix socket (`<data>/run/gateway.sock`, owner-only)
+   * instead of TCP. Applies only to the default URL on Linux and macOS; off forces TCP.
+   */
+  useSocket: z.boolean().default(true),
   modes: z.object({ 'turn-outcome': mode, 'permission': mode, 'routing': mode }).prefault({}),
   /**
    * Preset name → target. Names come from the routing policy the gateway runs (any variant, the

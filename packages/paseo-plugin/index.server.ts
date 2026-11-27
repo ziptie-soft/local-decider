@@ -30,7 +30,7 @@ import {
   setPath,
   validateEngine,
 } from './server/engines.ts';
-import { gatewaySource } from './server/gateway-source.ts';
+import { localSocketFor, gatewaySource } from './server/gateway-source.ts';
 import { LabelRegistry, recordPermissionLabel } from './server/labels.ts';
 import { launchGateway, type LaunchResult } from './server/launcher/launch.ts';
 import { createOpenHandler } from './server/open.ts';
@@ -131,7 +131,9 @@ function launchSummary(result: LaunchResult): LaunchSummary {
   };
 }
 
-function createAutoLauncher(): (url: string, attempt?: boolean) => Promise<LaunchSummary | null> {
+function createAutoLauncher(
+  socketOn: () => Promise<boolean>,
+): (url: string, attempt?: boolean) => Promise<LaunchSummary | null> {
   let lastAutoLaunchAt = Number.NEGATIVE_INFINITY;
   let previousLaunch: LaunchSummary | null = null;
   let launchInFlight: Promise<LaunchSummary | null> | null = null;
@@ -156,11 +158,10 @@ function createAutoLauncher(): (url: string, attempt?: boolean) => Promise<Launc
         };
         return previousLaunch;
       }
+      // With the socket setting off, `ensure --url` checks the gateway over TCP instead.
       const outcome = await launchGateway({
         url,
-        defaultEndpoint:
-          url === 'http://127.0.0.1:8765' &&
-          (process.env['LOCAL_DECIDER_URL']?.trim() ?? '') === '',
+        defaultEndpoint: localSocketFor(url, await socketOn(), process.env) !== null,
         env: process.env,
         pinnedVersion: version,
         clientId: `paseo/${pluginVersion()}`,
@@ -226,7 +227,7 @@ function createDeps(server: PluginServerContext): {
     },
     async gateway() {
       await loaded;
-      return gatewayFor(current.gatewayUrl);
+      return gatewayFor(current.gatewayUrl, current.useSocket);
     },
     log,
     gatewayKnownDown: () => lastDownAt !== null && Date.now() - lastDownAt < DOWN_TTL_MS,
@@ -253,7 +254,7 @@ function createDeps(server: PluginServerContext): {
 
 export default function contribute(server: PluginServerContext): () => void {
   const { deps, markHealth, onSettings, cleanup } = createDeps(server);
-  const maybeLaunch = createAutoLauncher();
+  const maybeLaunch = createAutoLauncher(async () => (await deps.settings()).useSocket);
   void deps
     .settings()
     .then((settings) => maybeLaunch(settings.gatewayUrl))
