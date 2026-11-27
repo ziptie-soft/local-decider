@@ -70,6 +70,11 @@ function StatusDot({ theme, data }: { theme: Theme; data: Status | undefined }):
   );
 }
 
+/** The full model id as the row's hint, only when the value beside it is a shortened form. */
+function fullModelHint(model: string | null | undefined): { readonly hint?: string } {
+  return model == null || shortModel(model) === model ? {} : { hint: model };
+}
+
 function GatewaySection({ theme, data, isFetching, refetch }: GatewayProps): ReactNode {
   const now = useNow(5000);
   return (
@@ -92,7 +97,7 @@ function GatewaySection({ theme, data, isFetching, refetch }: GatewayProps): Rea
             <Value theme={theme}>{headline(data)}</Value>
           </View>
         </SettingsRow>
-        <SettingsRow label="Model" {...(data?.model == null ? {} : { hint: data.model })}>
+        <SettingsRow label="Model" {...fullModelHint(data?.model)}>
           <Value theme={theme}>{data?.model == null ? '—' : shortModel(data.model)}</Value>
         </SettingsRow>
         <SettingsRow label="Engine">
@@ -178,7 +183,7 @@ export function StatusScreen(props: PluginScreenProps): ReactNode {
         isFetching={isFetching}
         refetch={() => void refetch()}
       />
-      <SettingsSection title="Model">
+      <SettingsSection title="Load and unload">
         <EngineControls theme={theme} gatewayUrl={values?.gatewayUrl ?? DEFAULT_GATEWAY_URL} />
       </SettingsSection>
       <ReviewSection theme={theme} />
