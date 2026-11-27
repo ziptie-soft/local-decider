@@ -79,11 +79,22 @@ function rawIdHint(
   return id == null || shown === id ? {} : { hint: id };
 }
 
+/** The Model and Runtime values: catalog labels when known, else the shortened raw ids. */
+function shownNames(
+  data: Status | undefined,
+  catalog: ReturnType<typeof useEngines>['data'],
+): { readonly model: string | null; readonly engine: string | null } {
+  const names = activeNames(catalog);
+  const raw = data?.model;
+  return {
+    model: names?.model ?? (raw == null ? null : shortModel(raw)),
+    engine: names?.runtime ?? data?.engine ?? null,
+  };
+}
+
 function GatewaySection({ theme, data, isFetching, refetch, gatewayUrl }: GatewayProps): ReactNode {
   const now = useNow(5000);
-  const names = activeNames(useEngines(gatewayUrl).data);
-  const model = names?.model ?? (data?.model == null ? null : shortModel(data.model));
-  const engine = names?.runtime ?? data?.engine ?? null;
+  const { model, engine } = shownNames(data, useEngines(gatewayUrl).data);
   return (
     <SettingsSection
       title="Gateway"
