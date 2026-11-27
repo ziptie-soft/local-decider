@@ -53,7 +53,7 @@ function catalog(active: Record<string, unknown> | null = {}): EngineCatalog {
   });
 }
 
-const NAME = 'd3 nano on NPU · NPU (FLM)';
+const NAME = 'D3 Nano on NPU';
 
 describe('gatewayRow', () => {
   it('checks before the first answer', () => {
@@ -187,7 +187,7 @@ describe('defaultModelRow', () => {
 
   it('keeps a failed model name in the hint, why in the error, and Load now as a retry', () => {
     const r = row({ engineState: 'failed', detail: 'NPU busy.' }, catalog({ state: 'failed' }));
-    assert.equal(r.hint, 'd3 nano on NPU · NPU (FLM)');
+    assert.equal(r.hint, 'D3 Nano on NPU');
     assert.equal(r.error, 'Failed to load: NPU busy');
     assert.deepEqual([r.action, r.actionLabel, r.disabled], ['load', 'Load now', false]);
     const bare = row({ engineState: 'failed' }, catalog({ state: 'failed' }));

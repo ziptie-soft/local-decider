@@ -4,6 +4,7 @@ import { useMemo, type ReactNode } from 'react';
 import { Text, type TextStyle, View, type ViewStyle } from 'react-native';
 
 import {
+  DEFAULT_GATEWAY_URL,
   GATEWAY_POLICIES,
   type GatewayPolicy,
   INSTALL_SERVICE_COMMAND,
@@ -11,11 +12,17 @@ import {
   STATUS_SCREEN_ID,
 } from '../shared/constants.ts';
 import { DECISION_KINDS } from '../shared/decision-kinds.ts';
-import { popoverModel, popoverRowLabelWith } from '../shared/decision-models.ts';
+import { activeNames, popoverModel, popoverRowLabelWith } from '../shared/decision-models.ts';
 import { engineTag } from '../shared/engines.ts';
 import { engineStateNote } from '../shared/lifecycle.ts';
 import { mismatchLabel, modeMismatch, popoverRowLabel } from '../shared/policies.ts';
-import { type Status, useDeciderValues, useGatewayStatus, useServiceInfo } from './hooks.ts';
+import {
+  type Status,
+  useDeciderValues,
+  useEngines,
+  useGatewayStatus,
+  useServiceInfo,
+} from './hooks.ts';
 import { type GatewayModes, useGatewayModes } from './policy-modes.ts';
 import { ReviewPopoverSection } from './review.tsx';
 import { useServiceRun } from './service.tsx';
@@ -188,7 +195,11 @@ function useStyles(theme: Theme): Styles {
 }
 
 /** `Loaded · d3:nano · NPU`, `Unloaded · loads automatically…`, or how to start the gateway. */
-function subtitle(data: Status | undefined, hasService: boolean): string | null {
+function subtitle(
+  data: Status | undefined,
+  hasService: boolean,
+  names: ReturnType<typeof activeNames>,
+): string | null {
   if (data === undefined) {
     return null;
   }
@@ -200,8 +211,8 @@ function subtitle(data: Status | undefined, hasService: boolean): string | null 
   return engineStateNote({
     state: data.engineState ?? (data.status === 'ok' ? 'ready' : 'starting'),
     detail: data.detail,
-    model: data.model,
-    engineTag: engineTag(data.engine, data.engineTag),
+    model: names?.model ?? data.model,
+    engineTag: names?.runtime ?? engineTag(data.engine, data.engineTag),
     benchmark: data.benchmark,
   });
 }
@@ -242,7 +253,8 @@ export function QuickStatus(props: PluginPopoverProps): ReactNode {
   const gatewayModes = useGatewayModes();
   const service = useServiceInfo();
   const hasService = service.data?.commands != null;
-  const sub = subtitle(data, hasService);
+  const names = activeNames(useEngines(values?.gatewayUrl ?? DEFAULT_GATEWAY_URL).data);
+  const sub = subtitle(data, hasService, names);
   return (
     <View style={styles.root}>
       <View style={styles.section}>

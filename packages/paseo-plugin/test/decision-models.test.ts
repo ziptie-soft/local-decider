@@ -5,6 +5,7 @@ import { GATEWAY_POLICIES, type GatewayPolicy, type PluginMode } from '../shared
 import { DECISION_KINDS } from '../shared/decision-kinds.ts';
 import {
   allModelsTitle,
+  activeNames,
   defaultModelLabel,
   defaultModelName,
   effectiveP50,
@@ -165,7 +166,7 @@ function entryOf(catalog: EngineCatalog, id: string): PolicyModel | undefined {
 
 describe('runningName', () => {
   it('names a known family on its runtime, with its format', () => {
-    assert.equal(runningName(world()), 'd3 nano on NPU · NPU (FLM)');
+    assert.equal(runningName(world()), 'D3 Nano on NPU');
   });
 
   it('falls back to the engine and model id for an unknown model', () => {
@@ -832,7 +833,7 @@ describe('moreModelsCount', () => {
 
 describe('defaultModelName', () => {
   it('names the running model', () => {
-    assert.equal(defaultModelName(world()), 'd3 nano on NPU · NPU (FLM)');
+    assert.equal(defaultModelName(world()), 'D3 Nano on NPU');
   });
 
   it('is null when no model is chosen', () => {
@@ -1043,6 +1044,14 @@ describe('popoverModel', () => {
       popoverRowLabelWith('Routing: Off.', popoverModel(engines, 'routing')),
       'Routing: Off.',
     );
+  });
+});
+
+describe('activeNames', () => {
+  it('gives the catalog label and the runtime name', () => {
+    assert.deepEqual(activeNames(world()), { model: 'D3 Nano', runtime: 'NPU' });
+    assert.equal(activeNames(world({ active: { model: null } })), null);
+    assert.equal(activeNames(undefined), null);
   });
 });
 
