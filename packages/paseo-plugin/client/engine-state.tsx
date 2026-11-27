@@ -29,15 +29,17 @@ type Action = ReturnType<typeof useAction>;
 
 function ModelRow({
   catalog,
+  catalogFailed,
   status,
   action,
 }: {
   catalog: ReturnType<typeof useEngines>['data'];
+  catalogFailed: boolean;
   status: ReturnType<typeof useGatewayStatus>['data'];
   action: Action;
 }): ReactNode {
   const load = useRpc(engineLoadRpc);
-  const row = defaultModelRow({ status, catalog, busy: action.busy });
+  const row = defaultModelRow({ status, catalog, catalogFailed, busy: action.busy });
   const press = (): void => {
     void (row.action === 'unload'
       ? action.run('unload', async () => outcomeOf(await load({ action: 'unload' }), 'Unloaded.'))
@@ -49,6 +51,7 @@ function ModelRow({
     <SettingsAction
       label="Default model"
       hint={row.hint}
+      error={row.error}
       actionLabel={row.actionLabel}
       disabled={row.disabled}
       onPress={press}
@@ -68,6 +71,9 @@ function IdleRow({ active, action }: { active: ActiveEngine; action: Action }): 
       options={idleOptions(choice, minutes)}
       disabled={action.busy !== null}
       onValueChange={(next) => {
+        if (next === idleValue(choice, minutes)) {
+          return;
+        }
         const picked = parseIdleValue(next);
         void action.run('lifecycle', async () =>
           outcomeOf(
@@ -102,9 +108,14 @@ export function EngineControls({
   return (
     <SettingsCard>
       {lead}
-      <ModelRow catalog={engines.data} status={status.data} action={action} />
+      <ModelRow
+        catalog={engines.data}
+        catalogFailed={engines.isError}
+        status={status.data}
+        action={action}
+      />
       {active?.lifecycle == null ? null : <IdleRow active={active} action={action} />}
-      {action.outcome === null ? null : (
+      {action.outcome === null || action.outcome.tone === 'success' ? null : (
         <InlineMessage theme={theme} tone={action.outcome.tone} text={action.outcome.text} />
       )}
     </SettingsCard>

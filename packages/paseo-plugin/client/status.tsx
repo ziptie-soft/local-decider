@@ -178,7 +178,7 @@ export function StatusScreen(props: PluginScreenProps): ReactNode {
         isFetching={isFetching}
         refetch={() => void refetch()}
       />
-      <SettingsSection title="Engine">
+      <SettingsSection title="Default model">
         <EngineControls theme={theme} gatewayUrl={values?.gatewayUrl ?? DEFAULT_GATEWAY_URL} />
       </SettingsSection>
       <ReviewSection theme={theme} />

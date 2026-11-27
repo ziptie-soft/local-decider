@@ -109,6 +109,11 @@ export type IdleChoice =
   | { readonly lifecycle: 'eager' }
   | { readonly lifecycle: 'lazy'; readonly idleUnloadMinutes: number };
 
+/** The idle times the gateway accepts: whole minutes from 1 to 1440 (a day). */
+export function clampIdleMinutes(minutes: number): number {
+  return Math.min(IDLE_MINUTES.max, Math.max(IDLE_MINUTES.min, Math.round(minutes)));
+}
+
 function idleLabel(minutes: number): string {
   return PRESET_LABELS[minutes] ?? `After ${String(minutes)} min`;
 }
@@ -118,7 +123,7 @@ function idleLabel(minutes: number): string {
  * it is none of them (so the current value is always selectable), then "Never (stay loaded)".
  */
 export function idleOptions(lifecycle: LifecycleChoice, minutes: number | null): IdleOption[] {
-  const current = lifecycle === 'lazy' ? (minutes ?? IDLE_MINUTES.fallback) : null;
+  const current = lifecycle === 'lazy' ? clampIdleMinutes(minutes ?? IDLE_MINUTES.fallback) : null;
   const all = new Set<number>(IDLE_PRESETS);
   if (current !== null) {
     all.add(current);
@@ -131,7 +136,7 @@ export function idleOptions(lifecycle: LifecycleChoice, minutes: number | null):
 
 /** The select value for the engine's lifecycle and idle minutes. */
 export function idleValue(lifecycle: LifecycleChoice, minutes: number | null): string {
-  return lifecycle === 'eager' ? NEVER : String(minutes ?? IDLE_MINUTES.fallback);
+  return lifecycle === 'eager' ? NEVER : String(clampIdleMinutes(minutes ?? IDLE_MINUTES.fallback));
 }
 
 /** The lifecycle a select value stands for; `Never` is eager. */
@@ -142,7 +147,7 @@ export function parseIdleValue(value: string): IdleChoice {
   }
   return {
     lifecycle: 'lazy',
-    idleUnloadMinutes: Number.isInteger(minutes) ? minutes : IDLE_MINUTES.fallback,
+    idleUnloadMinutes: Number.isFinite(minutes) ? clampIdleMinutes(minutes) : IDLE_MINUTES.fallback,
   };
 }
 
