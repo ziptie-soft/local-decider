@@ -248,7 +248,10 @@ describe('speedHere', () => {
     assert.equal(speedHere(byId('strands'), 'cpu'), '~2.4 s here');
     assert.equal(speedHere(byId('strands'), 'cuda'), '~500 ms here');
     assert.equal(speedHere(byId('strands'), 'mps'), 'speed not measured here');
-    assert.equal(speedHere(byId('strands'), null), 'speed not measured here');
+  });
+
+  it('gives the range when the device is unknown and several were measured', () => {
+    assert.equal(speedHere(byId('strands'), null), '~500 ms to 2.4 s here');
   });
 
   it('uses the only measurement when the device is unknown, never for a named device', () => {
@@ -305,8 +308,9 @@ describe('modelOptions', () => {
       'Bare | GPU (Vulkan) · speed not measured here',
       'Stale | GPU (Vulkan) · speed not measured here',
       'Found | LM Studio · speed not measured here',
-      // Several devices on a non-active engine: the catalog cannot say which one `auto` picks.
-      'Strands 2B | Strands · speed not measured here',
+      // Several devices on a non-active engine: the catalog cannot say which one `auto` picks,
+      // so the option shows the range across them. It still sorts with the unmeasured.
+      'Strands 2B | Strands · ~500 ms to 2.4 s here',
     ]);
     assert.equal(options[0]?.value, 'default');
     assert.equal(options[1]?.value, 'llama-vulkan|fast|auto');
