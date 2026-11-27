@@ -1,5 +1,6 @@
 /**
- * Start, stop or restart the gateway's user service. This is the only process the plugin spawns.
+ * Start, stop or restart the gateway's user service. The plugin also launches the gateway CLI
+ * through its vendored launcher when auto-start is enabled.
  * The argv is fixed per platform and action and never comes from settings or RPC input; it runs
  * through `execFile` (no shell) with a 20 s timeout. Without an installed user service there is
  * nothing to run, and the screen shows how to install one.

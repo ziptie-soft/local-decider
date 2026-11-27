@@ -22,4 +22,12 @@ export const statusSchema = z.object({
   /** Consecutive failed checks, for client-side backoff. */
   downStreak: z.number().int(),
   checkedAt: z.string(),
+  launch: z
+    .object({
+      ok: z.boolean(),
+      status: z.string(),
+      message: z.string(),
+      guideUrl: z.string().optional(),
+    })
+    .nullable(),
 });
