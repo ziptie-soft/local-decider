@@ -11,6 +11,7 @@ import {
   STATUS_SCREEN_ID,
 } from '../shared/constants.ts';
 import { DECISION_KINDS } from '../shared/decision-kinds.ts';
+import { popoverModel, popoverRowLabelWith } from '../shared/decision-models.ts';
 import { engineTag } from '../shared/engines.ts';
 import { engineStateNote } from '../shared/lifecycle.ts';
 import { mismatchLabel, modeMismatch, popoverRowLabel } from '../shared/policies.ts';
@@ -97,12 +98,14 @@ function DecisionRow({
   policy,
   values,
   gatewayModes,
+  engines,
   theme,
   styles,
 }: {
   policy: GatewayPolicy;
   values: ReturnType<typeof useDeciderValues>;
   gatewayModes: GatewayModes;
+  engines: Status['policyEngines'];
   theme: Theme;
   styles: Styles;
 }): ReactNode {
@@ -110,13 +113,29 @@ function DecisionRow({
   const gatewayMode = gatewayModes[policy];
   const hook = pluginMode && values !== null && policy !== 'command-risk';
   const mode = hook ? values.modes[policy] : pluginMode ? undefined : gatewayMode;
+  const model = popoverModel(engines, policy);
   return (
-    <View style={styles.row} accessibilityLabel={popoverRowLabel(policy, mode, gatewayMode)}>
-      <Text style={styles.label}>{title}</Text>
-      {mode === undefined ? (
-        <Text style={styles.caption}>…</Text>
-      ) : (
-        <ModePill mode={mode} gatewayMode={pluginMode ? gatewayMode : undefined} theme={theme} />
+    <View
+      accessibilityLabel={popoverRowLabelWith(popoverRowLabel(policy, mode, gatewayMode), model)}
+    >
+      <View style={styles.row}>
+        <Text style={styles.label}>{title}</Text>
+        {mode === undefined ? (
+          <Text style={styles.caption}>…</Text>
+        ) : (
+          <ModePill mode={mode} gatewayMode={pluginMode ? gatewayMode : undefined} theme={theme} />
+        )}
+      </View>
+      {model.line === null ? null : (
+        <Text
+          style={[
+            styles.caption,
+            model.line.tone === 'warning' ? { color: theme.colors.statusWarning } : null,
+          ]}
+          numberOfLines={1}
+        >
+          {model.line.text}
+        </Text>
       )}
     </View>
   );
@@ -251,6 +270,7 @@ export function QuickStatus(props: PluginPopoverProps): ReactNode {
             policy={policy}
             values={values}
             gatewayModes={gatewayModes}
+            engines={data?.policyEngines}
             theme={theme}
             styles={styles}
           />

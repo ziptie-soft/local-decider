@@ -749,3 +749,30 @@ export function popoverModelLabel(entry: PolicyEngine | undefined): string | nul
       return null;
   }
 }
+
+export interface PopoverModel {
+  readonly line: PopoverModelLine | null;
+  /** The sentence the row's accessibility label appends. */
+  readonly sentence: string | null;
+}
+
+/**
+ * What a popover row says about its decision's model, from `/health` `policyEngines`. A decision
+ * absent from the list uses the default model, and an older gateway sends no list: neither says
+ * anything. A lazy own model that has not loaded yet (`stopped`) reads as a ready one: it answers
+ * on its first decision. A variant with its own model (for example `routing-budget` or
+ * `command-risk-binary`) is not shown on its row: `/health` carries no variant-of or
+ * active-variant field to match it to the row.
+ */
+export function popoverModel(
+  engines: readonly PolicyEngine[] | undefined,
+  policy: string,
+): PopoverModel {
+  const entry = engines?.find((e) => e.policy === policy);
+  return { line: popoverModelLine(entry), sentence: popoverModelLabel(entry) };
+}
+
+/** A popover row's accessibility label with the model sentence appended, when there is one. */
+export function popoverRowLabelWith(base: string, model: PopoverModel): string {
+  return model.sentence === null ? base : `${base} ${model.sentence}`;
+}
