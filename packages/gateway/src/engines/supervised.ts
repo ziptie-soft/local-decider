@@ -7,6 +7,7 @@ import { setTimeout as timerSleep } from 'node:timers/promises';
 
 import type { EngineCounters } from '../counters.ts';
 import type { Paths } from '../paths.ts';
+import { titleApplies } from '../process-title.ts';
 import { engineChildEnv } from './child-env.ts';
 import { killChild, trackChild } from './child-reaper.ts';
 import { getHealth, postSystemOne } from './http.ts';
@@ -346,7 +347,9 @@ export class SupervisedEngine implements Engine {
         env: engineChildEnv(process.env, this.#spec.env),
         // Its own process group, so stop and the exit hook reach any grandchildren too.
         detached: process.platform !== 'win32',
-        ...(this.#spec.title === undefined ? {} : { argv0: this.#spec.title }),
+        ...(this.#spec.title === undefined || !titleApplies(binary.path)
+          ? {}
+          : { argv0: this.#spec.title }),
       });
     } catch (error) {
       log.destroy();
