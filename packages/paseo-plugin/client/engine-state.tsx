@@ -177,18 +177,53 @@ function GuideRow({ url }: { url: string | undefined }): ReactNode {
   );
 }
 
+const PENDING: Readonly<Record<string, string>> = { restart: 'Restarting', start: 'Starting' };
+
+/** Start or Restart for the gateway row; `pending` is the verb of the one running. */
+function ServiceButton({
+  theme,
+  up,
+  command,
+  pending,
+  onPress,
+}: {
+  theme: Theme;
+  up: boolean;
+  command: string;
+  pending: string | undefined;
+  onPress: () => void;
+}): ReactNode {
+  const idle = up ? 'Restart' : 'Start';
+  return (
+    <Button
+      theme={theme}
+      variant="secondary"
+      icon={up ? 'RotateCw' : 'Play'}
+      label={pending === undefined ? idle : `${pending}…`}
+      hint={`Runs: ${command}`}
+      disabled={pending !== undefined}
+      onPress={onPress}
+    />
+  );
+}
+
 /**
  * The gateway row: Refresh, and Restart (Start while it is down) when its user service is
  * installed, e.g. after installing a tool the gateway finds at startup. Details has Stop too.
  */
 function GatewayStatusRow({ theme }: { theme: Theme }): ReactNode {
   const { data, isFetching, refetch } = useGatewayStatus();
-  const info = useServiceInfo();
+  const commands = useServiceInfo().data?.commands ?? null;
   const svc = useServiceRun();
-  const row = gatewayRow(data);
-  const commands = info.data?.commands ?? null;
-  const action = data?.up === false ? 'start' : 'restart';
-  const idle = action === 'start' ? 'Start' : 'Restart';
+  const up = data?.up !== false;
+  const action = up ? 'restart' : 'start';
+  // While Start or Restart waits for the gateway, its own polls would read "cannot reach".
+  const pending = svc.busy === null ? undefined : PENDING[svc.busy];
+  const base = gatewayRow(data);
+  const row =
+    pending === undefined
+      ? base
+      : { ...base, label: `${pending} the gateway…`, hint: 'Waiting for it to answer.' };
   return (
     <>
       <SettingsRow label={row.label} hint={row.hint}>
@@ -202,13 +237,11 @@ function GatewayStatusRow({ theme }: { theme: Theme }): ReactNode {
             onPress={() => void refetch()}
           />
           {commands === null ? null : (
-            <Button
+            <ServiceButton
               theme={theme}
-              variant="secondary"
-              icon={action === 'start' ? 'Play' : 'RotateCw'}
-              label={svc.busy === null ? idle : `${idle}ing…`}
-              hint={`Runs: ${commands[action]}`}
-              disabled={svc.busy !== null}
+              up={up}
+              command={commands[action]}
+              pending={pending}
               onPress={() => void svc.start(action)}
             />
           )}

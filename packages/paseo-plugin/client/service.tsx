@@ -15,7 +15,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
 
 import { INSTALL_SERVICE_COMMAND, type ServiceAction } from '../shared/constants.ts';
-import { serviceRpc } from '../shared/rpc.ts';
+import { COME_BACK_MS, waitUntilUp } from '../shared/poll.ts';
+import { serviceRpc, statusRpc } from '../shared/rpc.ts';
 import { type Outcome, useAction, useServiceInfo } from './hooks.ts';
 import { Button, InlineMessage, Mono, type Theme } from './ui.tsx';
 
@@ -51,16 +52,34 @@ function serviceOutcome(
       };
 }
 
-/** Run a service action daemon-side; the outcome stays for an inline message. */
+const NOT_BACK: Record<ServiceAction, string> = {
+  start: `The gateway service started but is not answering after ${String(COME_BACK_MS / 1000)} s; it may still be loading. Check Details or the gateway log.`,
+  stop: '',
+  restart: `The gateway service restarted but is not answering after ${String(COME_BACK_MS / 1000)} s; it may still be loading. Check Details or the gateway log.`,
+};
+
+/**
+ * Run a service action daemon-side; the outcome stays for an inline message. Start and Restart
+ * stay busy until the gateway answers again, so the views refresh to "up" instead of flashing
+ * "cannot reach" while it boots.
+ */
 export function useServiceRun(): ReturnType<typeof useAction> & {
   start: (action: ServiceAction) => Promise<Outcome>;
 } {
   const service = useRpc(serviceRpc);
+  const status = useRpc(statusRpc);
   const action = useAction();
   return {
     ...action,
     start: async (name) =>
-      action.run(name, async () => serviceOutcome(name, await service({ action: name }))),
+      action.run(name, async () => {
+        const outcome = serviceOutcome(name, await service({ action: name }));
+        if (outcome.tone !== 'success' || name === 'stop') {
+          return outcome;
+        }
+        const back = await waitUntilUp(async () => (await status({})).up);
+        return back ? outcome : { tone: 'warning', text: NOT_BACK[name] };
+      }),
   };
 }
 

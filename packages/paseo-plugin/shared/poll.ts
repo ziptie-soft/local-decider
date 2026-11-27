@@ -92,3 +92,37 @@ export function checkedAgo(iso: string | undefined, now: number): string {
   }
   return seconds < 120 ? `${String(seconds)} s ago` : `${String(Math.round(seconds / 60))} min ago`;
 }
+
+/** How long Start and Restart wait for the gateway to answer again, and how often they check. */
+export const COME_BACK_MS = 30_000;
+const COME_BACK_STEP_MS = 500;
+
+/**
+ * Poll `isUp` until it says the gateway answers or `timeoutMs` passes; true when it came back.
+ * A check that throws counts as not up yet. `sleep` and `now` are injectable for tests.
+ */
+export async function waitUntilUp(
+  isUp: () => Promise<boolean>,
+  {
+    timeoutMs = COME_BACK_MS,
+    stepMs = COME_BACK_STEP_MS,
+    sleep = async (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    now = () => Date.now(),
+  }: {
+    timeoutMs?: number;
+    stepMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+    now?: () => number;
+  } = {},
+): Promise<boolean> {
+  const deadline = now() + timeoutMs;
+  for (;;) {
+    if (await isUp().catch(() => false)) {
+      return true;
+    }
+    if (now() + stepMs > deadline) {
+      return false;
+    }
+    await sleep(stepMs);
+  }
+}
