@@ -17,6 +17,8 @@ export const FLAG_NAME = 'local-decider-mode';
 const COMMAND_NAME = 'local-decider';
 export const STATUS_KEY = 'local-decider';
 const HEALTH_TIMEOUT_MS = 1500;
+const GUIDE_URL_BASE = 'https://github.com/ziptie-soft/local-decider/blob/master/docs/';
+export const PI_GUIDE_URL = `${GUIDE_URL_BASE}install-pi.ai.md`;
 
 const USAGE = 'local-decider: usage: /local-decider [start|mode <off|guard|approve>]';
 
@@ -75,6 +77,7 @@ function createState(pi: PiAPI, opts: ExtensionOptions): State {
   let gateway: Gateway | null = null;
   let gate: Gate | null = null;
   let health: Health = 'unknown';
+  let setupGuideShown = false;
   let lastDecision: string | undefined;
   let epoch = 0;
 
@@ -123,6 +126,10 @@ function createState(pi: PiAPI, opts: ExtensionOptions): State {
     setHealth: (value: Health): void => {
       health = value;
     },
+    guideShown: (): boolean => setupGuideShown,
+    markGuideShown: (): void => {
+      setupGuideShown = true;
+    },
     lastDecision: (): string | undefined => lastDecision,
     nextEpoch: (): number => ++epoch,
     isCurrent: (n: number): boolean => n === epoch,
@@ -134,6 +141,7 @@ function createState(pi: PiAPI, opts: ExtensionOptions): State {
       gateway = null;
       gate = null;
       health = 'unknown';
+      setupGuideShown = false;
       lastDecision = undefined;
     },
   };
@@ -147,6 +155,8 @@ interface State {
   setOverride(mode: GateMode): void;
   health(): Health;
   setHealth(value: Health): void;
+  guideShown(): boolean;
+  markGuideShown(): void;
   lastDecision(): string | undefined;
   nextEpoch(): number;
   isCurrent(n: number): boolean;
@@ -213,7 +223,7 @@ async function runLaunch(state: State, opts: ExtensionOptions): Promise<LaunchRe
     defaultEndpoint: resolveConfig(opts.env ?? process.env, {}).config.defaultEndpoint === true,
     env: { ...(opts.env ?? process.env) },
     pinnedVersion: version,
-    guideUrl: 'https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md',
+    guideUrl: PI_GUIDE_URL,
     ...(opts.fetch === undefined ? {} : { deps: { fetch: opts.fetch } }),
   });
 }
@@ -225,7 +235,25 @@ function healthValue(status: string | null | undefined): Health {
   return 'ok';
 }
 
-async function refreshAfterLaunch(state: State, ctx: PiContext, epoch: number): Promise<void> {
+function notifySetupGuide(
+  state: State,
+  ctx: PiContext,
+  health: Health,
+  result?: LaunchResult,
+): void {
+  if ((health !== 'offline' && health !== 'down') || state.guideShown()) return;
+  const reason =
+    result !== undefined && !result.ok ? result.message.slice(0, 200) : `gateway is ${health}`;
+  safeNotify(ctx, `local-decider: ${reason}. Setup guide: ${PI_GUIDE_URL}`, 'warning');
+  state.markGuideShown();
+}
+
+async function refreshAfterLaunch(
+  state: State,
+  ctx: PiContext,
+  epoch: number,
+  result?: LaunchResult,
+): Promise<void> {
   const status = await state
     .getGateway()
     .healthStatus?.({ timeoutMs: HEALTH_TIMEOUT_MS })
@@ -234,6 +262,7 @@ async function refreshAfterLaunch(state: State, ctx: PiContext, epoch: number): 
   const health = healthValue(status);
   state.setHealth(health);
   safeStatus(ctx, statusText(state.getConfig().mode, health));
+  notifySetupGuide(state, ctx, health, result);
 }
 
 function launchAfterFailure(
@@ -246,13 +275,21 @@ function launchAfterFailure(
   if (launchOnce.value) {
     const health = state.health();
     safeStatus(ctx, statusText(state.getConfig().mode, health));
+    notifySetupGuide(state, ctx, health);
     return;
   }
   launchOnce.value = true;
   safeStatus(ctx, 'ld: starting');
   void runLaunch(state, opts)
-    .catch(() => undefined)
-    .then(() => refreshAfterLaunch(state, ctx, epoch));
+    .then(
+      (result) => refreshAfterLaunch(state, ctx, epoch, result),
+      () => refreshAfterLaunch(state, ctx, epoch),
+    )
+    .catch(() => {
+      state.setHealth('offline');
+      safeStatus(ctx, 'ld: offline');
+      notifySetupGuide(state, ctx, 'offline');
+    });
 }
 
 function startHealthCheck(
@@ -296,11 +333,13 @@ function onSessionStart(
 
 function describe(state: State): string {
   const { mode, url } = state.getConfig();
+  const health = state.health();
   return [
     `local-decider: mode ${mode}`,
     url,
-    `gateway ${state.health()}`,
+    `gateway ${health}`,
     `last decision ${state.lastDecision() ?? 'none'}`,
+    ...(health === 'offline' || health === 'down' ? [`setup guide ${PI_GUIDE_URL}`] : []),
   ].join(' · ');
 }
 
@@ -334,7 +373,7 @@ async function onCommand(
     safeStatus(ctx, 'ld: starting');
     const result = await runLaunch(state, opts);
     safeNotify(ctx, `local-decider: ${result.message}`, result.ok ? 'info' : 'warning');
-    await refreshAfterLaunch(state, ctx, state.nextEpoch());
+    await refreshAfterLaunch(state, ctx, state.nextEpoch(), result);
   } else {
     safeNotify(ctx, USAGE, 'info');
   }

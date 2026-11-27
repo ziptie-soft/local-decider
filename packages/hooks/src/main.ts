@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { hooksClientId } from './gateway-client.ts';
 import { gatewayConfig } from './gateway-config.ts';
 import { run, timeoutOf } from './run.ts';
+import { guideUrl } from './session-start.ts';
 
 /** Up to this size a hook payload is handled normally. */
 const MAX_STDIN_BYTES = 4 * 1024 * 1024;
@@ -102,7 +103,7 @@ async function launchMode(): Promise<void> {
     env,
     pinnedVersion,
     clientId: hooksClientId(harness),
-    guideUrl: 'https://github.com/ziptie-soft/local-decider/blob/master/docs/install.md',
+    guideUrl: guideUrl(harness),
   });
 }
 

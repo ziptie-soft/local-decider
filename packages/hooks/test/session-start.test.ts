@@ -4,13 +4,19 @@ import { describe, it } from 'node:test';
 
 import { parseEvent } from '../src/mapping.ts';
 import { run, type Env } from '../src/run.ts';
-import { printable, type Health } from '../src/session-start.ts';
+import { guideUrl, LEGACY_DETAIL_PREFIX, printable, type Health } from '../src/session-start.ts';
 
 const STDIN = JSON.stringify({ session_id: 's-1', cwd: '/work', source: 'startup' });
 
-async function start(health: Health, env: Env = {}, harness = 'claude'): Promise<string> {
+async function start(
+  health: Health,
+  env: Env = {},
+  harness = 'claude',
+  startGateway?: () => void,
+): Promise<string> {
   const res = await run(harness, 'SessionStart', STDIN, env, {
     health,
+    ...(startGateway === undefined ? {} : { startGateway }),
     decide: async () => {
       throw new Error('SessionStart must not run a policy');
     },
@@ -41,28 +47,35 @@ describe('SessionStart', () => {
     const msg = systemMessage(await start(answer(null)));
     assert.equal(
       msg,
-      'local-decider: gateway at http://127.0.0.1:8765 is not reachable; only the built-in command guard is active',
+      `local-decider: gateway at http://127.0.0.1:8765 is not reachable; only the built-in command guard is active. Setup guide: ${guideUrl('claude')}`,
     );
   });
 
   it('reports a down gateway with its detail', async () => {
     const health = answer({ status: 'down', engineState: 'failed', detail: 'model not found' });
     const msg = systemMessage(await start(health, { LOCAL_DECIDER_URL: 'http://127.0.0.1:9000/' }));
-    assert.equal(msg, 'local-decider: gateway at http://127.0.0.1:9000 is down: model not found');
+    assert.equal(
+      msg,
+      `local-decider: gateway at http://127.0.0.1:9000 is down: model not found. Setup guide: ${guideUrl('claude')}`,
+    );
   });
 
   it('falls back to the engine state, then to the status alone', async () => {
     assert.match(
       systemMessage(await start(answer({ status: 'degraded', engineState: 'starting' }))),
-      /is degraded: starting$/,
+      /is degraded: starting\. Setup guide: https:\/\/github\.com\/ziptie-soft\/local-decider\/blob\/master\/docs\/install-claude\.ai\.md$/,
     );
-    assert.match(systemMessage(await start(answer({ status: 'down' }))), /is down$/);
+    assert.match(
+      systemMessage(await start(answer({ status: 'down' }))),
+      /is down\. Setup guide: https:\/\/github\.com\/ziptie-soft\/local-decider\/blob\/master\/docs\/install-claude\.ai\.md$/,
+    );
   });
 
   it('sanitizes the detail to one printable ASCII line of at most 120 characters', async () => {
     const detail = `bad\u001b[31m\nlineé‮ ${'x'.repeat(300)}`;
     const msg = systemMessage(await start(answer({ status: 'down', detail })));
-    const shown = msg.split('is down: ')[1] ?? '';
+    const shown =
+      (msg.split('is down: ')[1] ?? '').split(`. Setup guide: ${guideUrl('claude')}`)[0] ?? '';
     assert.ok(shown.length <= 120, `detail too long: ${String(shown.length)}`);
     assert.match(shown, /^[\x20-\x7e]+$/);
     assert.ok(shown.startsWith('bad [31m line x'));
@@ -136,7 +149,27 @@ describe('SessionStart', () => {
       },
     );
     assert.equal(started, true);
-    assert.match(systemMessage(out.stdout), /the gateway is starting in the background$/);
+    const text = systemMessage(out.stdout);
+    assert.match(text, /the gateway is starting in the background$/);
+    assert.ok(!text.includes('Setup guide:'));
+  });
+
+  it('does not start a legacy gateway or say it is starting', async () => {
+    let started = false;
+    const detail = `${LEGACY_DETAIL_PREFIX} :8765 without a socket; run \`local-decider gateway restart\``;
+    const out = await start(answer({ status: 'down', detail }), {}, 'claude', () => {
+      started = true;
+    });
+    const text = systemMessage(out);
+    assert.equal(started, false);
+    assert.ok(text.includes('local-decider gateway restart'));
+    assert.ok(!text.includes('starting in the background'));
+    assert.ok(!text.includes('Setup guide:'));
+  });
+
+  it('adds the Claude guide when auto-start is off', async () => {
+    const text = systemMessage(await start(answer(null), { LOCAL_DECIDER_AUTOSTART: 'off' }));
+    assert.ok(text.endsWith(`. Setup guide: ${guideUrl('claude')}`));
   });
 
   it('does not kick a detached launcher for remote URLs or when auto-start is disabled', async () => {

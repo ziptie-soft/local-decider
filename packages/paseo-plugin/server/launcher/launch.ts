@@ -722,6 +722,15 @@ async function quickOutcome(
   const clientId = options.clientId ?? 'launcher/0.0.0';
   const runDir = join(dataDirectory(options, deps), 'run');
   const path = useSocket ? gatewaySocketPath(runDir) : null;
+  return probeExistingGateway(options, deps, path, clientId);
+}
+
+async function probeExistingGateway(
+  options: LaunchOptions,
+  deps: LauncherDeps,
+  path: string | null,
+  clientId: string,
+): Promise<LaunchResult | null> {
   const fetcher = deps.fetch ?? (path === null ? globalThis.fetch : socketFetch(path));
   const foundHealth = await probe(options.url, fetcher, clientId);
   if (foundHealth !== null) return result('running', 'gateway is answering /health', foundHealth);
