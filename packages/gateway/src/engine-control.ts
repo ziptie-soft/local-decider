@@ -85,6 +85,14 @@ import type { Engine } from './engines/types.ts';
 import { catalogModel, MEMORY_BUDGET, modelFits, modelMemoryGb } from './models.ts';
 import type { Paths } from './paths.ts';
 import { loadPolicies, policyDirs, scopeModes, type LoadedPolicy } from './policies.ts';
+import {
+  PolicyEngines,
+  type LanePlan,
+  type LanePlanDeps,
+  type LanePlanInput,
+  type PlanSelection,
+} from './policy-engines.ts';
+import { degradedPlan, laneSelections, PolicyLanes, policiesUsing } from './policy-lanes.ts';
 import { StampCache, stampKey } from './stamp-cache.ts';
 import {
   checkPath,
@@ -142,6 +150,15 @@ interface BenchmarkSnapshot {
   readonly mode: 'auto' | 'manual';
   readonly selection: EngineSelection;
   readonly family: string | null;
+}
+
+/** A change of the default model inside a transition. */
+interface PrimaryChange {
+  readonly next: EngineSelection;
+  /** Write the selection to config.yaml. */
+  readonly persist: boolean;
+  /** The engine is built for a benchmark, so it never feeds fallback accounting. */
+  readonly leased: boolean;
 }
 
 /** The control's side of a benchmark lease; the runner sees it as a `BenchmarkLease`. */
@@ -544,6 +561,8 @@ export class EngineControl implements BenchmarkHost {
   #tools: Toolchain;
   #selected: EngineSelection | null;
   #engine: ManagedEngine;
+  /** The engines of the policy lanes; the decider routes to them and this control owns them. */
+  readonly #lanes = new PolicyLanes();
   #switching = false;
   readonly #discovery: ModelDiscovery;
   readonly #probe: ServerProbe;
@@ -621,6 +640,7 @@ export class EngineControl implements BenchmarkHost {
       void this.#queueReconcile();
     }
     this.#applyPolicyState(decider);
+    void this.#queueLanes();
     if (this.#tools.flm !== undefined) {
       void this.#status.validate('fastflowlm');
     }
@@ -963,22 +983,34 @@ export class EngineControl implements BenchmarkHost {
   // fallow-ignore-next-line unused-class-member -- called through the CONTROL_ROUTES table
   async load(): Promise<void> {
     this.#guardBenchmark();
-    void this.#engine.load();
+    // Loads the default model only; a policy lane loads on its first decision or at its start.
+    void this.#engine.load().catch(() => undefined);
   }
 
+  /** Unloads the default model and every policy lane; each loads again on its next decision. */
   // fallow-ignore-next-line unused-class-member -- called through the CONTROL_ROUTES table
   async unload(): Promise<void> {
     this.#guardBenchmark();
-    await this.#engine.unload();
+    const [primary, lanes] = await Promise.allSettled([
+      this.#engine.unload(),
+      this.#lanes.unload(),
+    ]);
+    for (const result of [primary, lanes]) {
+      if (result.status === 'rejected') throw result.reason;
+    }
   }
 
-  /** Run a policy `off`, in `shadow` (log only) or `act` (adapters may enforce); persisted. */
+  /**
+   * Run a policy `off`, in `shadow` (log only) or `act` (adapters may enforce); persisted. A mode
+   * change can start or retire the policy's own lane, which a transition does a moment later.
+   */
   setPolicyMode(id: string, mode: Mode): void {
     if (this.#decider === undefined || !this.#decider.setMode(id, mode)) {
       throw new EngineSwitchError(400, `unknown policy "${id}"`);
     }
     this.#save([{ path: ['policies', id, 'mode'], value: mode }]);
     this.#applied = { ...this.#applied, policies: this.#config.policies };
+    void this.#queueLanes();
   }
 
   /** Answer policy `id` with policy `variant` (`id` itself = the default); persisted. */
@@ -1137,6 +1169,7 @@ export class EngineControl implements BenchmarkHost {
     }
     this.#decider.replacePolicies(next);
     this.#applyPolicyState(this.#decider);
+    void this.#queueLanes();
     return [...next.keys()];
   }
 
@@ -1163,6 +1196,7 @@ export class EngineControl implements BenchmarkHost {
   setLifecycle(options: LifecycleOptions): LifecycleOptions {
     this.#guardBenchmark();
     this.#engine.setLifecycle(options);
+    this.#lanes.setLifecycle(options);
     this.#save([
       { path: ['lifecycle', 'mode'], value: options.lifecycle },
       { path: ['lifecycle', 'idleUnloadMinutes'], value: options.idleUnloadMinutes },
@@ -1193,6 +1227,7 @@ export class EngineControl implements BenchmarkHost {
     this.#applied = notes.length === 0 ? config : { ...config, policies: previous.policies };
     if (JSON.stringify(previous.lifecycle) !== JSON.stringify(config.lifecycle)) {
       this.#engine.setLifecycle(lifecycleFrom(config));
+      this.#lanes.setLifecycle(lifecycleFrom(config));
     }
     const toolsChanged =
       JSON.stringify([previous.tools, previous.dirs]) !==
@@ -1202,6 +1237,10 @@ export class EngineControl implements BenchmarkHost {
     }
     if (!keepSelection) {
       await this.#applySelectionConfig(previous, config);
+    }
+    if (policySelectionsKey(previous) !== policySelectionsKey(config)) {
+      // The policies themselves were not reloaded; only which lanes run changed.
+      await this.#queueLanes();
     }
     return startupKey(previous) === startupKey(config)
       ? notes
@@ -1304,6 +1343,15 @@ export class EngineControl implements BenchmarkHost {
     }
     if (this.#engine.id === engine && this.#engine.model === model) {
       throw new DownloadError(409, `${model} is the active model; switch to another one first`);
+    }
+    const decider = this.#decider;
+    const users = policiesUsing(
+      laneSelections(this.#config.policies, (id) => decider?.policies.has(id) ?? true),
+      engine,
+      model,
+    );
+    if (users.length > 0) {
+      throw new DownloadError(409, `${model} is in use by ${users.join(', ')}; clear it first`);
     }
     try {
       await remove(entry, this.#context());
@@ -1840,7 +1888,7 @@ export class EngineControl implements BenchmarkHost {
     );
   }
 
-  /** Swap engines: stop the old one first so two models never share memory. */
+  /** Swap the default engine: every engine that no longer fits is stopped before the new one starts. */
   async #apply(
     next: EngineSelection,
     force: boolean,
@@ -1850,6 +1898,69 @@ export class EngineControl implements BenchmarkHost {
     if (!force && this.#same(next)) {
       return;
     }
+    await this.#transition({ next, persist, leased });
+  }
+
+  /** Ask for the policy lanes to be reconciled with the settings: a mode, selection or policy edit. */
+  #queueLanes(): Promise<void> {
+    const run = this.#pending.then(() => this.#transition(undefined));
+    this.#pending = run.catch(() => undefined);
+    return run.catch((error: unknown) => {
+      console.warn(
+        `local-decider: reconciling policy models failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+  }
+
+  /**
+   * The one way engines change, run on `#pending` so transitions never overlap. Steps:
+   * 1. plan the lanes for the new default model (no hold: the old engines keep answering while the
+   *    plan checks the machine, which may take a network round trip);
+   * 2. switch the default engine's identity (selection, persistence) and hold decisions;
+   * 3. retire every lane the plan drops, and drain and stop the old default engine, together;
+   * 4. install the new default engine and the lanes the plan adds, then set the routes;
+   * 5. release the hold and start the engines: nothing loads before the retired ones are gone, so
+   *    the models never overlap in memory.
+   * Between a lane's retirement and `setPolicyRoutes`, the policies routed to it answer as the
+   * decider answers for a missing lane: the default model with `fallback: default`, else nothing.
+   * A change of the default engine holds every decision for that window anyway.
+   */
+  async #transition(change: PrimaryChange | undefined): Promise<void> {
+    const decider = this.#decider;
+    const plan = await this.#planLanes(
+      decider,
+      change?.next ?? this.#selected,
+      change !== undefined,
+    );
+    const swap = change === undefined ? undefined : this.#switchPrimary(change);
+    if (plan === undefined && swap === undefined) {
+      return;
+    }
+    if (swap !== undefined) {
+      decider?.holdSwitch(SWITCH_HOLD_REASON);
+    }
+    let started: ManagedEngine[] = [];
+    try {
+      await Promise.all([
+        this.#retireLanes(decider, plan),
+        swap === undefined ? undefined : this.#stopPrevious(swap.previous),
+      ]);
+      started = this.#installLanes(decider, plan);
+    } finally {
+      if (swap !== undefined) {
+        this.#switching = false;
+        decider?.holdSwitch(null);
+      }
+    }
+    if (swap !== undefined) {
+      this.#startTracked(swap.engine);
+    }
+    this.#lanes.start(started);
+  }
+
+  /** Synchronous: the new default engine takes its place, so status reads "starting" at once. */
+  #switchPrimary(change: PrimaryChange): { engine: ManagedEngine; previous: ManagedEngine } {
+    const { next, persist, leased } = change;
     const engine = this.#build(next);
     if (leased) this.#leasedEngines.add(engine);
     const previous = this.#engine;
@@ -1862,28 +1973,108 @@ export class EngineControl implements BenchmarkHost {
       this.#save([{ path: ['selection'], value: selection }]);
       this.#applied = this.#config;
     }
-    await this.#retire(previous);
-    this.#switching = false;
-    this.#startTracked(engine);
+    return { engine, previous };
   }
 
   /**
-   * Stop the old engine once its running decisions finish (bounded; the rest fail open). New
-   * decisions fail open through the decider hold meanwhile, so the new engine cannot load before
-   * the old one has stopped and only one model is resident. Independent of a benchmark hold.
+   * Stop the old default engine once its running decisions finish (bounded; the rest fail open).
+   * Decisions fail open through the decider hold meanwhile, so the new engine cannot load before
+   * the old one has stopped. Independent of a benchmark hold.
    */
-  async #retire(previous: ManagedEngine): Promise<void> {
-    this.#decider?.holdSwitch(SWITCH_HOLD_REASON);
+  async #stopPrevious(previous: ManagedEngine): Promise<void> {
+    await previous.drain();
+    await previous.stop().catch(() => undefined);
+  }
+
+  /** Lanes the plan drops, plus any that failed: those are rebuilt when still wanted. */
+  async #retireLanes(decider: Decider | undefined, plan: LanePlan | undefined): Promise<void> {
+    if (decider === undefined || plan === undefined) {
+      return;
+    }
+    await this.#lanes.retire(decider, [...new Set([...plan.retire, ...this.#lanes.failedKeys()])]);
+  }
+
+  /** Installs the lanes the plan adds and sets every route; returns the engines to start. */
+  #installLanes(decider: Decider | undefined, plan: LanePlan | undefined): ManagedEngine[] {
+    if (decider === undefined || plan === undefined) {
+      return [];
+    }
+    const engines = this.#lanes.install(decider, plan.start, (selection) =>
+      this.#build(this.#asSelection(selection)),
+    );
+    decider.setPolicyRoutes(plan.routes);
+    return engines;
+  }
+
+  /** What the lanes should be, for `target` as the default model; undefined when it cannot switch. */
+  async #planLanes(
+    decider: Decider | undefined,
+    target: EngineSelection | null,
+    switching: boolean,
+  ): Promise<LanePlan | undefined> {
+    if (decider === undefined || target === null) {
+      return undefined;
+    }
+    const input: LanePlanInput = {
+      primary: target,
+      selections: laneSelections(this.#config.policies, (id) => decider.policies.has(id)),
+      modes: new Map([...decider.policies.keys()].map((id) => [id, decider.effectiveMode(id)])),
+      loaded: this.#lanes.healthyKeys(),
+    };
     try {
-      await previous.drain();
-      await previous.stop().catch(() => undefined);
-    } finally {
-      this.#decider?.holdSwitch(null);
+      return await PolicyEngines.plan(input, this.#planDeps());
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`local-decider: planning policy models failed: ${reason}`);
+      // Without a change of the default model, what runs keeps running. With one, no lane can be
+      // kept (they might not fit), and every override answers as its `fallback` says, never as `default`.
+      return switching ? degradedPlan(input, reason) : undefined;
     }
   }
 
+  #planDeps(): LanePlanDeps {
+    return {
+      check: (selection) => this.#checkSelectable(this.#asSelection(selection)),
+      memoryGb: (selection) => {
+        const model = catalogModel(selection.model, selection.engine as EngineId);
+        return model === undefined ? null : modelMemoryGb(model, this.#resolvedDevice(selection));
+      },
+      isLocal: (selection) => this.#isLocal(selection),
+      resolveDevice: (selection) => this.#resolvedDevice(selection),
+      budgetGb: (this.#memory * MEMORY_BUDGET) / 1e9,
+    };
+  }
+
+  /** A policy's or the default model's selection as the engine builder takes it. */
+  #asSelection(selection: PlanSelection): EngineSelection {
+    const engine = selection.engine as EngineId;
+    const device =
+      engine === 'strands-decider'
+        ? ((selection.device as Device | null | undefined) ?? 'auto')
+        : null;
+    return { engine, model: selection.model, device };
+  }
+
+  #resolvedDevice(selection: PlanSelection): string | undefined {
+    const sel = this.#asSelection(selection);
+    return this.#deviceResolution(sel)?.resolved ?? sel.device ?? undefined;
+  }
+
+  /** A remote or attached server does not take this machine's memory. */
+  #isLocal(selection: PlanSelection): boolean {
+    const engine = selection.engine as EngineId;
+    if (isOpenAILike(engine)) {
+      return false;
+    }
+    const config = this.#engineConfig(this.#asSelection(selection));
+    return !('url' in config && config.url !== undefined);
+  }
+
   #startTracked(engine: ManagedEngine): void {
-    void engine.start().then(() => this.#started(engine));
+    void engine.start().then(
+      () => this.#started(engine),
+      () => undefined,
+    );
   }
 
   /** A lazy engine never reports ready on start; its first answer proves it is healthy. */

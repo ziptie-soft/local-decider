@@ -50,6 +50,7 @@ import type { HostCapabilities } from '../src/engines/host-capabilities.ts';
 import type { Engine, EngineHealth } from '../src/engines/types.ts';
 import type { Paths } from '../src/paths.ts';
 import { defaultPolicyDir, loadPolicies, policyDirs } from '../src/policies.ts';
+import { PolicyEngines } from '../src/policy-engines.ts';
 import { startGateway } from '../src/runtime.ts';
 import {
   FakeEngine,
@@ -77,18 +78,23 @@ class ModelEngine implements Engine {
   readonly config: EngineConfig;
   started = 0;
   stopped = 0;
+  /** Reports `failed` on its own, whatever the shared flags say. */
+  broken = false;
   readonly #failing: Flags | undefined;
-  constructor(config: EngineConfig, failing?: Flags) {
+  readonly #events: string[] | undefined;
+  constructor(config: EngineConfig, failing?: Flags, events?: string[]) {
     this.config = config;
     this.id = config.type;
     this.model = config.model;
     this.#failing = failing;
+    this.#events = events;
   }
   async start(): Promise<void> {
     this.started += 1;
+    this.#events?.push(`start:${this.model}`);
   }
   health(): EngineHealth {
-    if (this.#failing?.on === true) {
+    if (this.broken || this.#failing?.on === true) {
       return { state: 'failed', model: this.model, detail: 'boom' };
     }
     return { state: this.#failing?.ready === true ? 'ready' : 'starting', model: this.model };
@@ -113,6 +119,7 @@ class ModelEngine implements Engine {
   }
   async stop(): Promise<void> {
     this.stopped += 1;
+    this.#events?.push(`stop:${this.model}`);
   }
 }
 
@@ -208,6 +215,14 @@ interface SetupOptions {
   readonly preemptCapMs?: number;
   /** Which models count as downloaded; defaults to all, or none with `installed: false`. */
   readonly downloaded?: (id: string) => boolean;
+  /** Per-policy settings of config.yaml: a mode and, for a lane, its own `selection`. */
+  readonly policies?: Record<string, unknown>;
+  /** Eager engines load at once, so a lane exists (and can be stopped) without a decision. */
+  readonly eager?: boolean;
+  /** Every fake engine logs `start:<model>` and `stop:<model>` here, in call order. */
+  readonly events?: string[];
+  /** False: the caller binds the control to a decider of its own. */
+  readonly bind?: boolean;
 }
 
 const LINUX_HOST: HostInfo = {
@@ -227,20 +242,24 @@ const VULKAN_CAPABILITIES: HostCapabilities = {
   vulkan: { status: 'available', evidence: 'Vulkan0: test GPU' },
 };
 
+/** The in-memory settings a test starts from: the engine, selection, policies and lifecycle. */
+function memoryStore(options: SetupOptions): MemoryConfigStore {
+  return new MemoryConfigStore(
+    parseConfig({
+      engine: { type: 'strands-decider', ...options.engine },
+      ...(options.selection === undefined ? {} : { selection: options.selection }),
+      ...(options.policies === undefined ? {} : { policies: options.policies }),
+      ...(options.eager === true ? { lifecycle: { mode: 'eager' } } : {}),
+    }),
+  );
+}
+
 function setup(options: SetupOptions = {}): Setup {
   const paths = options.paths ?? tempPaths();
   fakeFlm(paths);
   fakeStrands(paths);
   if (options.llamaServer === true) fakeLlama(paths);
-  const store =
-    options.persist === true
-      ? ConfigFile.open(paths)
-      : new MemoryConfigStore(
-          parseConfig({
-            engine: { type: 'strands-decider', ...options.engine },
-            ...(options.selection === undefined ? {} : { selection: options.selection }),
-          }),
-        );
+  const store = options.persist === true ? ConfigFile.open(paths) : memoryStore(options);
   if (options.engines !== undefined) {
     store.update(
       Object.entries(options.engines).map(([id, value]) => ({
@@ -263,7 +282,7 @@ function setup(options: SetupOptions = {}): Setup {
     ...(options.benchmarkStore === undefined ? {} : { benchmarkStore: options.benchmarkStore }),
     ...(options.preemptCapMs === undefined ? {} : { preemptCapMs: options.preemptCapMs }),
     create: (c) => {
-      const next = new ModelEngine(c, options.failing);
+      const next = new ModelEngine(c, options.failing, options.events);
       created.push(next);
       return next;
     },
@@ -274,7 +293,7 @@ function setup(options: SetupOptions = {}): Setup {
     log: tempLog(),
     decisionTimeoutMs: 1000,
   });
-  control.bind(decider);
+  if (options.bind !== false) control.bind(decider);
   return { control, decider, created, paths };
 }
 
@@ -2485,5 +2504,253 @@ describe('policy selection keys', () => {
     assert.equal(policySelectionsKey(base), policySelectionsKey(reordered));
     assert.notEqual(policySelectionsKey(base), policySelectionsKey(model));
     assert.notEqual(policySelectionsKey(base), policySelectionsKey(mode));
+  });
+});
+
+/** Lets the lane transition queued by `bind` or a trigger finish, and the starts it began. */
+async function settled(control: EngineControl): Promise<void> {
+  await control.idle();
+  await settleEventLoop();
+  await control.idle();
+}
+
+describe('policy lanes', () => {
+  const OVERRIDE = { engine: 'llama-vulkan', model: 'd3-lite-q8_0' };
+  const HOBSON = 'StrandsAgents/strands-decider-2B-hobson-v21';
+  const TWOB_MODEL = 'StrandsAgents/strands-decider-2B-qwen3.5-v1-2610';
+
+  /** A 2B default model on the CPU (8 GB) and command-risk on a 2 GB model of its own: 20 GB budget. */
+  function laneSetup(
+    extra: SetupOptions = {},
+    mode = 'act',
+  ): Setup & { readonly events: string[] } {
+    const events: string[] = [];
+    const made = setup({
+      engine: { device: 'cpu' },
+      llamaServer: true,
+      totalMemory: 25e9,
+      eager: true,
+      policies: { 'command-risk': { mode, selection: OVERRIDE } },
+      events,
+      ...extra,
+    });
+    return { ...made, events };
+  }
+
+  const laneEngines = (created: ModelEngine[]): ModelEngine[] =>
+    created.filter((engine) => engine.model === OVERRIDE.model);
+
+  it('stops an override that no longer fits before the new default model starts', async () => {
+    const { control, decider, created, events } = laneSetup();
+    await settled(control);
+    assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+    assert.deepEqual(events, [`start:${OVERRIDE.model}`]);
+    events.length = 0;
+
+    await control.select({ engine: 'strands-decider', model: E2B, device: 'cpu' });
+    await settled(control);
+
+    const stop = events.indexOf(`stop:${OVERRIDE.model}`);
+    const start = events.indexOf(`start:${E2B}`);
+    assert.ok(stop >= 0 && start >= 0, `events: ${events.join(', ')}`);
+    assert.ok(
+      stop < start,
+      `the lane must stop before the new default starts: ${events.join(', ')}`,
+    );
+    assert.equal(laneEngines(created).length, 1, 'the lane is not rebuilt');
+    const served = decider.engineOf('command-risk');
+    assert.equal(served?.source, 'fallback');
+    assert.equal(served?.reason, 'does not fit with the default model');
+  });
+
+  it('keeps an override that still fits when the default model changes', async () => {
+    const { control, decider, created, events } = laneSetup();
+    await settled(control);
+    events.length = 0;
+
+    await control.select({ engine: 'strands-decider', model: HOBSON, device: 'cpu' });
+    await settled(control);
+
+    assert.deepEqual(
+      events.filter((event) => event.endsWith(OVERRIDE.model)),
+      [],
+    );
+    const [lane] = laneEngines(created);
+    assert.equal(laneEngines(created).length, 1);
+    assert.equal(lane?.stopped, 0);
+    assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+    assert.ok(events.includes(`start:${HOBSON}`));
+  });
+
+  it('reconciles a hot-reloaded selection without reloading the policy files', async () => {
+    const paths = tempPaths();
+    mkdirSync(paths.config, { recursive: true });
+    const file = join(paths.config, 'config.yaml');
+    writeFileSync(file, stringify({ policies: { 'command-risk': { mode: 'act' } } }));
+    const { control, decider, created } = setup({ paths, persist: true, llamaServer: true });
+    await settled(control);
+    const loaded = decider.policies.get('command-risk')?.policy;
+    assert.ok(loaded);
+    assert.equal(decider.engineOf('command-risk')?.source, 'default');
+
+    writeFileSync(
+      file,
+      stringify({ policies: { 'command-risk': { mode: 'act', selection: OVERRIDE } } }),
+    );
+    assert.deepEqual(await control.reloadConfig(), { changed: true, notes: [] });
+
+    assert.equal(decider.policies.get('command-risk')?.policy, loaded);
+    assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+    assert.equal(decider.engineOf('command-risk')?.model, OVERRIDE.model);
+    assert.equal(laneEngines(created).length, 1);
+
+    writeFileSync(file, stringify({ policies: { 'command-risk': { mode: 'act' } } }));
+    await control.reloadConfig();
+    await settled(control);
+    assert.equal(decider.engineOf('command-risk')?.source, 'default');
+    assert.equal(laneEngines(created)[0]?.stopped, 1, 'the dropped lane is stopped');
+  });
+
+  it('does not touch the default engine when a lane fails', async () => {
+    const { control, decider, created } = laneSetup();
+    await settled(control);
+    const primary = control.engine;
+    const [lane] = laneEngines(created);
+    assert.ok(lane);
+    lane.broken = true;
+    await settled(control);
+    assert.equal(control.engine, primary);
+    assert.equal(decider.engine, primary);
+    assert.equal(control.current()?.model, TWOB_MODEL);
+    const active = (await control.status())['active'] as { fallback?: unknown };
+    assert.equal(active.fallback, undefined);
+  });
+
+  it('rebuilds a failed lane when lanes are reconciled again', async () => {
+    const { control, created, events } = laneSetup();
+    await settled(control);
+    const [lane] = laneEngines(created);
+    assert.ok(lane);
+    lane.broken = true;
+    control.setPolicyMode('command-risk', 'act');
+    await settled(control);
+    assert.equal(laneEngines(created).length, 2);
+    assert.equal(lane.stopped, 1);
+    assert.equal(events.filter((event) => event === `start:${OVERRIDE.model}`).length, 2);
+  });
+
+  it('refuses to remove a model a policy uses', async () => {
+    const { control, decider } = laneSetup();
+    await settled(control);
+    await assert.rejects(
+      control.removeModel('llama-vulkan', 'd3-lite-q8_0'),
+      (error: unknown) =>
+        error instanceof Error &&
+        'status' in error &&
+        error.status === 409 &&
+        /in use by command-risk; clear it first/.test(error.message),
+    );
+    assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+  });
+
+  it('retires an eager lane when its policy goes off and starts one again on act', async () => {
+    const { control, decider, created, events } = laneSetup();
+    await settled(control);
+    assert.equal(laneEngines(created).length, 1);
+
+    control.setPolicyMode('command-risk', 'off');
+    await settled(control);
+    assert.equal(laneEngines(created)[0]?.stopped, 1);
+    assert.ok(events.includes(`stop:${OVERRIDE.model}`));
+
+    control.setPolicyMode('command-risk', 'act');
+    await settled(control);
+    const lanes = laneEngines(created);
+    assert.equal(lanes.length, 2);
+    assert.equal(lanes[1]?.started, 1);
+    assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+  });
+
+  it('leaves the lanes and routes alone when the plan fails without a change of default model', async (t) => {
+    const { control, decider, created } = laneSetup();
+    await settled(control);
+    const warn = t.mock.method(console, 'warn', () => undefined);
+    t.mock.method(PolicyEngines, 'plan', async () => {
+      throw new Error('plan exploded');
+    });
+
+    control.setPolicyMode('command-risk', 'act');
+    await settled(control);
+
+    const [lane] = laneEngines(created);
+    assert.equal(laneEngines(created).length, 1);
+    assert.equal(lane?.stopped, 0);
+    assert.equal(decider.engineOf('command-risk')?.source, 'policy');
+    assert.ok(warn.mock.calls.some((call) => /plan exploded/.test(String(call.arguments[0]))));
+  });
+
+  it('answers every override as its fallback says when the plan fails during a switch', async (t) => {
+    const { control, decider, created } = laneSetup({
+      policies: {
+        'command-risk': { mode: 'act', selection: OVERRIDE },
+        'permission': { mode: 'act', selection: { ...OVERRIDE, fallback: 'open' } },
+      },
+    });
+    await settled(control);
+    t.mock.method(console, 'warn', () => undefined);
+    t.mock.method(PolicyEngines, 'plan', async () => {
+      throw new Error('plan exploded');
+    });
+
+    await control.select({ engine: 'strands-decider', model: HOBSON, device: 'cpu' });
+    await settled(control);
+
+    assert.equal(laneEngines(created)[0]?.stopped, 1, 'no lane survives an unplanned switch');
+    const risk = decider.engineOf('command-risk');
+    assert.equal(risk?.source, 'fallback');
+    assert.match(risk?.reason ?? '', /plan exploded/);
+    const permission = decider.engineOf('permission');
+    assert.equal(permission?.source, 'unavailable');
+    assert.match(permission?.reason ?? '', /plan exploded/);
+  });
+
+  it('still stops a lane engine whose retirement through the decider failed', async (t) => {
+    const { control, decider, created } = laneSetup();
+    await settled(control);
+    const warn = t.mock.method(console, 'warn', () => undefined);
+    t.mock.method(decider, 'retireLane', async () => {
+      throw new Error('retire exploded');
+    });
+    const [lane] = laneEngines(created);
+    assert.ok(lane);
+
+    control.setPolicyMode('command-risk', 'off');
+    await settled(control);
+
+    assert.equal(lane.stopped, 1);
+    assert.ok(warn.mock.calls.some((call) => /retire exploded/.test(String(call.arguments[0]))));
+  });
+
+  it('unloads the default model and every lane', async () => {
+    const { control, created } = laneSetup();
+    await settled(control);
+    const [lane] = laneEngines(created);
+    assert.ok(lane);
+    const before = { lane: lane.stopped, primary: created[0]?.stopped ?? 0 };
+    await control.unload();
+    assert.equal(lane.stopped, before.lane + 1);
+    assert.equal(created[0]?.stopped, before.primary + 1);
+  });
+
+  it('stops every lane when the gateway closes', async () => {
+    const { control, paths, created } = laneSetup({ bind: false });
+    const gw = await startGateway({ config: testConfig(), paths, engineControl: control, env: {} });
+    await settled(control);
+    const [lane] = laneEngines(created);
+    assert.ok(lane);
+    assert.equal(lane.started, 1);
+    await gw.close();
+    assert.equal(lane.stopped >= 1, true);
+    assert.equal((created[0]?.stopped ?? 0) >= 1, true, 'the default engine stops too');
   });
 });

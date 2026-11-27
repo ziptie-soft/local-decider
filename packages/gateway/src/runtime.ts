@@ -123,7 +123,7 @@ export async function startGateway(options: StartOptions): Promise<Gateway> {
       stopPruning();
       await cancelBenchmark(engineControl);
       await engineControl?.idle();
-      await decider.engine.stop();
+      await decider.stopAll();
       stats.close();
       closeLogStore(log);
       server.closeAllConnections();
