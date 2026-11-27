@@ -5,6 +5,8 @@ import { GATEWAY_POLICIES, type GatewayPolicy, type PluginMode } from '../shared
 import { DECISION_KINDS } from '../shared/decision-kinds.ts';
 import {
   defaultModelHint,
+  defaultModelView,
+  type DefaultModelView,
   effectiveP50,
   headerBadge,
   modelOptions,
@@ -839,6 +841,108 @@ describe('moreModelsCount', () => {
       model('llama-vulkan', 'have'),
     ];
     assert.equal(moreModelsCount(world({ models })), 0);
+  });
+});
+
+describe('defaultModelView', () => {
+  const NOW = Date.parse('2026-11-12T12:00:00.000Z');
+  const PICK = 'Pick one under Engine and model, just below. Until then every decision is skipped.';
+  const view = (catalog: EngineCatalog | undefined, up = true, failed = false): DefaultModelView =>
+    defaultModelView(catalog, up, failed, NOW);
+
+  it('shows the running model, its hint and the models not downloaded', () => {
+    const v = view(world());
+    assert.equal(v.value, 'd3 nano on NPU · NPU (FLM)');
+    assert.equal(v.hint, defaultModelHint(world(), NOW));
+    assert.equal(v.more, '1 not downloaded');
+  });
+
+  it('shows the automatic choice with its hint', () => {
+    const catalog = world({ active: { selectionMode: 'auto' } });
+    const v = view(catalog);
+    assert.equal(v.value, 'd3 nano on NPU · NPU (FLM)');
+    assert.match(v.hint, /^Chosen automatically for this machine\./);
+  });
+
+  it('keeps the running model while an automatic fallback stands in', () => {
+    const catalog = world({
+      active: {
+        selectionMode: 'auto',
+        fallback: {
+          reason: 'crashed',
+          engine: 'llama-vulkan',
+          device: null,
+          retryAt: '2026-11-12T12:05:00.000Z',
+        },
+      },
+    });
+    const v = view(catalog);
+    assert.equal(v.value, 'd3 nano on NPU · NPU (FLM)');
+    assert.match(v.hint, /Decisions set to Default model use it until then\.$/);
+  });
+
+  it('hides More models when everything is downloaded', () => {
+    const models = [model('llama-vulkan', 'have')];
+    assert.equal(view(world({ models })).more, null);
+  });
+
+  it('hides More models on an older gateway, which sends no policies', () => {
+    const v = view(world({ policies: null }));
+    assert.equal(v.more, null);
+    assert.equal(v.value, 'd3 nano on NPU · NPU (FLM)');
+  });
+
+  it('says None yet when there is no active engine', () => {
+    const v = view(world({ active: null }));
+    assert.equal(v.value, 'None yet');
+    assert.equal(v.hint, PICK);
+  });
+
+  it('says None yet when the active entry has no engine', () => {
+    const v = view(world({ active: { engine: null, model: null } }));
+    assert.equal(v.value, 'None yet');
+    assert.equal(v.hint, PICK);
+  });
+
+  it('says None yet, not the engine name, when the model is not chosen yet', () => {
+    for (const mode of ['auto', 'manual']) {
+      const v = view(world({ active: { model: null, selectionMode: mode } }));
+      assert.equal(v.value, 'None yet');
+      assert.equal(v.hint, PICK);
+    }
+  });
+
+  it('says Checking… while the engines query is pending', () => {
+    const v = view(undefined);
+    assert.equal(v.value, 'Checking…');
+    assert.equal(v.more, null);
+  });
+
+  it('says Unknown when the engines query failed and there is no catalog', () => {
+    const v = view(undefined, true, true);
+    assert.equal(v.value, 'Unknown');
+    assert.equal(v.hint, 'The gateway is unreachable or has no /v1/engines.');
+    assert.equal(v.more, null);
+  });
+
+  it('keeps a catalog it has when a refetch failed', () => {
+    assert.equal(view(world(), true, true).value, 'd3 nano on NPU · NPU (FLM)');
+  });
+
+  it('says Unknown with the gateway hint when the status check says it is down', () => {
+    for (const catalog of [world(), undefined]) {
+      const v = view(catalog, false);
+      assert.equal(v.value, 'Unknown');
+      assert.equal(v.hint, 'The gateway is unreachable.');
+      assert.equal(v.more, null);
+    }
+  });
+
+  it('says Unknown with the engines hint when the gateway is up but the catalog is not', () => {
+    const v = view(parseEngineCatalog(null));
+    assert.equal(v.value, 'Unknown');
+    assert.equal(v.hint, 'The gateway is unreachable or has no /v1/engines.');
+    assert.equal(v.more, null);
   });
 });
 

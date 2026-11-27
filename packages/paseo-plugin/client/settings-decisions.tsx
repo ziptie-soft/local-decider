@@ -2,8 +2,9 @@
  * Settings, Decisions: one card per decision kind with its mode. Hook kinds keep a Paseo mode and
  * set the gateway too; command risk only has the gateway's mode.
  */
-import { useRpc } from '@getpaseo/plugin/client';
+import { openExternalUrl, useRpc } from '@getpaseo/plugin/client';
 import {
+  SettingsAction,
   SettingsCard,
   SettingsRow,
   SettingsSection,
@@ -15,18 +16,20 @@ import { View } from 'react-native';
 import {
   GATEWAY_POLICIES,
   HOOK_POLICIES,
+  MODELS_DOCS_URL,
   PLUGIN_MODES,
   type GatewayPolicy,
   type PluginMode,
 } from '../shared/constants.ts';
 import { DECISION_KINDS } from '../shared/decision-kinds.ts';
+import { defaultModelView } from '../shared/decision-models.ts';
 import { modeOutcome, modeRowHint, type ModeWriteResult } from '../shared/policies.ts';
 import { policyModeRpc } from '../shared/rpc.ts';
 import type { DeciderSettings } from '../shared/settings.ts';
-import { useAction, useGatewayStatus, type Outcome } from './hooks.ts';
+import { useAction, useEngines, useGatewayStatus, type Outcome } from './hooks.ts';
 import { useGatewayModesState, type GatewayModes } from './policy-modes.ts';
 import { choices, type Save, type SectionProps } from './settings-common.ts';
-import { InlineMessage, Mono, type Theme } from './ui.tsx';
+import { InlineMessage, Mono, type Theme, Value } from './ui.tsx';
 
 const MODE_OPTIONS = choices(PLUGIN_MODES, {
   off: 'Off',
@@ -164,6 +167,45 @@ function cardsFor(
   ));
 }
 
+/** The model every decision set to Default model uses, and where to change it. */
+function DefaultModelCard({
+  theme,
+  gatewayUrl,
+  gatewayUp,
+}: {
+  theme: Theme;
+  gatewayUrl: string;
+  gatewayUp: boolean;
+}): ReactNode {
+  const { data, isError } = useEngines(gatewayUrl);
+  const view = defaultModelView(data, gatewayUp, isError);
+  return (
+    <View accessible={false} role="group" aria-label="Default model">
+      <SettingsCard>
+        <SettingsRow label="Default model" hint={view.hint}>
+          <Value theme={theme}>{view.value}</Value>
+        </SettingsRow>
+        {view.more === null ? null : (
+          <SettingsRow
+            label="More models"
+            hint="Download or benchmark them under Engine and model."
+          >
+            <Value theme={theme} muted>
+              {view.more}
+            </Value>
+          </SettingsRow>
+        )}
+        <SettingsAction
+          label="What are these models?"
+          hint="Size, speed and which decisions each model suits."
+          actionLabel="Open docs"
+          onPress={() => void openExternalUrl(MODELS_DOCS_URL)}
+        />
+      </SettingsCard>
+    </View>
+  );
+}
+
 export function DecisionsSection({
   theme,
   values,
@@ -176,7 +218,7 @@ export function DecisionsSection({
   return (
     <SettingsSection
       title="Decisions"
-      info="Each decision local-decider makes, who asks for it and whether it acts. Shadow records what would have happened; Act lets it change what the agent does. Paseo's settings here also set the gateway, so Claude Code, Codex and pi outside Paseo follow them. A skipped decision changes nothing: the agent carries on as if it were Off. How sure the model must be is under Decision thresholds."
+      info="Each decision local-decider makes, who asks for it and whether it acts. Shadow records what would have happened; Act lets it change what the agent does. Paseo's settings here also set the gateway, so Claude Code, Codex and pi outside Paseo follow them. A skipped decision changes nothing: the agent carries on as if it were Off. How sure the model must be is under Decision thresholds. Decisions set to Default model use the model from Engine and model. Thresholds were tuned for the default model, so run a decision on its own model in Shadow first."
     >
       {reachable ? null : (
         <SettingsCard>
@@ -187,6 +229,7 @@ export function DecisionsSection({
           />
         </SettingsCard>
       )}
+      <DefaultModelCard theme={theme} gatewayUrl={values.gatewayUrl} gatewayUp={reachable} />
       {cardsFor(theme, values, writes, modes, loaded, reachable)}
     </SettingsSection>
   );
