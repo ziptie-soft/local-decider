@@ -29,6 +29,14 @@ const promptTimeSchema = z
   .nullable()
   .catch(null);
 
+/** Which engine and model answered, and how it was chosen (`default|policy|fallback|unavailable`). */
+const modelUseSchema = z.object({
+  engine: z.string().max(100),
+  model: z.string().max(300),
+  source: z.string().max(40),
+  count,
+});
+
 export const policyStatsSchema = z.object({
   policy: z.string().max(100),
   decisions: z.number().int().nonnegative().catch(0),
@@ -40,6 +48,8 @@ export const policyStatsSchema = z.object({
   latencyP50Ms: num.default(null),
   latencyP95Ms: num.default(null),
   actions: z.record(z.string().max(100), z.number()).catch({}),
+  /** Undefined from a gateway that does not count answers per model. */
+  models: z.array(modelUseSchema).max(50).optional().catch(undefined),
   savings: savingsSchema.default(null),
   promptTime: promptTimeSchema.default(null),
 });

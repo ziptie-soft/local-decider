@@ -26,6 +26,27 @@ describe('stats', () => {
     assert.deepEqual(parsePolicyStats({ nope: 1 }), []);
   });
 
+  it('reads the per-model counts when sent, and leaves them undefined otherwise', () => {
+    const turn = { policy: 'turn-outcome', decisions: 2 };
+    const models = [
+      { engine: 'llama', model: 'a', source: 'default', count: 1 },
+      { engine: 'llama', model: 'b', source: 'policy', count: 1 },
+    ];
+    assert.deepEqual(parsePolicyStats([{ ...turn, models }])[0]?.models, models);
+    assert.equal(parsePolicyStats([turn])[0]?.models, undefined);
+    const bad = parsePolicyStats([
+      { ...turn, models: [{ engine: 1 }] },
+      { ...turn, models: 'x' },
+    ]);
+    assert.deepEqual(
+      bad.map((p) => [p.decisions, p.models]),
+      [
+        [2, undefined],
+        [2, undefined],
+      ],
+    );
+  });
+
   it('formats actions, latency and percentages', () => {
     assert.equal(actionSummary({ notify: 1, log: 10 }), 'log 10 · notify 1');
     assert.equal(formatMs(850.4), '850 ms');

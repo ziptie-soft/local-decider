@@ -5,6 +5,8 @@
 import type { GatewayHealth } from '../shared/decision.ts';
 import { parseProgress } from '../shared/machine.ts';
 import { manualInput } from '../shared/manual.ts';
+import { fields } from '../shared/parse.ts';
+import { parsePolicyEngines, type PolicyEngine } from '../shared/policy-models.ts';
 import { toRowData, type DecisionRow } from '../shared/row.ts';
 import { parsePolicyStats, type PolicyStats } from '../shared/stats.ts';
 import type { HookDeps, PaseoLike } from './deps.ts';
@@ -23,6 +25,8 @@ export interface StatusResult {
   model: string | null;
   p50Ms: number | null;
   benchmark: { completed: number; total: number } | null;
+  /** Absent when the gateway predates per-decision models. */
+  policyEngines?: PolicyEngine[];
   gatewayUrl: string;
   downStreak: number;
   checkedAt: string;
@@ -50,6 +54,12 @@ function healthFields(health: GatewayHealth | null): HealthFields {
   };
 }
 
+/** `policyEngines` is not on core's `GatewayHealth` (primary-only), so it is read from the body. */
+function policyEnginesField(health: GatewayHealth | null): Pick<StatusResult, 'policyEngines'> {
+  const policyEngines = parsePolicyEngines(fields(health)?.['policyEngines']);
+  return policyEngines === undefined ? {} : { policyEngines };
+}
+
 export function createStatusHandler(
   deps: Pick<HookDeps, 'gateway' | 'settings'>,
   now: () => Date = () => new Date(),
@@ -65,6 +75,7 @@ export function createStatusHandler(
     return {
       up,
       ...healthFields(health),
+      ...policyEnginesField(health),
       gatewayUrl: gateway?.baseUrl ?? (await deps.settings()).gatewayUrl,
       downStreak,
       checkedAt: now().toISOString(),

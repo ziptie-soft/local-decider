@@ -5,7 +5,7 @@
  */
 import { z } from 'zod';
 
-import { fields, items, oneOf, runtimeOf, str } from './parse.ts';
+import { fields, items, MAX_TEXT, oneOf, runtimeOf, str } from './parse.ts';
 
 const FALLBACKS = ['default', 'open'] as const;
 const STATUSES = ['default', 'active', 'unavailable', 'off'] as const;
@@ -41,6 +41,26 @@ export const policyModelSchema = z.object({
 
 export type PolicyModel = z.output<typeof policyModelSchema>;
 type PolicySelection = NonNullable<PolicyModel['selection']>;
+
+/** A non-empty, bounded text field; one that is not is left out. */
+const text = z.string().min(1).max(MAX_TEXT).optional().catch(undefined);
+
+/**
+ * A decision's own model as `/health` lists it (`policyEngines[]`): which model answers for it
+ * now and how busy that lane is. Every field but `policy` is read on its own.
+ */
+export const policyEngineSchema = z.object({
+  policy: z.string().min(1).max(MAX_TEXT),
+  engine: text,
+  model: text,
+  label: text,
+  state: z.enum(STATES).optional().catch(undefined),
+  status: z.enum(STATUSES).optional().catch(undefined),
+  fallback: z.enum(FALLBACKS).optional().catch(undefined),
+  queueDepth: z.number().int().nonnegative().optional().catch(undefined),
+});
+
+export type PolicyEngine = z.output<typeof policyEngineSchema>;
 
 /** What `policySelectionRpc` returns: the gateway's verdict on the model, once it accepted one. */
 export const selectionResultSchema = z.object({
@@ -99,6 +119,16 @@ function parsePolicyModel(value: unknown): PolicyModel | null {
 /** The decisions with their own model; undefined from a gateway that does not send the list. */
 export function parsePolicyModels(value: unknown): PolicyModel[] | undefined {
   return Array.isArray(value) ? items(value, MAX_POLICIES, parsePolicyModel) : undefined;
+}
+
+function parsePolicyEngine(value: unknown): PolicyEngine | null {
+  const parsed = policyEngineSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+/** `policyEngines` of `/health`; undefined from a gateway that does not send it. */
+export function parsePolicyEngines(value: unknown): PolicyEngine[] | undefined {
+  return Array.isArray(value) ? items(value, MAX_POLICIES, parsePolicyEngine) : undefined;
 }
 
 /** Whether any decision's own model is still loading, so the catalog is worth polling. */

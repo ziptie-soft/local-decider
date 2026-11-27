@@ -2,8 +2,9 @@
 import { z } from 'zod';
 
 import { MCP_SERVER_NAME, type RowVisibility } from './constants.ts';
-import type { Answer, DecideResponse, Mode } from './decision.ts';
+import type { Answer, DecideResponse, Mode, ModelSource } from './decision.ts';
 import { shortModel } from './models.ts';
+import { oneOf } from './parse.ts';
 import { thresholdText, type ThresholdSetting } from './policies.ts';
 
 const MAX_OPTIONS = 12;
@@ -19,6 +20,22 @@ export type LabelChoice = (typeof LABEL_CHOICES)[number];
 export type LabelKind = 'declined' | 'interrupted' | 'auto-allowed';
 /** Label chips stay actionable this long after the answer or auto-allow (gateway replays 25 h). */
 export const LABEL_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * What a row says about which model answered; `default` is the usual case and is not worth a
+ * word. Typed over every `ModelSource`, so a source added to core fails the typecheck here.
+ */
+const MODEL_SOURCE_TEXT: Readonly<Record<ModelSource, string | null>> = {
+  default: null,
+  policy: 'own model',
+  fallback: 'default (own model unavailable)',
+  unavailable: 'skipped: own model unavailable',
+};
+
+const MODEL_SOURCES = Object.keys(MODEL_SOURCE_TEXT) as [ModelSource, ...ModelSource[]];
+
+/** The prefix of `error` when no model answered; the rest is the reason. */
+const UNAVAILABLE_PREFIX = 'policy model unavailable: ';
 
 /** Why a permission was left to the user without a decision. */
 const SKIP_REASONS = ['busy', 'rate-limit', 'deadline', 'no-answer'] as const;
@@ -42,6 +59,8 @@ export const decisionRowSchema = z.object({
   attention: z.boolean(),
   engine: z.string(),
   model: z.string(),
+  /** Which model answered; null from a gateway that does not say. */
+  modelSource: z.enum(MODEL_SOURCES).nullable().default(null).catch(null),
   latencyMs: z.number(),
   cached: z.boolean(),
   error: z.string().nullable(),
@@ -107,7 +126,10 @@ function gatewayMode(mode: Mode | undefined): DecisionRow['gatewayMode'] {
 function explainFields(
   res: DecideResponse,
   primary: [string, Answer] | null,
-): Pick<DecisionRow, 'probabilities' | 'rule' | 'precedent' | 'variant' | 'truncated'> {
+): Pick<
+  DecisionRow,
+  'probabilities' | 'rule' | 'precedent' | 'variant' | 'truncated' | 'modelSource'
+> {
   const entries = Object.entries(primary?.[1].probabilities ?? {}).slice(0, MAX_OPTIONS);
   return {
     probabilities: Object.fromEntries(
@@ -120,6 +142,7 @@ function explainFields(
         : { allows: res.precedent.allows, denies: res.precedent.denies },
     variant: res.variant?.slice(0, 100) ?? null,
     truncated: (res.truncated?.length ?? 0) > 0,
+    modelSource: oneOf(res.modelSource, MODEL_SOURCES),
   };
 }
 
@@ -285,15 +308,36 @@ export function rowSummary(row: DecisionRow): string {
   return `${row.policy} · ${outcome(row)} · ${leaning(row)} · ${modeLabel(row)}`;
 }
 
+/**
+ * The model-source text, with the reason for `unavailable` and the error left to it: the gateway's
+ * `policy model unavailable: <reason>` would only repeat it. Null when the row has nothing to add.
+ */
+function modelSourceText(row: DecisionRow): { text: string | null; errorShown: boolean } {
+  const text = row.modelSource === null ? null : MODEL_SOURCE_TEXT[row.modelSource];
+  if (text === null || row.modelSource !== 'unavailable') {
+    return { text, errorShown: false };
+  }
+  const reason = row.error?.startsWith(UNAVAILABLE_PREFIX)
+    ? row.error.slice(UNAVAILABLE_PREFIX.length)
+    : '';
+  return reason === ''
+    ? { text, errorShown: false }
+    : { text: `${text} (${reason})`, errorShown: true };
+}
+
 export function rowDetail(row: DecisionRow): string {
   const parts = [
     shortModel(row.model),
     `${Math.round(row.latencyMs)} ms${row.cached ? ' cached' : ''}`,
   ];
+  const source = modelSourceText(row);
+  if (source.text !== null) {
+    parts.push(source.text);
+  }
   if (row.note !== null) {
     parts.unshift(row.note);
   }
-  if (row.error !== null) {
+  if (row.error !== null && !source.errorShown) {
     parts.push(`engine error: ${row.error}`);
   }
   return parts.filter((p) => p !== '').join(' · ');
