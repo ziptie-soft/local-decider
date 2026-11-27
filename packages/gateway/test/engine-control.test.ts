@@ -3283,6 +3283,18 @@ describe('policy selection over the control API', () => {
     assert.equal(control.settings.policies['permission']?.selection, undefined);
   });
 
+  it('accepts a strands-decider model with no device, as the settings send it', async () => {
+    const { control } = selectionSetup();
+    await settled(control);
+    const choice = await control.setPolicySelection('permission', {
+      engine: 'strands-decider',
+      model: HOBSON_V19,
+      fallback: 'default',
+    });
+    assert.equal(choice.selection.model, HOBSON_V19);
+    assert.equal(control.settings.policies['permission']?.selection?.model, HOBSON_V19);
+  });
+
   it('checks a model set on an off policy as if the policy were on', async () => {
     const { control } = selectionSetup({
       policies: {
