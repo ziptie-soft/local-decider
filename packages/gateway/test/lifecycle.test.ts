@@ -150,4 +150,64 @@ describe('ManagedEngine', () => {
     const engine = new ManagedEngine(inner, { lifecycle: 'lazy', idleUnloadMinutes: 15 });
     await assert.rejects(engine.decide(REQ, AbortSignal.timeout(2000)), /engine failed/);
   });
+
+  it('retire() during a load ends stopped and the pending ensureReady rejects', async () => {
+    const inner = new SlowStart(100);
+    const engine = new ManagedEngine(inner, { lifecycle: 'lazy', idleUnloadMinutes: 15 });
+    const pending = engine.ensureReady(AbortSignal.timeout(2000));
+    const rejected = assert.rejects(pending, /engine retired/);
+    await sleep(20);
+    await engine.retire();
+    await rejected;
+    assert.equal(inner.state, 'stopped');
+    assert.equal(engine.health().state, 'stopped');
+    assert.equal(inner.starts, 1);
+  });
+
+  it('ensureReady and load after retire reject and never start the inner engine', async () => {
+    const inner = new SlowStart(10);
+    const engine = new ManagedEngine(inner, { lifecycle: 'lazy', idleUnloadMinutes: 15 });
+    await engine.retire();
+    await assert.rejects(engine.ensureReady(AbortSignal.timeout(2000)), /engine retired/);
+    await assert.rejects(engine.load(), /engine retired/);
+    await assert.rejects(engine.decide(REQ, AbortSignal.timeout(2000)), /engine retired/);
+    engine.setLifecycle({ lifecycle: 'eager', idleUnloadMinutes: 15 });
+    assert.equal(inner.starts, 0);
+    assert.equal(engine.health().state, 'stopped');
+  });
+
+  it('stop() without retire still reloads on the next decision', async () => {
+    const inner = new SlowStart(10);
+    const engine = new ManagedEngine(inner, { lifecycle: 'lazy', idleUnloadMinutes: 15 });
+    await engine.load();
+    await engine.stop();
+    await engine.decide(REQ, AbortSignal.timeout(2000));
+    assert.equal(inner.starts, 2);
+    await engine.stop();
+  });
+
+  it('retire() on a never-loaded engine resolves and never starts it', async () => {
+    const inner = new SlowStart(10);
+    const engine = new ManagedEngine(inner, { lifecycle: 'lazy', idleUnloadMinutes: 15 });
+    await engine.retire();
+    assert.equal(engine.health().state, 'stopped');
+    assert.equal(inner.starts, 0);
+  });
+
+  it('retire() still stops the inner engine when the in-flight start rejects', async () => {
+    const inner = new FakeEngine();
+    inner.state = 'stopped';
+    let stops = 0;
+    inner.start = async (): Promise<void> => {
+      await sleep(30);
+      throw new Error('boom');
+    };
+    inner.stop = async (): Promise<void> => {
+      stops += 1;
+    };
+    const engine = new ManagedEngine(inner, { lifecycle: 'lazy', idleUnloadMinutes: 15 });
+    void engine.load().catch(() => undefined);
+    await engine.retire();
+    assert.equal(stops, 1);
+  });
 });
