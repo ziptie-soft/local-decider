@@ -1,6 +1,6 @@
 import { catalogModel } from '../models.ts';
 import type { ModelDescriptor } from './descriptor.ts';
-import type { EngineId } from './registry.ts';
+import { allModels, type EngineId } from './registry.ts';
 
 /** Labels for verified base checkpoints; upstream sources are cited in the catalogues. */
 const FAMILY_LABELS: Readonly<Record<string, string>> = {
@@ -32,8 +32,10 @@ export function familyOf(model: string, engine: string): string | null {
   return descriptor === undefined ? null : familyId(descriptor);
 }
 
+/** A labelled family, a catalogue model's base checkpoint, or a catalogue singleton id. */
 export function isKnownFamily(id: string): boolean {
   if (Object.hasOwn(FAMILY_LABELS, id)) return true;
+  if (allModels().some((model) => model.baseModel === id)) return true;
   const separator = id.indexOf(':');
   return separator > 0 && familyOf(id.slice(separator + 1), id.slice(0, separator)) === id;
 }
