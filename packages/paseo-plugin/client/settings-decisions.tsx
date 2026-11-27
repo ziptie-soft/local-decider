@@ -14,7 +14,7 @@ import {
   type GatewayPolicy,
   type PluginMode,
 } from '../shared/constants.ts';
-import { DECISION_KINDS, modeOptions } from '../shared/decision-kinds.ts';
+import { DECISION_KINDS, modeEffectLine, modeOptions } from '../shared/decision-kinds.ts';
 import type { ModelOption } from '../shared/decision-models.ts';
 import {
   holdState,
@@ -379,6 +379,7 @@ function DecisionRow(props: CardProps): ReactNode {
     reachable: props.reachable,
     busy: mine && writes.pendingMode !== null,
   });
+  const shownMode = mine ? (writes.pendingMode ?? mode) : mode;
   const outcome = writes.last?.policy === policy ? writes.last.outcome : null;
   const pickMode = (next: string): void => {
     const picked = PLUGIN_MODES.find((m) => m === next);
@@ -421,7 +422,7 @@ function DecisionRow(props: CardProps): ReactNode {
               title={`${info.title} mode`}
               note={info.askedBy}
               disabled={row.disabled || blocked}
-              value={mine ? (writes.pendingMode ?? mode) : mode}
+              value={shownMode}
               options={modeOptions(policy)}
               onChange={pickMode}
             />
@@ -444,14 +445,12 @@ function DecisionRow(props: CardProps): ReactNode {
           </Column>
         </Controls>
       </View>
-      {row.line === null ? null : (
-        <Line
-          theme={theme}
-          line={row.line}
-          disabled={blocked}
-          onFix={(fixMode) => writes.write(policy, fixMode)}
-        />
-      )}
+      <Line
+        theme={theme}
+        line={row.line ?? { text: modeEffectLine(policy, shownMode), tone: 'muted' }}
+        disabled={blocked}
+        onFix={(fixMode) => writes.write(policy, fixMode)}
+      />
       {model.line === null ? null : (
         <Line theme={theme} line={model.line} disabled onFix={() => undefined} />
       )}

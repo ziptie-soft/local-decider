@@ -87,3 +87,8 @@ export function modeOptions(
     detail: DECISION_KINDS[policy].modes[value],
   }));
 }
+
+/** The muted line under a closed row: the selected mode and what it does for this kind. */
+export function modeEffectLine(policy: GatewayPolicy, mode: PluginMode): string {
+  return `${MODE_NAMES[mode]}: ${DECISION_KINDS[policy].modes[mode]}`;
+}
