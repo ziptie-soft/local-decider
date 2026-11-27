@@ -22,7 +22,7 @@
     }
   },
   "scripts": {
-    "test": "node --test --conditions=source 'test/**/*.test.ts'",
+    "test": "node --test --import ../../scripts/test-tmpdir.mjs --conditions=source 'test/**/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json"
   },
   "engines": {
