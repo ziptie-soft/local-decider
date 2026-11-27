@@ -13,6 +13,16 @@ type StatusLike = Pick<
   'up' | 'gatewayUrl' | 'p50Ms' | 'engineState' | 'detail' | 'benchmark' | 'engine' | 'engineTag'
 >;
 
+/** What a section that needs the gateway says while Status cannot reach it. */
+export const GATEWAY_UNAVAILABLE = 'Unavailable while the gateway is not running.';
+
+/** Why the models list is missing: the gateway is down, or it answers but cannot list them. */
+export function modelsUnavailableHint(gatewayDown: boolean): string {
+  return gatewayDown
+    ? GATEWAY_UNAVAILABLE
+    : 'The gateway is running but too old to list its models.';
+}
+
 /** `Gateway is running` and where it answers; `Checking…` before the first answer. */
 export function gatewayRow(status: StatusLike | undefined): { label: string; hint: string } {
   if (status === undefined) {
@@ -20,8 +30,8 @@ export function gatewayRow(status: StatusLike | undefined): { label: string; hin
   }
   if (!status.up) {
     return {
-      label: 'Gateway is not running',
-      hint: `No answer from ${status.gatewayUrl}. Start it with: local-decider gateway start (on the computer that runs the Paseo daemon).`,
+      label: 'Cannot reach the gateway',
+      hint: `No answer from ${status.gatewayUrl}. Start it with: local-decider gateway start (on the computer that runs the Paseo daemon). Or press Start under Details › Gateway service.`,
     };
   }
   // The live p50, unrounded like the quick-status popover and the sidebar, so the three agree.
