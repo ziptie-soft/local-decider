@@ -48,6 +48,7 @@ import {
   type HealthCounters,
 } from './counters.ts';
 import { EngineBusyError } from './engine-busy.ts';
+import { createLane, PRIMARY_LANE, type EngineLane } from './engine-lane.ts';
 import { ENGINE_BUSY_ERROR, isEngineBusy, type Engine } from './engines/types.ts';
 import type { LogStore } from './log-store.ts';
 import type { LoadedPolicy } from './policies.ts';
@@ -57,7 +58,6 @@ import {
   admissionLimit,
   LatencyWindow,
   QueueFullError,
-  SerialQueue,
   type Priority,
   type QueueLimits,
 } from './queue.ts';
@@ -80,6 +80,7 @@ function queueLimits(slots: number): QueueLimits {
 
 const QUEUE_FULL_ERROR = 'engine queue full';
 const TIMEOUT_ERROR = 'decision timed out';
+const SWITCHING_ERROR = 'engine switching';
 
 /** The counter an error decision belongs to: a typed `counter` marks refusals and deadlines. */
 function counterFor(result: EngineResult): DecisionCounter {
@@ -88,9 +89,6 @@ function counterFor(result: EngineResult): DecisionCounter {
 
 /** Pass-through jobs wait behind decisions. */
 const PASS_THROUGH_PRIORITY: Priority = 'low';
-
-/** Recent engine jobs timed for the busy estimate; `replaceEngine` clears them. */
-const SERVICE_WINDOW = 50;
 
 /**
  * Milliseconds a new job waits for a slot: each full wave of `slots` jobs ahead of it takes one
@@ -207,7 +205,9 @@ export function renderValue(value: unknown): string {
 
 /** The policy pipeline: redact → state → cache → engine (serial) → rules → shadow log. */
 export class Decider {
-  #engine: Engine;
+  /** Engine lanes by key; the primary is the only one so far. */
+  readonly #lanes = new Map<string, EngineLane>();
+  readonly #queueGraceMs: number;
   #policies: Map<string, LoadedPolicy>;
   /** Policy id → the variant answering for it, when not the policy itself. */
   readonly #variants = new Map<string, string>();
@@ -217,9 +217,6 @@ export class Decider {
   readonly #timeoutMs: number;
   readonly #now: () => Date;
   readonly #factGroups: ReadonlySet<FactGroup> | undefined;
-  readonly #queue: SerialQueue;
-  /** Decisions waiting for a managed engine to load (outside the queue). */
-  #preparing = 0;
   #holdReason: string | null = null;
   #switchReason: string | null = null;
   /** Bumped by hold and replaceEngine: answers computed before it must not enter the cache. */
@@ -230,8 +227,6 @@ export class Decider {
   readonly #counters = new DecisionCounters();
   /** Restarts and hangs of engines replaced since start, so the totals never go down. */
   #retiredEngine: EngineCounters = NO_ENGINE_COUNTERS;
-  /** Time inside the engine call only (no queue wait), for `budgetMs` admission. */
-  readonly #service = new LatencyWindow(SERVICE_WINDOW);
   readonly #cache = new Map<string, CacheEntry>();
   /** Engine calls running now by input hash; identical requests join instead of calling again. */
   readonly #inflight = new Map<string, SharedCall>();
@@ -242,13 +237,8 @@ export class Decider {
   #successHandler: ((engine: Engine) => void) | undefined;
 
   constructor(options: DeciderOptions) {
-    this.#engine = options.engine;
-    this.#queue = new SerialQueue({
-      abandonGraceMs: options.queueGraceMs ?? ABANDON_GRACE_MS,
-      ...(options.engine.concurrency === undefined
-        ? {}
-        : { concurrency: options.engine.concurrency }),
-    });
+    this.#queueGraceMs = options.queueGraceMs ?? ABANDON_GRACE_MS;
+    this.#lanes.set(PRIMARY_LANE, createLane(PRIMARY_LANE, options.engine, this.#queueGraceMs));
     this.#policies = new Map(options.policies);
     this.#log = options.log;
     this.#timeoutMs = options.decisionTimeoutMs;
@@ -265,7 +255,15 @@ export class Decider {
   }
 
   get engine(): Engine {
-    return this.#engine;
+    return this.#primary.engine;
+  }
+
+  get #primary(): EngineLane {
+    const lane = this.#lanes.get(PRIMARY_LANE);
+    if (lane === undefined) {
+      throw new Error('decider has no primary lane');
+    }
+    return lane;
   }
 
   /** Why decisions currently fail open, or null. */
@@ -299,14 +297,23 @@ export class Decider {
     return this.#holdReason ?? this.#switchReason;
   }
 
-  /** Throws for a queued job whose engine was replaced or held since it was enqueued. */
-  #assertCurrent(generation: number): void {
+  /**
+   * Throws for a call whose engine was replaced or held since it was admitted: a global hold or
+   * generation change, or its lane blocked or retired.
+   */
+  #assertCurrent(generation: number, lane: EngineLane, laneGeneration: number): void {
     const reason = this.#blocked;
     if (reason !== null) {
       throw new EngineBusyError(reason);
     }
     if (generation !== this.#generation) {
-      throw new EngineBusyError('engine changed');
+      throw new EngineBusyError(SWITCHING_ERROR);
+    }
+    if (lane.blocked !== null) {
+      throw new EngineBusyError(lane.blocked);
+    }
+    if (lane.generation !== laneGeneration || lane.retired) {
+      throw new EngineBusyError(SWITCHING_ERROR);
     }
   }
 
@@ -484,14 +491,15 @@ export class Decider {
    * Stopping the old engine is the caller's job; decisions already queued on it fail open.
    */
   replaceEngine(next: Engine): Engine {
-    const previous = this.#engine;
+    const old = this.#primary;
+    const previous = old.engine;
     this.#retiredEngine = addEngineCounters(
       this.#retiredEngine,
       previous.counters?.() ?? NO_ENGINE_COUNTERS,
     );
-    this.#engine = next;
-    this.#queue.setConcurrency(next.concurrency);
-    this.#service.clear();
+    old.retired = true;
+    old.generation += 1;
+    this.#lanes.set(PRIMARY_LANE, createLane(PRIMARY_LANE, next, this.#queueGraceMs));
     this.#generation += 1;
     this.#cache.clear();
     this.#inflight.clear();
@@ -500,12 +508,13 @@ export class Decider {
 
   /** Decisions in the engine queue or waiting for the engine to load. */
   get queueDepth(): number {
-    return this.#queue.depth + this.#preparing;
+    const lane = this.#primary;
+    return lane.queue.depth + lane.preparing;
   }
 
   /** Engine calls that run at once, from the engine's own setting. */
   get slots(): number {
-    return this.#queue.concurrency;
+    return this.#primary.queue.concurrency;
   }
 
   latency(p: number): number | undefined {
@@ -521,7 +530,7 @@ export class Decider {
   counters(): HealthCounters {
     const engine = addEngineCounters(
       this.#retiredEngine,
-      this.#engine.counters?.() ?? NO_ENGINE_COUNTERS,
+      this.engine.counters?.() ?? NO_ENGINE_COUNTERS,
     );
     const log = this.#log.counters?.() ?? { logWriteFailures: 0, logDropped: 0 };
     return { ...this.#counters.snapshot(), ...log, ...engine };
@@ -534,21 +543,23 @@ export class Decider {
    * caller's.
    */
   async systemOne(request: SystemOneRequest, signal: AbortSignal): Promise<SystemOneResponse> {
-    this.#assertCurrent(this.#generation);
+    const lane = this.#primary;
     const generation = this.#generation;
-    const engine = this.#engine;
+    const laneGeneration = lane.generation;
+    this.#assertCurrent(generation, lane, laneGeneration);
+    const engine = lane.engine;
     const clean = sortKeysDeep(redactDeep(request));
     const started = performance.now();
     const bounded = this.#signal(signal);
     try {
-      const response = await this.#queue.run(
+      const response = await lane.queue.run(
         bounded,
         () => {
-          this.#assertCurrent(generation);
-          return this.#timed(() => this.#engine.decide(clean, bounded), bounded);
+          this.#assertCurrent(generation, lane, laneGeneration);
+          return this.#timed(lane, () => lane.engine.decide(clean, bounded), bounded);
         },
         PASS_THROUGH_PRIORITY,
-        queueLimits(this.slots),
+        queueLimits(lane.queue.concurrency),
       );
       this.#latency.add(performance.now() - started);
       this.#successHandler?.(engine);
@@ -598,8 +609,8 @@ export class Decider {
       ...(variant === undefined ? {} : { variant }),
       mode,
       ...(request.scope === undefined ? {} : { scope: request.scope }),
-      engine: this.#engine.id,
-      model: this.#engine.model,
+      engine: this.engine.id,
+      model: this.engine.model,
     };
     if (mode === 'off') {
       this.#noteCall(request, policyId, {
@@ -768,7 +779,7 @@ export class Decider {
       return { answers: {}, latencyMs: 0, cached: false, error: blocked };
     }
     // Cache and in-flight key: the logged state hash scoped to the serving engine and model.
-    const hash = inputHash(['cache:v1', this.#engine.id, this.#engine.model, stateHash]);
+    const hash = inputHash(['cache:v1', this.engine.id, this.engine.model, stateHash]);
     const hit = this.#cacheGet(hash);
     if (hit !== undefined) {
       return { answers: hit.answers, latencyMs: 0, cached: true };
@@ -778,7 +789,7 @@ export class Decider {
     if (running !== undefined && PRIORITY_RANK[priority] <= PRIORITY_RANK[running.priority]) {
       return this.#join(running, signal);
     }
-    const busy = this.#overBudget(budgetMs);
+    const busy = this.#overBudget(this.#primary, budgetMs);
     if (busy !== undefined) {
       return busy;
     }
@@ -806,11 +817,15 @@ export class Decider {
    * Refuse a request whose caller will not wait out the estimated queue time, before it takes a
    * place: the same fail-open result as the engine's own 503, not an engine failure.
    */
-  #overBudget(budgetMs: number | undefined): EngineResult | undefined {
+  #overBudget(lane: EngineLane, budgetMs: number | undefined): EngineResult | undefined {
     if (budgetMs === undefined) {
       return undefined;
     }
-    const wait = estimateWaitMs(this.queueDepth, this.slots, this.#service.mean());
+    const wait = estimateWaitMs(
+      lane.queue.depth + lane.preparing,
+      lane.queue.concurrency,
+      lane.service.mean(),
+    );
     return wait > budgetMs
       ? { answers: {}, latencyMs: 0, cached: false, error: ENGINE_BUSY_ERROR, counter: 'busy' }
       : undefined;
@@ -861,8 +876,11 @@ export class Decider {
     priority: Priority,
   ): Promise<EngineResult> {
     // A managed engine (ensureReady) loads on demand, outside the queue; others must be up.
-    const engine = this.#engine;
+    // The lane is resolved once: nothing below reads a mutable Decider field for the engine.
+    const lane = this.#primary;
+    const engine = lane.engine;
     const generation = this.#generation;
+    const laneGeneration = lane.generation;
     if (engine.ensureReady === undefined && engine.health().state !== 'ready') {
       return { answers: {}, latencyMs: 0, cached: false, error: `engine ${engine.health().state}` };
     }
@@ -870,21 +888,21 @@ export class Decider {
     const timing: { jobStarted?: number; engineMs?: number } = {};
     try {
       const bounded = this.#signal(signal);
+      this.#assertCurrent(generation, lane, laneGeneration);
       if (engine.ensureReady !== undefined && engine.health().state !== 'ready') {
-        await this.#prepare(engine, bounded, priority);
+        await this.#prepare(lane, bounded, priority);
+        this.#assertCurrent(generation, lane, laneGeneration);
       }
-      // The job reads this.#engine: after replaceEngine during the load, the new engine answers
-      // (loading inside the slot if cold) and the handlers below still name `engine`. Intended:
-      // decisions in flight on a replaced engine only need to fail open. Likewise, if the engine
-      // unloads between #prepare and the job, ManagedEngine.decide loads inside the slot (rare;
-      // the old behaviour).
-      const response = await this.#queue.run(
+      // If the engine unloads between #prepare and the job, ManagedEngine.decide loads inside the
+      // slot (rare; the old behaviour).
+      const response = await lane.queue.run(
         bounded,
         () => {
-          this.#assertCurrent(generation);
+          this.#assertCurrent(generation, lane, laneGeneration);
           timing.jobStarted = performance.now();
           return this.#timed(
-            () => this.#engine.decide(request, bounded),
+            lane,
+            () => lane.engine.decide(request, bounded),
             bounded,
             (ms) => {
               timing.engineMs = ms;
@@ -892,7 +910,7 @@ export class Decider {
           );
         },
         priority,
-        queueLimits(this.slots),
+        queueLimits(lane.queue.concurrency),
       );
       const answers = normaliseAnswers(request.questions, response);
       const latencyMs = performance.now() - started;
@@ -923,6 +941,7 @@ export class Decider {
    * non-abort errors are not sampled. At most one sample per call.
    */
   async #timed<T>(
+    lane: EngineLane,
     call: () => Promise<T>,
     signal: AbortSignal,
     onDone?: (ms: number) => void,
@@ -932,7 +951,7 @@ export class Decider {
     const record = (): void => {
       if (!recorded) {
         recorded = true;
-        this.#service.add(performance.now() - started);
+        lane.service.add(performance.now() - started);
       }
     };
     signal.addEventListener('abort', record, { once: true });
@@ -951,20 +970,21 @@ export class Decider {
    * Waiters count toward queueDepth and the same limits as the queue; `high` ones are never
    * refused here (they evict a waiting `low` once the engine is ready).
    */
-  async #prepare(engine: Engine, signal: AbortSignal, priority: Priority): Promise<void> {
+  async #prepare(lane: EngineLane, signal: AbortSignal, priority: Priority): Promise<void> {
     // Checked apart from the queue's limits: a burst that finishes a cold load is re-checked by
     // the queue itself, and `high` waiting for the load is bounded only by decisionTimeoutMs.
     if (
       priority !== 'high' &&
-      this.queueDepth >= admissionLimit(priority, queueLimits(this.slots))
+      lane.queue.depth + lane.preparing >=
+        admissionLimit(priority, queueLimits(lane.queue.concurrency))
     ) {
       throw new QueueFullError();
     }
-    this.#preparing += 1;
+    lane.preparing += 1;
     try {
-      await engine.ensureReady?.(signal);
+      await lane.engine.ensureReady?.(signal);
     } finally {
-      this.#preparing -= 1;
+      lane.preparing -= 1;
     }
   }
 

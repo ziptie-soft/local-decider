@@ -256,10 +256,6 @@ export class LatencyWindow {
     }
   }
 
-  clear(): void {
-    this.#samples.length = 0;
-  }
-
   /** Mean of the window; undefined while empty. */
   mean(): number | undefined {
     return this.#samples.length === 0
