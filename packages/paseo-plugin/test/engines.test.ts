@@ -130,6 +130,15 @@ function model(overrides: Partial<EngineModel> = {}): EngineModel {
   };
 }
 
+function labelWith(m: EngineModel, machineBest: { engine: string; model: string } | null): string {
+  return modelRowView(m, modelRowState(m, ctx()), {
+    device: 'auto',
+    speedDevice: null,
+    totalMemoryGb: null,
+    machineBest,
+  }).label;
+}
+
 function download(overrides: Partial<Download> = {}): Download {
   return {
     id: 'dl',
@@ -546,23 +555,16 @@ describe('model row state', () => {
   });
 
   it('tags only the machine recommendation when there is one', () => {
-    const label = (m: EngineModel, machineBest: { engine: string; model: string } | null): string =>
-      modelRowView(m, modelRowState(m, ctx()), {
-        device: 'auto',
-        speedDevice: null,
-        totalMemoryGb: null,
-        machineBest,
-      }).label;
     const flagged = model({ id: 'a', label: 'A', recommended: true });
     const named = model({ id: 'b', label: 'B' });
     const best = { engine: 'fastflowlm', model: 'b' };
-    assert.equal(label(flagged, best), 'A');
-    assert.equal(label(named, best), 'B · Recommended');
+    assert.equal(labelWith(flagged, best), 'A');
+    assert.equal(labelWith(named, best), 'B · Recommended');
     // The same model id on another engine is not the recommendation.
-    assert.equal(label(model({ id: 'b', label: 'B', engine: 'other' }), best), 'B');
+    assert.equal(labelWith(model({ id: 'b', label: 'B', engine: 'other' }), best), 'B');
     // Without a machine recommendation the static flag still tags.
-    assert.equal(label(flagged, null), 'A · Recommended');
-    assert.equal(label(named, null), 'B');
+    assert.equal(labelWith(flagged, null), 'A · Recommended');
+    assert.equal(labelWith(named, null), 'B');
   });
 
   it('labels each state', () => {
