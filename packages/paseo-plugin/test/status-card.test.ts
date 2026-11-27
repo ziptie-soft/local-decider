@@ -62,7 +62,11 @@ describe('gatewayRow', () => {
     });
     assert.equal(
       gatewayRow(status({ p50Ms: 850.4 })).hint,
-      `Answering at ${URL} · typical decision 850ms`,
+      `Answering at ${URL} · typical decision 850 ms`,
+    );
+    assert.equal(
+      gatewayRow(status({ p50Ms: 1500 })).hint,
+      `Answering at ${URL} · typical decision 1.5 s`,
     );
   });
 
