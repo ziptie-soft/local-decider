@@ -144,7 +144,7 @@ because ROCm torch reports as `cuda`:
 | NVIDIA CUDA or AMD ROCm | `strands-decider` 2B reference on the GPU | passes the gate |
 | Vulkan GPU | `llama-vulkan` `d3-mini-q4_k_m` | unmeasured |
 | Apple Silicon (MLX or MPS) | `strands-decider` 2B reference | passes the gate |
-| CPU only | `strands-decider` 2B reference | passes the gate |
+| CPU only | none: the CPU is too slow for live decisions; choose it by hand for background use | passes the gate |
 
 The ladder tries them in that order, then ranks the runtimes of the picked family by your own
 benchmark. Treat a "passes the gate" pick as the recommendation and an "unmeasured" pick as the
@@ -154,9 +154,9 @@ automatically.
 **Per decision kind.** The table in section 3 is the per-kind recommendation, under the same rule:
 a model is recommended for a kind only when it passes that kind's gate. Today that is the Strands
 2B reference for every kind (`command-risk`, `permission`, `routing`, `turn-outcome` and
-`command-risk-binary`). Automatic selection also picks it as the default model on the CUDA, ROCm,
-Apple Silicon (MLX, MPS) and CPU rungs of the ladder; the NPU and Vulkan rungs pick a different
-default ([engines.md](engines.md#5a-automatic-selection-and-fallback)). No other model is
+`command-risk-binary`). Automatic selection also picks it as the default model on the CUDA, ROCm
+and Apple Silicon (MLX, MPS) rungs of the ladder (the CPU is a manual choice only); the NPU and
+Vulkan rungs pick a different default ([engines.md](engines.md#5a-automatic-selection-and-fallback)). No other model is
 recommended for any kind, so an own model for one decision (section 6) is an experiment, not a
 recommendation: start it in `shadow` and read `local-decider stats` before it acts. When a
 `mise run eval` run scores another model above the floors for a kind, that cell of section 3 and

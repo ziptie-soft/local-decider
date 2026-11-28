@@ -66,45 +66,47 @@ describe('engine ranking', () => {
     assert.ok(v2.some((c) => c.device === 'mps'));
   });
 
-  it('Linux with an NPU: FLM NPU first, CPU last', () => {
+  it('Linux with an NPU: FLM NPU only; CPU is never automatic', () => {
     const r = rank(LINUX, caps({ npu: YES() }));
-    assert.deepEqual(ladder(r), ['fastflowlm:NPU', 'strands-decider:CPU']);
+    assert.deepEqual(ladder(r), ['fastflowlm:NPU']);
     assert.equal(r.automatic?.engine, 'fastflowlm');
     assert.equal(r.automatic?.model, 'd3:mini');
   });
 
-  it('Linux with NVIDIA: CUDA then CPU', () => {
+  it('Linux with NVIDIA: CUDA', () => {
     const r = rank(LINUX, caps({ nvidia: YES() }));
-    assert.deepEqual(ladder(r), ['strands-decider:CUDA', 'strands-decider:CPU']);
+    assert.deepEqual(ladder(r), ['strands-decider:CUDA']);
   });
 
-  it('Linux with ROCm: ROCm (device cuda) then CPU', () => {
+  it('Linux with ROCm: ROCm (device cuda)', () => {
     const r = rank(LINUX, caps({ rocm: YES() }));
-    assert.deepEqual(ladder(r), ['strands-decider:ROCm', 'strands-decider:CPU']);
+    assert.deepEqual(ladder(r), ['strands-decider:ROCm']);
     assert.equal(r.automatic?.device, 'cuda');
   });
 
-  it('plain Linux, and unknowns, fall to CPU; unknown is not available', () => {
-    assert.deepEqual(ladder(rank(LINUX, caps({}))), ['strands-decider:CPU']);
+  it('plain Linux, and unknowns, pick nothing: CPU is too slow to choose automatically', () => {
+    const plain = rank(LINUX, caps({}));
+    assert.deepEqual(ladder(plain), []);
+    assert.equal(plain.automatic, null);
+    const cpu = plain.candidates.find((c) => c.backend === 'CPU');
+    assert.equal(cpu?.supported, true);
+    assert.equal(cpu?.code, 'too-slow');
+    assert.match(cpu?.reason ?? '', /too slow for live decisions/);
     const unknowns = rank(LINUX, caps({ npu: MAYBE, nvidia: MAYBE, apple: MAYBE }));
-    assert.deepEqual(ladder(unknowns), ['strands-decider:CPU']);
-    assert.deepEqual(ladder(rank(LINUX, undefined)), ['strands-decider:CPU']);
+    assert.deepEqual(ladder(unknowns), []);
+    assert.deepEqual(ladder(rank(LINUX, undefined)), []);
     const npu = unknowns.candidates.find((c) => c.backend === 'NPU');
     assert.match(npu?.reason ?? '', /not confirmed/);
   });
 
-  it('Apple Silicon with MLX: MLX then CPU (MPS not confirmed)', () => {
+  it('Apple Silicon with MLX: MLX (MPS not confirmed)', () => {
     const r = rank(MAC, caps({ apple: YES('mlx') }));
-    assert.deepEqual(ladder(r), ['strands-decider:MLX', 'strands-decider:CPU']);
+    assert.deepEqual(ladder(r), ['strands-decider:MLX']);
   });
 
-  it('Apple Silicon with MLX and a confirmed MPS: MLX, MPS, CPU', () => {
+  it('Apple Silicon with MLX and a confirmed MPS: MLX, MPS', () => {
     const r = rank(MAC, caps({ apple: { ...YES('mlx'), mps: true } }));
-    assert.deepEqual(ladder(r), [
-      'strands-decider:MLX',
-      'strands-decider:MPS',
-      'strands-decider:CPU',
-    ]);
+    assert.deepEqual(ladder(r), ['strands-decider:MLX', 'strands-decider:MPS']);
   });
 
   it('flags engines that can never run on this host as unsupported', () => {
@@ -125,7 +127,7 @@ describe('engine ranking', () => {
       r.candidates.find((c) => c.backend === backend)?.code;
     assert.equal(code('MLX'), 'available');
     assert.equal(code('MPS'), 'not-confirmed');
-    assert.equal(code('CPU'), 'available');
+    assert.equal(code('CPU'), 'too-slow');
     const flm = r.candidates.find((c) => c.engine === 'fastflowlm');
     assert.equal(flm?.code, 'unsupported-platform');
     assert.equal(
@@ -141,14 +143,14 @@ describe('engine ranking', () => {
     assert.doesNotMatch(mps?.reason ?? '', /MLX/);
   });
 
-  it('Apple Silicon without MLX: MPS then CPU', () => {
+  it('Apple Silicon without MLX: MPS', () => {
     const r = rank(MAC, caps({ apple: YES('mps') }));
-    assert.deepEqual(ladder(r), ['strands-decider:MPS', 'strands-decider:CPU']);
+    assert.deepEqual(ladder(r), ['strands-decider:MPS']);
   });
 
-  it('Linux with a hardware Vulkan GPU: llama Vulkan, then CPU', () => {
+  it('Linux with a hardware Vulkan GPU: llama Vulkan', () => {
     const r = rank(LINUX, caps({ vulkan: YES() }), { installed: new Set(['llama-vulkan']) });
-    assert.deepEqual(ladder(r), ['llama-vulkan:Vulkan', 'strands-decider:CPU']);
+    assert.deepEqual(ladder(r), ['llama-vulkan:Vulkan']);
     assert.equal(r.automatic?.model, 'd3-mini-q4_k_m');
   });
 
@@ -158,7 +160,8 @@ describe('engine ranking', () => {
     assert.equal(llama?.ready, false);
     assert.equal(llama?.eligible, false);
     assert.equal(llama?.code, 'not-installed');
-    assert.equal(r.automatic?.engine, 'strands-decider');
+    // Nothing else runs fast enough here, so nothing is picked rather than the CPU.
+    assert.equal(r.automatic, null);
   });
 
   it('NPU and Vulkan keeps FLM first', () => {
@@ -168,7 +171,7 @@ describe('engine ranking', () => {
           installed: new Set(['llama-vulkan']),
         }),
       ),
-      ['fastflowlm:NPU', 'llama-vulkan:Vulkan', 'strands-decider:CPU'],
+      ['fastflowlm:NPU', 'llama-vulkan:Vulkan'],
     );
   });
 
@@ -179,7 +182,7 @@ describe('engine ranking', () => {
           installed: new Set(['llama-vulkan']),
         }),
       ),
-      ['strands-decider:CUDA', 'strands-decider:CPU', 'llama-vulkan:Vulkan'],
+      ['strands-decider:CUDA', 'llama-vulkan:Vulkan'],
     );
   });
 
@@ -237,10 +240,12 @@ describe('engine ranking', () => {
   });
 
   it('falls back to the ladder when a preferred family is not runnable', () => {
-    const result = rank(LINUX, caps({}), { preferredFamily: 'vllm-sr/d3-lite' });
+    const result = rank(LINUX, caps({ nvidia: YES() }), { preferredFamily: 'vllm-sr/d3-lite' });
     assert.equal(result.machine?.availability, 'family-unavailable');
     assert.equal(result.automatic?.engine, 'strands-decider');
-    assert.equal(result.automatic?.device, 'cpu');
+    assert.equal(result.automatic?.device, 'cuda');
+    // With only a CPU, there is nothing to fall back to.
+    assert.equal(rank(LINUX, caps({}), { preferredFamily: 'vllm-sr/d3-lite' }).automatic, null);
   });
 
   it('does not make a machine recommendation for an uncatalogued explicit model', () => {
@@ -252,16 +257,30 @@ describe('engine ranking', () => {
   });
 
   it('matches an automatic Strands device to the resolved runtime', () => {
-    const result = rank(LINUX, caps({}), {
+    const result = rank(LINUX, caps({ nvidia: YES() }), {
       active: {
         engine: 'strands-decider',
         model: 'StrandsAgents/strands-decider-2B-qwen3.5-v1-2610',
         device: 'auto',
-        resolvedDevice: 'cpu',
+        resolvedDevice: 'cuda',
       },
     });
     assert.equal(result.machine?.best?.active, true);
     assert.equal(result.machine?.action, 'none');
+  });
+
+  it('keeps a hand-picked CPU runtime visible and active, but never as the best', () => {
+    const model = 'StrandsAgents/strands-decider-2B-qwen3.5-v1-2610';
+    const result = rank(LINUX, caps({}), {
+      explicit: { engine: 'strands-decider', model, device: 'cpu' },
+      active: { engine: 'strands-decider', model, device: 'cpu', resolvedDevice: 'cpu' },
+    });
+    assert.equal(result.automatic, null);
+    assert.equal(result.recommended?.device, 'cpu');
+    assert.equal(result.machine?.best ?? null, null);
+    const cpu = result.machine?.runtimes.find((r) => r.device === 'cpu');
+    assert.equal(cpu?.pick?.active, true);
+    assert.equal(cpu?.pick?.code, 'too-slow');
   });
 
   it('uses fresh measurements and downloaded status to select the best runtime', () => {

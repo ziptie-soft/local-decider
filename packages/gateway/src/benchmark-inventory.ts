@@ -6,7 +6,7 @@ import type { BenchmarkInventory, InventoryEngine, InventoryModel } from './benc
 import type { ModelDescriptor } from './engines/descriptor.ts';
 import { familyId } from './engines/families.ts';
 import { rankable, type Measurements } from './engines/ranking.ts';
-import { ladderIndex, type Candidate } from './engines/selector.ts';
+import { ladderIndex, runsHere, type Candidate } from './engines/selector.ts';
 
 const STRANDS = 'strands-decider';
 
@@ -53,9 +53,16 @@ function inventoryModel(
   };
 }
 
-function strandsDevices(candidates: readonly Candidate[]): string[] {
+/** The ready strands devices; `explicit` adds those too slow to pick automatically (CPU). */
+function strandsDevices(candidates: readonly Candidate[], explicit = false): string[] {
   const devices = candidates
-    .filter((c) => c.engine === STRANDS && c.eligible && c.ready && c.device !== null)
+    .filter(
+      (c) =>
+        c.engine === STRANDS &&
+        c.ready &&
+        c.device !== null &&
+        (explicit ? runsHere(c) : c.eligible),
+    )
     .map((c) => c.device as string);
   return [...new Set(devices)];
 }
@@ -69,6 +76,7 @@ export function buildInventory(sources: InventorySources): BenchmarkInventory {
     engines,
     models: sources.models.map((m) => inventoryModel(m, sources, orders)),
     strandsDevices: strandsDevices(sources.candidates),
+    explicitStrandsDevices: strandsDevices(sources.candidates, true),
     current: sources.current,
     preferredFamily: sources.preferredFamily,
     ladderIndex,

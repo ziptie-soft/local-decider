@@ -1,7 +1,7 @@
 import type { InstallFlavor } from './engine-install.ts';
 import type { HostInfo } from './engines/descriptor.ts';
 import type { EngineId } from './engines/registry.ts';
-import type { Backend, Candidate, Ranking } from './engines/selector.ts';
+import { runsHere, type Backend, type Candidate, type Ranking } from './engines/selector.ts';
 import { catalogModel, modelFits } from './models.ts';
 
 /** Automatic install input: the P3 ranking for this host. Absent when config is explicit. */
@@ -74,8 +74,12 @@ export function autoTarget(
   const pool = auto.ranking.candidates.filter(
     (c) => isInstallable(c) && (want === undefined || c.engine === want),
   );
-  // An explicit `--engine` is honoured even when its accelerator is not confirmed.
-  const chosen = pool.find((c) => c.eligible) ?? (want === undefined ? undefined : pool[0]);
+  // An explicit `--engine` is honoured even when its accelerator is not confirmed. With nothing
+  // else here, install still sets up the CPU runtime: it runs, just too slowly to pick on its own.
+  const chosen =
+    pool.find((c) => c.eligible) ??
+    pool.find(runsHere) ??
+    (want === undefined ? undefined : pool[0]);
   if (chosen === undefined) {
     return 'no installable engine fits this host';
   }
