@@ -192,6 +192,7 @@ function cellTags(cell: Cell): string | null {
     cell.fastest ? 'fastest' : null,
     cell.inUse ? 'in use' : null,
     cell.stale ? 'out of date' : null,
+    cell.background ? 'background only' : null,
     cell.format,
   ].filter((t): t is string => t !== null);
   return tags.length === 0 ? null : tags.join(' · ');

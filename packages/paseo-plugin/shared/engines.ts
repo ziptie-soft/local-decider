@@ -139,6 +139,7 @@ const recommendationSchema = z.object({
           'unsupported-platform',
           'no-memory',
           'uncalibrated',
+          'too-slow',
         ])
         .nullable(),
       eligible: z.boolean(),

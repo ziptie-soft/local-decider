@@ -47,6 +47,8 @@ export interface Cell {
   readonly inUse: boolean;
   /** The runtime or model changed since it was measured. */
   readonly stale: boolean;
+  /** Too slow for live decisions (the CPU): never the fastest, and a run skips it. */
+  readonly background: boolean;
   readonly accessibleName: string;
 }
 
@@ -136,6 +138,8 @@ interface Source {
   readonly family: { id: string; label: string };
   readonly format: string | null;
   readonly measured: Measured | null;
+  /** The gateway calls this runtime too slow for live decisions (the CPU). */
+  readonly background: boolean;
 }
 
 interface Ctx {
@@ -174,6 +178,18 @@ function devicesOf(catalog: EngineCatalog, m: EngineModel): (string | null)[] {
   return concrete.length > 0 ? concrete : [null];
 }
 
+/** Whether the gateway marks this runtime too slow to pick automatically (the CPU). */
+function tooSlow(catalog: EngineCatalog, engine: string, device: string | null): boolean {
+  const rec = catalog.recommendation;
+  const same = (x: { engine: string; device: string | null }): boolean =>
+    x.engine === engine && x.device === device;
+  return (
+    rec?.candidates.some((x) => same(x) && x.code === 'too-slow') === true ||
+    rec?.machine?.runtimes.some((x) => same(x) && x.pick?.code === 'too-slow') === true
+  );
+}
+
+/** Unmeasured too-slow pairs are left out: a run skips them, so they would never fill in. */
 function sourcesOf(catalog: EngineCatalog): Source[] {
   const out: Source[] = [];
   for (const m of catalog.models.filter((x) => runnable(catalog, x))) {
@@ -185,7 +201,10 @@ function sourcesOf(catalog: EngineCatalog): Source[] {
     };
     for (const device of devicesOf(catalog, m)) {
       const measured = m.measured.find((x) => x.device === device) ?? null;
-      out.push({ ...base, device, measured });
+      const background = tooSlow(catalog, m.engine, device);
+      if (!background || measured !== null) {
+        out.push({ ...base, device, measured, background });
+      }
     }
   }
   return out;
@@ -199,7 +218,8 @@ function withJobTargets(c: Ctx): Source[] {
     if (known.has(keyOf(t))) continue;
     const id = t.family ?? `${t.engine}:${t.model}`;
     const label = c.catalog.models.find((m) => m.family?.id === id)?.family?.label ?? t.model;
-    sources.push({ ...t, family: { id, label }, format: null, measured: null });
+    const background = tooSlow(c.catalog, t.engine, t.device);
+    sources.push({ ...t, family: { id, label }, format: null, measured: null, background });
   }
   return sources;
 }
@@ -333,6 +353,7 @@ function cellAccessible(model: string, column: string, cell: Omit<Cell, 'accessi
   if (cell.fastest) parts.push('fastest');
   if (cell.inUse) parts.push('in use');
   if (cell.stale) parts.push('out of date');
+  if (cell.background) parts.push('too slow for live decisions');
   return parts.join(', ');
 }
 
@@ -347,6 +368,7 @@ function cellOf(c: Ctx, label: string, column: string, pairs: readonly Pair[]): 
     fastest: false,
     inUse: pairs.some((p) => isActive(c, p.source)),
     stale: state?.kind === 'time' && state.stale,
+    background: pick?.source.background ?? false,
   };
   return { ...cell, accessibleName: cellAccessible(label, column, cell) };
 }
@@ -357,7 +379,7 @@ function markFastest(label: string, cells: Cell[], pairs: ReadonlyMap<string, Pa
     const state = pickPair(pairs.get(cell.column) ?? [])?.state;
     return cell.kind === 'time' && state?.kind === 'time' ? [{ cell, p50: state.p50 }] : [];
   });
-  const current = timed.filter((x) => !x.cell.stale);
+  const current = timed.filter((x) => !x.cell.stale && !x.cell.background);
   if (timed.length < 2 || current.length === 0) {
     return cells;
   }
@@ -626,7 +648,8 @@ function actionsOf(c: Ctx, table: Table): Actions {
     return { primary: action('cancel', 'Cancelling…', { disabled: true }), secondary: [] };
   }
   const measured = table.pairs.some((p) => p.state.kind === 'time');
-  const gaps = table.pairs.some((p) => p.state.kind !== 'time' || p.state.stale);
+  const live = table.pairs.filter((p) => !p.source.background);
+  const gaps = live.some((p) => p.state.kind !== 'time' || p.state.stale);
   const run = lockable(c, runAction(v, measured ? 'Run again' : 'Run benchmark'));
   if (!measured || !gaps) {
     return { primary: run, secondary: [] };
@@ -641,6 +664,11 @@ function footerOf(c: Ctx, table: Table): string[] {
   const out: string[] = [];
   if (table.rows.length > 0) {
     out.push(MACHINE_ONLY);
+  }
+  if (table.pairs.some((p) => p.source.background)) {
+    out.push(
+      'Background only: the CPU takes too long for live decisions, so automatic never picks it and a run skips it.',
+    );
   }
   const excluded = c.view?.preview?.excluded ?? [];
   if (excluded.length > 0) {

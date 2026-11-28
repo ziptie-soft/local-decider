@@ -310,6 +310,59 @@ describe('recommendedCard kinds', () => {
     );
     assert.notEqual(connected.kind, 'unsupported');
   });
+
+  it('cpu-only: no NPU or GPU, so live decisions are passed to you; the CPU stays a manual choice', () => {
+    const cpu = {
+      engine: 'strands-decider',
+      model: 'strands-2b',
+      device: 'cpu',
+      backend: 'CPU',
+      reason: 'CPU: too slow for live decisions',
+      code: 'too-slow',
+      eligible: false,
+      supported: true,
+      ready: true,
+    };
+    const npu = {
+      engine: 'fastflowlm',
+      model: 'd3:mini',
+      reason: 'NPU not present',
+      code: 'no-hardware',
+    };
+    const card = recommendedCard(
+      catalog({ machine: null, active: { engine: null }, candidates: [npu, cpu] }),
+      'auto',
+    );
+    assert.equal(card.kind, 'cpu-only');
+    assert.equal(card.headline, 'No NPU or GPU found');
+    assert.match(card.status ?? '', /^Live decisions are passed to you\./);
+    assert.equal(card.primary.kind, 'connect');
+    assert.deepEqual(
+      card.secondary.map((a) => [a.kind, a.label]),
+      [['choose', 'Use the CPU anyway…']],
+    );
+    const onCpu = recommendedCard(
+      catalog({
+        machine: null,
+        active: { engine: 'strands-decider', model: 'strands-2b', device: 'cpu' },
+        candidates: [npu, cpu],
+      }),
+      'manual',
+    );
+    assert.equal(onCpu.kind, 'cpu-only');
+    assert.equal(onCpu.headline, 'Running on the CPU (background only)');
+    // A fast runtime anywhere means this is not a CPU-only machine.
+    const withGpu = recommendedCard(
+      catalog({
+        candidates: [
+          cpu,
+          { ...cpu, device: 'cuda', backend: 'CUDA', code: 'available', eligible: true },
+        ],
+      }),
+      'auto',
+    );
+    assert.notEqual(withGpu.kind, 'cpu-only');
+  });
 });
 
 describe('recommendedCard precedence, overlays and badges', () => {
