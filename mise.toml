@@ -63,6 +63,10 @@ run = "jactionlint"
 description = "Every workflow `uses:` pinned to a full commit SHA"
 run = "scripts/check-action-pins.sh .github/workflows/*.yml"
 
+[tasks."lint:lockfile"]
+description = "pnpm-lock.yaml records no tarball URL off registry.npmjs.org (no local mirror hosts)"
+run = "scripts/check-lockfile-registry.sh pnpm-lock.yaml"
+
 [tasks."lint:zizmor"]
 description = "zizmor: workflow security audit"
 run = "zizmor --offline .github/workflows"
@@ -102,6 +106,7 @@ depends = [
   "md-check",
   "lint:actions",
   "lint:pins",
+  "lint:lockfile",
   "lint:zizmor",
   "lint:shell",
   "test:shim",
