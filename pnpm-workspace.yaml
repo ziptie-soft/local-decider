@@ -6,3 +6,10 @@ trustPolicy: no-downgrade
 minimumReleaseAge: 4320
 allowBuilds:
   esbuild: true
+# The local pnpr mirror some of us resolve through. It routes nothing (no scopes): it only tells
+# pnpm the mirror serves tarballs at <registry>/<name>@<version>, so their URLs stay out of the
+# lockfile. Without the mirror configured, this entry does nothing.
+registries:
+  http://tuxbox.local:7677/npm/:
+    serverType: pnpr
+lockfileIncludeTarballUrl: false
