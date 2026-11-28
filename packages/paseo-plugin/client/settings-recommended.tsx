@@ -368,7 +368,8 @@ export function RecommendedCard({
   const card = recommendedCard(catalog);
   const actions = useCardActions(card, catalog, runner, onOpenAdvanced);
   const machine = catalog.recommendation?.machine ?? null;
-  if (machine === null && card.kind !== 'unsupported' && card.kind !== 'uncalibrated') {
+  const standalone = ['unsupported', 'cpu-only', 'uncalibrated'].includes(card.kind);
+  if (machine === null && !standalone) {
     return catalog.active?.engine == null ? null : (
       <LegacyCard theme={theme} catalog={catalog} card={card} />
     );

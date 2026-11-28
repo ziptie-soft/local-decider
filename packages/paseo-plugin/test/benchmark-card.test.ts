@@ -247,6 +247,59 @@ describe('benchmark card: the table', () => {
   });
 });
 
+function withSlowCpu(models: Obj[] = MODELS): EngineCatalog {
+  const base = catalog(models);
+  const cpu = {
+    engine: 'strands-decider',
+    model: 'strands-2b',
+    device: 'cpu',
+    reason: 'CPU: too slow for live decisions',
+    backend: 'CPU',
+    code: 'too-slow' as const,
+    eligible: false,
+    supported: true,
+    ready: true,
+  };
+  const rec = base.recommendation;
+  assert.ok(rec !== null);
+  return { ...base, recommendation: { ...rec, candidates: [cpu] } };
+}
+
+describe('benchmark card: the CPU', () => {
+  it('tags a measured CPU time background only, never the fastest, and never missing', () => {
+    const models = [
+      model('strands-decider', 'strands-2b', ['s/2b', 'Strands 2B'], null, [
+        measured(5500, 5600, { device: 'cpu' }),
+        measured(1400, 1500, { device: 'cuda' }),
+      ]),
+    ];
+    const card = benchmarkCard(view(), withSlowCpu(models));
+    const cpu = cell(card, 'Strands 2B', 'CPU');
+    assert.equal(cpu.text, '5.5 s');
+    assert.equal(cpu.background, true);
+    assert.equal(cpu.fastest, false);
+    assert.match(cpu.accessibleName, /too slow for live decisions/);
+    assert.equal(cell(card, 'Strands 2B', 'GPU').fastest, true);
+    assert.ok(card.footer.some((l) => l.startsWith('Background only')));
+    // Everything a run would measure is measured, so there is nothing missing to offer.
+    assert.deepEqual(card.secondary, []);
+  });
+
+  it('leaves out an unmeasured CPU pair, which a run would skip', () => {
+    const models = [
+      model('strands-decider', 'strands-2b', ['s/2b', 'Strands 2B'], null, [
+        measured(1400, 1500, { device: 'cuda' }),
+      ]),
+    ];
+    const card = benchmarkCard(view(), withSlowCpu(models));
+    assert.equal(
+      card.columns.some((c) => c.label === 'CPU'),
+      false,
+    );
+    assert.deepEqual(card.secondary, []);
+  });
+});
+
 describe('benchmark card: failures', () => {
   it('lists each failed pair with a Retry that names and targets that pair', () => {
     const card = benchmarkCard(view(), catalog());

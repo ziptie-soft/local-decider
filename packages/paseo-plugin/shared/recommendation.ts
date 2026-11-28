@@ -58,7 +58,9 @@ export type CandidateCode =
   | 'not-confirmed'
   | 'unsupported-platform'
   | 'no-memory'
-  | 'uncalibrated';
+  | 'uncalibrated'
+  /** Runs here, but too slow for live decisions (the CPU): manual only. */
+  | 'too-slow';
 
 const CODES: readonly string[] = [
   'available',
@@ -67,6 +69,7 @@ const CODES: readonly string[] = [
   'unsupported-platform',
   'no-memory',
   'uncalibrated',
+  'too-slow',
 ];
 
 export function parseCode(value: unknown): CandidateCode | null {
@@ -350,6 +353,7 @@ const NOTE: Partial<Record<CandidateCode, string>> = {
   'not-confirmed': 'Not detected on this computer',
   'no-memory': 'Not enough memory',
   'uncalibrated': "Manual only · its confidence isn't calibrated for automatic use",
+  'too-slow': 'Manual only · several seconds per decision, too slow for live decisions',
 };
 
 function rowDetail(c: RankedCandidate, speed: string): string {

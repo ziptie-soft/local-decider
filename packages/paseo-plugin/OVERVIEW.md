@@ -118,8 +118,10 @@ checks still run, since Paseo has no equivalent.
     backup engine after a failure, or a manual choice that is slower than the recommendation.
     Badges say when a measurement is out of date, comes from few runs, is noisy, or leaves other
     runtimes unmeasured. A single button acts on it: Use, Download, Show install steps, Use
-    automatic or Run benchmark. Switching to a specific runtime while Automatic is on says
-    "(turns off automatic)" and offers to turn it back on.
+    automatic or Run benchmark. On a machine with no NPU or GPU it says so: live decisions are
+    passed to you, and Strands on the CPU is a manual choice for the background turn-outcome check
+    only, because each decision takes several seconds. Switching to a specific runtime while
+    Automatic is on says "(turns off automatic)" and offers to turn it back on.
   - **Benchmark:** one table of the installed models (rows) by the processor they run on
     (columns: NPU, GPU (Vulkan), GPU (ROCm), CPU, …). Each cell holds one number, the median time
     of one decision on a typical request, with the fastest of each row, the one in use and

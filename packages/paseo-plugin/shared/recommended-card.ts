@@ -8,6 +8,8 @@ import { backendName, backendOf, minutes, type SelectionMode } from './recommend
 
 export type CardKind =
   | 'unsupported'
+  /** No NPU or GPU: only the CPU runs, too slowly for live decisions. */
+  | 'cpu-only'
   | 'uncalibrated'
   | 'fallback'
   | 'needs-install'
@@ -302,6 +304,18 @@ function isUnsupported(c: Ctx): boolean {
   );
 }
 
+/** Nothing fast runs here: no best runtime, no model server, and the CPU is all that is left. */
+function isCpuOnly(c: Ctx): boolean {
+  const candidates = c.catalog.recommendation?.candidates ?? [];
+  const connection = c.catalog.engines.some((e) => e.connection !== null);
+  return (
+    (c.machine === null || c.best === null) &&
+    !connection &&
+    candidates.some((x) => x.code === 'too-slow') &&
+    !candidates.some((x) => x.eligible)
+  );
+}
+
 function isUncalibrated(c: Ctx): boolean {
   const id = c.active?.engine;
   return id != null && c.catalog.engines.find((e) => e.id === id)?.calibrated === false;
@@ -318,6 +332,7 @@ function kindOf(c: Ctx): CardKind {
   const action = c.machine?.action ?? null;
   const reason = c.machine?.reason ?? null;
   if (isUnsupported(c)) return 'unsupported';
+  if (isCpuOnly(c)) return 'cpu-only';
   if (isUncalibrated(c)) return 'uncalibrated';
   if (isFallback(c)) return 'fallback';
   if (action === 'install') return 'needs-install';
@@ -352,6 +367,26 @@ function unsupportedCore(c: Ctx): Core {
     primary: act('connect', 'Connect a model server'),
     secondary: [],
   };
+}
+
+const CPU_SLOW =
+  'The CPU takes several seconds per decision, so permission, routing and command checks would time out: they are passed to you.';
+
+function cpuOnlyCore(c: Ctx): Core {
+  const onCpu = c.active?.device === 'cpu' || c.active?.resolvedDevice === 'cpu';
+  return onCpu
+    ? {
+        headline: 'Running on the CPU (background only)',
+        status: `${CPU_SLOW} Only the background turn-outcome check gets answers. No NPU or GPU was found.`,
+        primary: act('connect', 'Connect a model server'),
+        secondary: [CHOOSE],
+      }
+    : {
+        headline: 'No NPU or GPU found',
+        status: `Live decisions are passed to you. ${CPU_SLOW} You can still pick Strands on the CPU by hand for the background turn-outcome check.`,
+        primary: act('connect', 'Connect a model server'),
+        secondary: [act('choose', 'Use the CPU anyway…')],
+      };
 }
 
 function uncalibratedCore(c: Ctx): Core {
@@ -492,6 +527,7 @@ function okAutoCore(c: Ctx): Core {
 
 const CORES: Record<CardKind, (c: Ctx) => Core> = {
   'unsupported': unsupportedCore,
+  'cpu-only': cpuOnlyCore,
   'uncalibrated': uncalibratedCore,
   'fallback': fallbackCore,
   'needs-install': installCore,
