@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.3.0](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v3.2.0...paseo-plugin-v3.3.0) (2026-11-28)
+
+
+### Features
+
+* **paseo-plugin:** add a restart gateway row to the settings status ([12fb646](https://github.com/ziptie-soft/local-decider/commit/12fb6466022aaabda6d7af890e0d8f7cbde5ad82))
+* **paseo-plugin:** add a Unix socket setting and show the transport on the gateway row ([5b66aec](https://github.com/ziptie-soft/local-decider/commit/5b66aec75251af036390d1e4dea38cea46693a6d))
+* **paseo-plugin:** put restart next to refresh on the gateway status row ([cf3b25d](https://github.com/ziptie-soft/local-decider/commit/cf3b25d12fae8070b4d7052bc24e70d0caa3719a))
+* **paseo-plugin:** redo the benchmark card as a models by processor table of decision times ([4d835ba](https://github.com/ziptie-soft/local-decider/commit/4d835baf2ecb899faf6525aaa63973d2ce420096))
+* **paseo-plugin:** say when no NPU or GPU is found and mark CPU times background only ([71aac09](https://github.com/ziptie-soft/local-decider/commit/71aac09eaab83af9d3b776430fd46dfa8327f35f))
+
+
+### Bug Fixes
+
+* **paseo-plugin:** stop asking to rerun benchmarks a run would skip ([94810fc](https://github.com/ziptie-soft/local-decider/commit/94810fcb14f8e5e65a9271832489169bced77e78))
+* **paseo-plugin:** treat a reachable gateway with a failed engine as up, so the row offers Restart ([a4c3571](https://github.com/ziptie-soft/local-decider/commit/a4c35710043a1ab0250515d1cc2fc95280871d72))
+* **paseo-plugin:** wait for the gateway to answer after start or restart ([20ca4e9](https://github.com/ziptie-soft/local-decider/commit/20ca4e9eb4b07e2b6614b2ccf238ccdd83f24147))
+
 ## [3.2.0](https://github.com/ziptie-soft/local-decider/compare/paseo-plugin-v3.1.1...paseo-plugin-v3.2.0) (2026-11-27)
 
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.4.0](https://github.com/ziptie-soft/local-decider/compare/local-decider-v3.3.0...local-decider-v3.4.0) (2026-11-28)
+
+
+### Features
+
+* **gateway:** never pick the CPU automatically, fall back to it or benchmark it by default ([7ea9a2c](https://github.com/ziptie-soft/local-decider/commit/7ea9a2cc00b62ae58aa6fd7550013b547a223c43))
+
+
+### Bug Fixes
+
+* **gateway:** accept every catalogue base model as a model family ([e5d5883](https://github.com/ziptie-soft/local-decider/commit/e5d58833a79e21f648b090f7e75a0e27416bc27a))
+* **gateway:** find uv in its install dirs and mise shims outside PATH ([016b11d](https://github.com/ziptie-soft/local-decider/commit/016b11dd87d69f21626ac28874a22a657b4058a8))
+* **gateway:** skip the process title for shims and multi-call binaries that dispatch on argv0 ([fc987d2](https://github.com/ziptie-soft/local-decider/commit/fc987d2cc3ecc679ad0e61c08427130abecf4cfd))
+
 ## [3.3.0](https://github.com/ziptie-soft/local-decider/compare/local-decider-v3.2.0...local-decider-v3.3.0) (2026-11-27)
 
 

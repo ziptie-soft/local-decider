@@ -43,7 +43,7 @@
     "node": ">=24.15"
   },
   "localDecider": {
-    "gateway": "3.3.0"
+    "gateway": "3.4.0"
   },
   "pi": {
     "extensions": [
