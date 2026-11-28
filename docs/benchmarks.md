@@ -11,7 +11,9 @@ after one warm-up request per size. Latency is measured at the client.
 
 Numbers below are one machine's. Measure yours: a run times every installed model on every
 runtime, one at a time, on a typical request (about 1,000 tokens; the CLI's `--sizes` adds
-others), and saves the results for the recommendation.
+others), and saves the results for the recommendation. The CPU is skipped: it is too slow for live
+decisions and never picked automatically. Name it to measure it anyway
+(`--engines strands-decider:<model>@cpu`).
 
 **In the Paseo plugin.** Settings, Local decider, **Benchmark**. The card shows one table: installed
 models by processor (NPU, GPU, CPU), each cell the median decision time, the fastest of each row
@@ -101,7 +103,8 @@ and the store starts empty. Delete the file to forget all results.
 - Roughly 2 s fixed plus 5.5 ms per token. Short real decisions (100–200 tokens) took 1.2–1.6 s.
 - A full 4,096-token state cannot be sent: the window is 4,096 tokens including the question.
 - On CPU the decider is a shadow and background tool. Hooks give up after 1.5 s and fail open;
-  the gateway still finishes and logs shadow decisions.
+  the gateway still finishes and logs shadow decisions. For that reason automatic selection never
+  picks the CPU, it is never a fallback, and a default benchmark skips it.
 - The default policies keep state small: `command-risk` 1,000 tokens, `routing` 1,500,
   `permission` 2,500, `turn-outcome` 3,000.
 

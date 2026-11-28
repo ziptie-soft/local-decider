@@ -29,7 +29,9 @@ export type CandidateCode =
   | 'unsupported-platform'
   | 'no-memory'
   | 'not-installed'
-  | 'uncalibrated';
+  | 'uncalibrated'
+  /** Runs here, but too slow for live decision budgets: explicit choice only. */
+  | 'too-slow';
 
 export interface Candidate {
   readonly engine: string;
@@ -95,7 +97,21 @@ interface Rung {
   /** Capability that must be `available`; undefined means always. */
   readonly needs?: (caps: HostCapabilities) => CapabilityResult;
   readonly label: string;
+  /**
+   * False for a runtime too slow for live decisions (hooks give up after 1.5 s, routing after
+   * 2 s): never picked automatically, never a fallback, left out of a default benchmark.
+   */
+  readonly live?: false;
 }
+
+/** Whether a candidate can run here at all: eligible, or only too slow to pick automatically. */
+export function runsHere(c: Pick<Candidate, 'eligible' | 'code'>): boolean {
+  return c.eligible || c.code === 'too-slow';
+}
+
+/** Why the CPU rung is explicit-only, as candidates and the machine view report it. */
+const TOO_SLOW_REASON =
+  'CPU: too slow for live decisions (several seconds each); choose it by hand for background use';
 
 const LADDER: readonly Rung[] = [
   { engine: 'fastflowlm', device: null, backend: 'NPU', needs: (c) => c.npu, label: 'NPU' },
@@ -127,7 +143,8 @@ const LADDER: readonly Rung[] = [
     needs: appleVariant('mps'),
     label: 'GPU (MPS)',
   },
-  { engine: 'strands-decider', device: 'cpu', backend: 'CPU', label: 'CPU' },
+  // Strands 2B on CPU takes ~5.5 s for a typical request, larger models longer.
+  { engine: 'strands-decider', device: 'cpu', backend: 'CPU', label: 'CPU', live: false },
 ];
 
 /** Where `(engine, device)` sits on the ladder (lower is tried first); engines off it sort last. */
@@ -249,6 +266,9 @@ function rungCandidate(
       reason: 'llama-server binary or URL is not available',
       code: 'not-installed',
     };
+  }
+  if (rung.live === false) {
+    return { ...base, eligible: false, supported: true, reason: TOO_SLOW_REASON, code: 'too-slow' };
   }
   const { ok, reason, code } = verdict(rung, input.capabilities);
   return { ...base, eligible: ok, supported: true, reason, code };

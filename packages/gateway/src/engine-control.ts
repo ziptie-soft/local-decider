@@ -78,7 +78,7 @@ import {
   SELECTABLE_IDS,
   type EngineId,
 } from './engines/registry.ts';
-import { rankEngines, type Ranking } from './engines/selector.ts';
+import { rankEngines, runsHere, type Ranking } from './engines/selector.ts';
 import { resolveStrandsDevice, type DeviceResolution } from './engines/strands/mlx.ts';
 import { strandsBinary } from './engines/strands/server.ts';
 import { strandsDeviceProblem, strandsPinMismatch } from './engines/strands/venv.ts';
@@ -870,7 +870,8 @@ export class EngineControl implements BenchmarkHost {
       return;
     }
     const { ranking } = await this.#inventorySources();
-    const eligible = ranking.candidates.filter((c) => c.engine === next.engine && c.eligible);
+    // A device too slow to pick automatically (CPU) can still be chosen by hand.
+    const eligible = ranking.candidates.filter((c) => c.engine === next.engine && runsHere(c));
     const auto = next.device === null || next.device === 'auto';
     const device = auto ? this.#deviceResolution(next)?.resolved : next.device;
     const runs =

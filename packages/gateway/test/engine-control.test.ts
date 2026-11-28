@@ -237,6 +237,12 @@ const DARWIN_HOST: HostInfo = {
   totalMemoryBytes: 64e9,
 };
 
+/** A host whose fast runtime is Strands on an NVIDIA GPU (the CPU is never picked automatically). */
+const GPU_CAPABILITIES: HostCapabilities = {
+  ...NO_CAPABILITIES,
+  nvidia: { status: 'available', evidence: 'NVIDIA test GPU' },
+};
+
 const VULKAN_CAPABILITIES: HostCapabilities = {
   ...NO_CAPABILITIES,
   vulkan: { status: 'available', evidence: 'Vulkan0: test GPU' },
@@ -524,7 +530,7 @@ async function automaticControl(t: TestContext): Promise<{
     failing,
     capabilities: async () => {
       probes.capabilities += 1;
-      return stubCapabilities();
+      return GPU_CAPABILITIES;
     },
   });
   await control.reconcileAuto();
@@ -927,7 +933,9 @@ describe('EngineControl benchmark host', () => {
     const strands = inventory.models.find((m) => m.id === TWOB);
     assert.equal(strands?.family, `strands-decider:${TWOB}`);
 
-    assert.deepEqual(inventory.strandsDevices, ['cpu']);
+    // A default run skips the CPU (too slow to pick automatically); an explicit target may name it.
+    assert.deepEqual(inventory.strandsDevices, []);
+    assert.deepEqual(inventory.explicitStrandsDevices, ['cpu']);
     assert.equal(inventory.current?.engine, 'strands-decider');
     assert.equal(inventory.preferredFamily, 'vllm-sr/d3-mini');
     assert.equal(inventory.ladderIndex('fastflowlm', null), 0);
@@ -1921,7 +1929,8 @@ describe('EngineControl state', () => {
       [row?.installed, row?.available, row?.installUrl],
       [false, false, 'https://github.com/ggml-org/llama.cpp/releases'],
     );
-    assert.equal(recommendationOf(status), 'strands-decider');
+    // Without llama-server only the CPU would run, and that is never recommended automatically.
+    assert.equal(recommendationOf(status), undefined);
     await assert.rejects(
       control.select({ engine: 'llama-vulkan', model: 'd3-lite-q8_0' }),
       (error: unknown) => error instanceof EngineSwitchError && error.status === 409,
@@ -2386,7 +2395,8 @@ describe('EngineControl recommendation', () => {
       host: LINUX_HOST,
       capabilities: () => Promise.resolve(NPU_CAPS),
     });
-    assert.equal(recommendationOf(await control.status()), 'strands-decider');
+    // Before the probe answers nothing is confirmed, and the CPU is not recommended.
+    assert.equal(recommendationOf(await control.status()), undefined);
     await settleEventLoop();
     assert.equal(recommendationOf(await control.status()), 'fastflowlm');
   });
@@ -2405,10 +2415,11 @@ describe('EngineControl recommendation', () => {
     await control.setPath('tools.uv', null);
     probe.resolve(NPU_CAPS);
     await settleEventLoop();
-    assert.equal(recommendationOf(await control.status()), 'strands-decider');
+    // The stale NPU answer is dropped; the re-probe finds no accelerator, so nothing is recommended.
+    assert.equal(recommendationOf(await control.status()), undefined);
     await settleEventLoop();
     assert.equal(calls, 2);
-    assert.equal(recommendationOf(await control.status()), 'strands-decider');
+    assert.equal(recommendationOf(await control.status()), undefined);
   });
 });
 
@@ -2829,7 +2840,10 @@ describe('policy lanes', () => {
     });
 
     it('plans once after an automatic restore', async (t) => {
-      const { control, decider } = laneSetup({ selection: { mode: 'auto' } });
+      const { control, decider } = laneSetup({
+        selection: { mode: 'auto' },
+        capabilities: async () => GPU_CAPABILITIES,
+      });
       await settled(control);
       const plan = countPlans(t);
 

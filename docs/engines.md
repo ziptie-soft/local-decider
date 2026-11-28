@@ -239,8 +239,13 @@ selection: { mode: auto }
 
 **The ladder.** The gateway probes the host (AMD XDNA NPU, NVIDIA, Vulkan, Apple MLX and MPS) and
 ranks the candidates, best first: AMD NPU (`fastflowlm`), NVIDIA CUDA or AMD ROCm (both
-`strands-decider` on a GPU torch build), **Vulkan GPU (`llama-vulkan`)**, Apple MLX, Apple MPS,
-CPU.
+`strands-decider` on a GPU torch build), **Vulkan GPU (`llama-vulkan`)**, Apple MLX, Apple MPS.
+**The CPU is never picked automatically** (code `too-slow`): Strands on the CPU takes about 5.5 s
+for a typical request and larger models longer, past every live budget (hooks give up after
+1.5 s, routing after 2 s, Paseo permissions after 10 s). It is never a fallback either, and a
+default benchmark skips it. You can still choose it by hand (`engine use`, the settings page) for
+the background turn-outcome check, and `engine install` still sets it up when nothing else runs.
+On a machine with no NPU or GPU, automatic mode picks nothing and live decisions fail open.
 Only calibrated engines are eligible, so `openai-compatible` and `lmstudio` are never chosen
 automatically. A probe that cannot tell reports `unknown`, which does not count as available. The
 ranking appears as `recommendation` in `GET /v1/engines`, apart from the active engine, and
@@ -275,7 +280,7 @@ back. Setting `selection: { mode: auto }` in `config.yaml` turns auto mode back 
 and persists it. Going manual keeps the engine, model and device that are running. The settings
 page drives it with the "Automatic" option of its Engine select. `active.fallback` also carries the
 failed `engine` and `device`, and each ranking candidate has a stable `code` (`available`,
-`no-hardware`, `not-confirmed`, `unsupported-platform`, `no-memory`, `uncalibrated`).
+`no-hardware`, `not-confirmed`, `unsupported-platform`, `no-memory`, `uncalibrated`, `too-slow`).
 
 **A decision's own model stays out of all of this.** A policy can have its own engine and model
 (`policies.<id>.selection`, [models.md](models.md#6-switching-the-model-for-one-decision)). Automatic

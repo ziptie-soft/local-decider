@@ -201,8 +201,13 @@ export interface BenchmarkInventory {
   /** In ladder order. */
   readonly engines: readonly InventoryEngine[];
   readonly models: readonly InventoryModel[];
-  /** The concrete devices of the eligible strands rungs. */
+  /** The concrete devices of the eligible strands rungs: what a default run measures. */
   readonly strandsDevices: readonly string[];
+  /**
+   * What an explicit target may name: the eligible devices plus those too slow to pick
+   * automatically (CPU). Defaults to `strandsDevices`.
+   */
+  readonly explicitStrandsDevices?: readonly string[];
   readonly current: {
     readonly engine: string;
     readonly model: string;
@@ -338,7 +343,8 @@ function refusal(inv: BenchmarkInventory, t: BenchmarkTargetInput): string | nul
   if (!engine.available) return 'not available';
   if (model?.downloaded !== true) return 'not downloaded';
   if (!model.fits) return 'does not fit in memory';
-  if (t.device !== null && !inv.strandsDevices.includes(t.device)) {
+  const devices = inv.explicitStrandsDevices ?? inv.strandsDevices;
+  if (t.device !== null && !devices.includes(t.device)) {
     return `device ${t.device} is not available here`;
   }
   return null;

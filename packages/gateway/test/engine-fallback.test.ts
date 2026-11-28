@@ -30,6 +30,11 @@ const NPU: HostCapabilities = {
   ...NO_CAPABILITIES,
   npu: { status: 'available', evidence: 'accel0: amdxdna' },
 };
+/** The default host: the NPU first, then Strands on an NVIDIA GPU to fall back to. */
+const NPU_AND_GPU: HostCapabilities = {
+  ...NPU,
+  nvidia: { status: 'available', evidence: 'NVIDIA test GPU' },
+};
 const NPU_AND_VULKAN: HostCapabilities = {
   ...NPU,
   vulkan: { status: 'available', evidence: 'Vulkan0: test GPU' },
@@ -166,7 +171,7 @@ function setup(
     host: LINUX,
     totalMemory: 64e9,
     installed: async (ids) => new Map(ids.map((id) => [id, true])),
-    capabilities: () => Promise.resolve(overrides.capabilities ?? NPU),
+    capabilities: () => Promise.resolve(overrides.capabilities ?? NPU_AND_GPU),
     ...(overrides.benchmarkStore === undefined ? {} : { benchmarkStore: overrides.benchmarkStore }),
     fallback: { now: () => world.now, baseMs: 1000, maxMs: 8000, stableMs: 60_000 },
     create: (config) => {
@@ -271,6 +276,18 @@ describe('automatic runtime fallback', () => {
     assert.equal(info.selectionMode, 'auto');
     assert.match(info.fallback?.reason ?? '', /fastflowlm failed/);
     assert.equal(info.fallback?.engine, 'fastflowlm');
+  });
+
+  it('never falls back to the CPU: with only the NPU, a failure leaves nothing to switch to', async () => {
+    const { control, world, decide } = setup({ selection: { mode: 'auto' } }, 1000, {
+      capabilities: NPU,
+    });
+    await settle(control);
+    world.fail('fastflowlm');
+    await decide();
+    await settle(control);
+    assert.equal(active(control), 'fastflowlm');
+    assert.equal(world.events.includes('start:strands-decider'), false);
   });
 
   it('never falls back from a manual selection', async () => {

@@ -421,6 +421,20 @@ describe('resolveTargets: explicit targets', () => {
   });
 });
 
+describe('resolveTargets: the CPU', () => {
+  it('a default run skips the CPU, but an explicit target may measure it', () => {
+    const inv = inventory({ strandsDevices: ['cuda'], explicitStrandsDevices: ['cuda', 'cpu'] });
+    const installed = keys(resolveTargets(request(), inv).targets);
+    assert.ok(installed.includes('strands-decider:strands-2b@cuda'));
+    assert.equal(installed.includes('strands-decider:strands-2b@cpu'), false);
+    const explicit = resolveTargets(
+      request({ targets: [{ engine: 'strands-decider', model: 'strands-2b', device: 'cpu' }] }),
+      inv,
+    );
+    assert.deepEqual(keys(explicit.targets), ['strands-decider:strands-2b@cpu']);
+  });
+});
+
 describe('resolveTargets: only missing', () => {
   it('drops targets that already have a rankable record', () => {
     const inv = inventory({ rankable: (e, m) => e === 'fastflowlm' || m === 'mini-q4' });
