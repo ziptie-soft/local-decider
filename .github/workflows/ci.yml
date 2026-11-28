@@ -55,8 +55,8 @@ jobs:
       - name: Checks
         run: >-
           mise run --jobs 4
-          lint ::: typecheck ::: lint:pins ::: lint:actions ::: lint:shell ::: test:shim :::
-          test:scripts ::: md-check ::: lint:complexity ::: lint:fallow
+          lint ::: typecheck ::: lint:pins ::: lint:lockfile ::: lint:actions ::: lint:shell :::
+          test:shim ::: test:scripts ::: md-check ::: lint:complexity ::: lint:fallow
 
   build:
     name: Build and test (${{ matrix.os }}, Node ${{ matrix.node }})

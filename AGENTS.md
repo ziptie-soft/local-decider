@@ -11,7 +11,9 @@ namespaces) and import relative files with their `.ts` extension.
 
 `mise trust && mise install && mise run setup`. mise pins node, pnpm, uv, the linters and the
 fff/ripwire MCP servers (`.mcp.json`). Never use corepack. Install packages with `pnpm`; the
-workspace refuses versions younger than 3 days (`minimumReleaseAge`).
+workspace refuses versions younger than 3 days (`minimumReleaseAge`). A local registry mirror is
+fine: `.pnpmfile.mjs` drops a pnpr mirror's tarball URLs from `pnpm-lock.yaml`, and
+`mise run lint:lockfile` fails on any tarball URL off registry.npmjs.org.
 
 ## Layout
 
